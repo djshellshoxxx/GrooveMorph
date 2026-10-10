@@ -177,3 +177,82 @@ This repo is not yet code-heavy, so documentation and clear decision records are
 ---
 
 This note is intentionally written to support a handoff to the next research agent without requiring an implementation decision yet.
+
+## Research findings, 2026-10-10
+
+### 1) JUCE + VST3 remains the most practical starter path
+
+- JUCE is still the default cross-platform framework for VST3 plugin development on Windows and Linux.
+- JUCE itself remains a strong option for a VST3 + standalone architecture and is the lowest-risk path for a first build.
+- The project should treat VST3 as the primary plugin target, not the optional one.
+- The risk is not whether JUCE works; it is whether the project needs CLAP in the initial milestone or whether it should wait until official CLAP support is fully mature.
+
+### 2) CLAP status is real but conditional
+
+- CLAP has a stable ABI and validator ecosystem and is a legitimate plugin format.
+- Official first-party CLAP authoring support in JUCE is not fully mature in the current stable JUCE path, and the project should not assume native CLAP support is already equivalent to VST3.
+- The current practical route is either:
+  - use JUCE for VST3 + standalone first and defer CLAP until a validated adapter path is confirmed, or
+  - use a pinned third-party CLAP extension path during the research spike if CLAP is a required release target.
+- Recommendation: do not commit to CLAP in the MVP unless the owner explicitly requires it and the adapter path is validated in the M0 spike.
+
+### 3) REAPER is the best initial reference host
+
+- REAPER is the most practical first reference host because it is documented as supporting VST3 and CLAP on Windows and Linux.
+- It is a good minimum validation target for the engineering team before evaluating owner-specific DAWs.
+- Recommended start: REAPER Windows x64 + Linux x86_64, VST3 first, CLAP only if the adapter is proven.
+
+### 4) Latency risk is manageable if we keep the effect bounded
+
+- A short-history rhythmic effect can stay low latency if it uses a bounded look-behind and no long-form capture.
+- At 48 kHz, 64 samples is about 1.33 ms and 128 samples is about 2.67 ms.
+- For a live feel, a tight effect should ideally stay under about 2–3 ms of algorithmic delay unless the host compensates or the effect is intentionally not for live monitoring.
+- Anything beyond roughly 5–8 ms starts to feel noticeably less “tight,” especially for live rhythmic performance.
+- This strongly supports keeping full phrase capture and full long-form reverse/re-render out of the MVP.
+
+### 5) MVP should restrict itself to bounded operations
+
+The following are realistic and low-risk for the first release when kept bounded:
+- repeat/stutter
+- reverse slice with a constrained window
+- gate with explicit edge policy
+- half-time feel with clear rate/range limits
+- tape-stop-like ramp with documented maximum duration
+
+The following should stay deferred until explicit latency and host testing are complete:
+- full phrase capture
+- long-form reverse playback
+- pitch-preserving time stretch
+- broad multiband or random-generative features
+- sidechain/audio-trigger input unless host testing proves it is safe and useful
+
+### 6) Competitive positioning should be framed as workflow, not novelty
+
+- The market already contains a large set of time/volume manipulation plugins, step sequencers, MIDI-triggered effects, and stutter tools.
+- GrooveMorph’s real differentiator should not be “we have more effect modules.”
+- The stronger product story is: phrase-aware variation logic + explicit transition policy + controlled comparison workflow.
+- This is a valid wedge, but it still needs user validation before being called unique or market-defining.
+
+### 7) Research-backed release recommendation
+
+Recommended path for the next phase:
+- Build with JUCE + CMake + VST3 first
+- Use REAPER on Windows and Linux as the reference host matrix
+- Keep CLAP as a conditional research target until a validated adapter path is available
+- Keep audio behavior bounded and low-latency
+- Treat full phrase capture as a future mode, not an MVP requirement
+- Keep the product scope centered on variations, transitions, and musical timing, not a broad effect rack
+
+### 8) Open items that still need owner confirmation
+
+- Final Windows/Linux target support matrix
+- Whether CLAP is required for launch or optional for later
+- Whether pitch-preserving stretch is mandatory or deferred
+- Whether the standalone app is only a validation harness or a real product surface
+- Whether license/commercial terms fit JUCE before implementation begins
+
+## Final recommendation
+
+The research phase supports the specification’s current design direction: keep the project lean, bounded, and strongly latency-aware. The strongest path is a JUCE-based VST3 + standalone architecture with REAPER validation, with CLAP treated as a conditional second-stage decision rather than a hard requirement for the first build.
+
+The project should not begin implementation with full phrase capture or long-form reverse/re-render in scope. Those features are valid future ideas, but they introduce latency, memory, and host-compatibility risk that is not justified in the initial product hypothesis.
