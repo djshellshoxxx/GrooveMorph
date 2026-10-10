@@ -1,16 +1,31 @@
 # GrooveMorph
 
-This repository is in the M0 engineering spike phase.
+GrooveMorph is a phrase-aware rhythmic audio effect. The current repository milestone is an M0 stack and timing spike, not a finished product.
 
-The project is intentionally minimal and uses JUCE + CMake to validate the VST3 build flow and the low-latency DSP assumptions before broader implementation begins.
+## Current approved direction
 
-## Quick start
+- C++20, CMake, and JUCE
+- VST3 and JUCE Standalone targets
+- Windows x64 and Linux x86_64 as provisional build targets
+- REAPER as the first reference host on both operating systems
+- CLAP deferred unless the owner reopens that decision
+- Phrase variations and quantized transitions using bounded short-window operations
+- Full phrase capture and pitch-preserving time stretch deferred
 
-```bash
-cmake -B build -S .
-cmake --build build
+See [the specification](docs/SPECIFICATION.md), [research and milestone notes](RESEARCH_NOTES.md), and [requirement traceability](docs/TRACEABILITY.md).
+
+## Build and test
+
+Portable-core build and tests do not require JUCE:
+
+```sh
+cmake -S . -B build-core -DGROOVEMORPH_CORE_ONLY_BUILD=ON -DBUILD_TESTING=ON
+cmake --build build-core
+ctest --test-dir build-core --output-on-failure
 ```
 
-## Current milestone
+The full VST3 and Standalone targets fetch JUCE 8.0.7 on first configuration. See [GETTING_STARTED.md](GETTING_STARTED.md) for platform dependencies and target names.
 
-This repo is a minimal JUCE shell for the approved M0 spike. The next step is to validate the plugin loads in REAPER and confirm the bounded rhythmic operations remain low-latency before moving to the core DSP architecture.
+## Current status
+
+The M0 code currently includes a portable phrase-clock calculation and tests, alongside the JUCE processor shell. CI results and DAW validation are recorded in pull requests and release notes when available. A passing core test does not establish plugin-host compatibility.

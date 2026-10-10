@@ -1,22 +1,60 @@
+#include "PluginEditor.h"
 #include "PluginProcessor.h"
 
-class GrooveMorphAudioProcessorEditor : public juce::AudioProcessorEditor
+namespace
 {
-public:
-    explicit GrooveMorphAudioProcessorEditor(GrooveMorphAudioProcessor& p);
-    ~GrooveMorphAudioProcessorEditor() override = default;
+constexpr auto masterIntensityId = "masterIntensity";
+}
 
-    void paint(juce::Graphics& g) override;
-    void resized() override;
+GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(
+    GrooveMorphAudioProcessor& processorToEdit)
+    : AudioProcessorEditor(&processorToEdit), processor(processorToEdit)
+{
+    setSize(420, 180);
+    setResizable(true, true);
+    setResizeLimits(320, 140, 900, 500);
 
-private:
-    GrooveMorphAudioProcessor& processor;
+    titleLabel.setText("GrooveMorph", juce::dontSendNotification);
+    titleLabel.setJustificationType(juce::Justification::centred);
+    titleLabel.setFont(juce::Font(24.0f, juce::Font::bold));
 
-    juce::Label titleLabel;
-    juce::Slider intensitySlider;
-    juce::Label valueLabel;
+    intensitySlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    intensitySlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 24);
+    intensitySlider.setRange(0.0, 1.0, 0.01);
+    intensityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processor.parameters, masterIntensityId, intensitySlider);
+    intensitySlider.onValueChange = [this] { updateValueLabel(); };
 
-    void updateValueLabel();
+    valueLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(titleLabel);
+    addAndMakeVisible(intensitySlider);
+    addAndMakeVisible(valueLabel);
+    updateValueLabel();
+}
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GrooveMorphAudioProcessorEditor)
-};
+void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
+{
+    graphics.fillAll(juce::Colours::black);
+    graphics.setColour(juce::Colours::white);
+    graphics.drawText("M0 spike: parameterized dry-gain path", getLocalBounds(),
+                      juce::Justification::centredTop, false);
+}
+
+void GrooveMorphAudioProcessorEditor::resized()
+{
+    auto area = getLocalBounds().reduced(20);
+    titleLabel.setBounds(area.removeFromTop(40));
+    intensitySlider.setBounds(area.removeFromTop(42).withTrimmedLeft(12).withTrimmedRight(12));
+    valueLabel.setBounds(area.removeFromTop(26));
+}
+
+void GrooveMorphAudioProcessorEditor::updateValueLabel()
+{
+    valueLabel.setText("Master Intensity: " + juce::String(intensitySlider.getValue(), 2),
+                       juce::dontSendNotification);
+}
+
+juce::AudioProcessorEditor* GrooveMorphAudioProcessor::createEditor()
+{
+    return new GrooveMorphAudioProcessorEditor(*this);
+}
