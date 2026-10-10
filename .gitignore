@@ -1,0 +1,7 @@
+#pragma once
+
+#ifndef GROOVEMORPH_BUILD
+#define GROOVEMORPH_BUILD 1
+#endif
+
+# GITIGNORE
