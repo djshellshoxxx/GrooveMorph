@@ -16,34 +16,35 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(juce)
 
-juce_add_plugin(GrooveMorph
+# VST3 plugin target
+juce_add_plugin(GrooveMorphPlugin
     COMPANY_NAME "djshellshoxxx"
+    PLUGIN_MANUFACTURER_CODE "Djsl"
+    PLUGIN_CODE "Gm01"
+    FORMATS VST3
+    PRODUCT_NAME "GrooveMorph"
+    VERSION "0.1.0"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-    COPY_PLUGIN_AFTER_BUILD FALSE
-    PLUGIN_MANUFACTURER_CODE Djsl
-    PLUGIN_CODE Gm01
-    FORMATS VST3 Standalone
-    VERSION "0.1.0"
 )
 
-target_sources(GrooveMorph
+target_sources(GrooveMorphPlugin
     PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
 )
 
-target_compile_definitions(GrooveMorph
+target_compile_definitions(GrooveMorphPlugin
     PRIVATE
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
 )
 
-target_link_libraries(GrooveMorph
+target_link_libraries(GrooveMorphPlugin
     PRIVATE
         juce::juce_audio_utils
         juce::juce_audio_processors
@@ -52,9 +53,46 @@ target_link_libraries(GrooveMorph
         juce::juce_graphics
 )
 
-target_include_directories(GrooveMorph
+target_include_directories(GrooveMorphPlugin
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-juce_generate_juce_header(GrooveMorph)
+juce_generate_juce_header(GrooveMorphPlugin)
+
+# Standalone application target
+juce_add_gui_app(GrooveMorphStandalone
+    PRODUCT_NAME "GrooveMorph"
+    VERSION "0.1.0"
+)
+
+target_sources(GrooveMorphStandalone
+    PRIVATE
+        src/StandaloneMain.cpp
+        src/PluginProcessor.cpp
+        src/PluginEditor.cpp
+)
+
+target_compile_definitions(GrooveMorphStandalone
+    PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+)
+
+target_link_libraries(GrooveMorphStandalone
+    PRIVATE
+        juce::juce_audio_utils
+        juce::juce_audio_devices
+        juce::juce_audio_processors
+        juce::juce_gui_extra
+        juce::juce_gui_basics
+        juce::juce_graphics
+        juce::juce_core
+)
+
+target_include_directories(GrooveMorphStandalone
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+juce_generate_juce_header(GrooveMorphStandalone)
