@@ -15,7 +15,7 @@ public:
     void resized() override;
 
 private:
-    GrooveMorphAudioProcessor& processor;
+    GrooveMorphAudioProcessor& audioProcessor;
     juce::Label titleLabel;
     juce::Slider intensitySlider;
     juce::Label valueLabel;

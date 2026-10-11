@@ -28,4 +28,4 @@ The full VST3 and Standalone targets fetch JUCE 8.0.7 on first configuration. Se
 
 ## Current status
 
-The M0 code currently includes a portable phrase-clock calculation and tests, alongside the JUCE processor shell. CI results and DAW validation are recorded in pull requests and release notes when available. A passing core test does not establish plugin-host compatibility.
+The M0 code currently includes a portable phrase clock and host-transport fallback resolver with tests, plus a JUCE processor shell with headless processor tests (state, layout, latency, timing source, gain ramp). CI results and DAW validation are recorded in pull requests and release notes when available. A passing core test does not establish plugin-host compatibility.

@@ -26,7 +26,7 @@ public:
     void changeProgramName(int, const juce::String&) override {}
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
-    void releaseResources() override {}
+    void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
 
@@ -48,6 +48,7 @@ public:
         return missingTimingFields.load(std::memory_order_relaxed);
     }
     bool hasValidTiming() const noexcept { return timingValid.load(std::memory_order_relaxed); }
+    bool isPrepared() const noexcept { return prepared.load(std::memory_order_relaxed); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -55,6 +56,8 @@ private:
 
     double currentSampleRate = 0.0;
     std::int64_t freeRunSample = 0;
+    float previousGain = 0.0f;
+    std::atomic<bool> prepared{false};
     std::atomic<int> timingSource{static_cast<int>(groovemorph::core::TimingSource::Manual)};
     std::atomic<std::uint32_t> missingTimingFields{0};
     std::atomic<bool> timingValid{false};

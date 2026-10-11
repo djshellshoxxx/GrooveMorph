@@ -10,6 +10,8 @@ juce::String describeTiming(const GrooveMorphAudioProcessor& processor)
     using groovemorph::core::TimingSource;
     namespace Missing = groovemorph::core::MissingField;
 
+    if (!processor.isPrepared())
+        return "Timing: audio not running";
     if (!processor.hasValidTiming())
         return "Timing: invalid manual settings";
 
@@ -36,11 +38,11 @@ juce::String describeTiming(const GrooveMorphAudioProcessor& processor)
 
 GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(
     GrooveMorphAudioProcessor& processorToEdit)
-    : AudioProcessorEditor(&processorToEdit), processor(processorToEdit)
+    : AudioProcessorEditor(&processorToEdit), audioProcessor(processorToEdit)
 {
-    setSize(420, 210);
     setResizable(true, true);
-    setResizeLimits(320, 140, 900, 500);
+    setResizeLimits(320, 210, 900, 500);
+    setSize(420, 210);
 
     titleLabel.setText("GrooveMorph", juce::dontSendNotification);
     titleLabel.setJustificationType(juce::Justification::centred);
@@ -50,7 +52,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(
     intensitySlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 24);
     intensitySlider.setRange(0.0, 1.0, 0.01);
     intensityAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-        processor.parameters, masterIntensityId, intensitySlider);
+        audioProcessor.parameters, masterIntensityId, intensitySlider);
     intensitySlider.onValueChange = [this] { updateValueLabel(); };
 
     valueLabel.setJustificationType(juce::Justification::centred);
@@ -83,7 +85,7 @@ void GrooveMorphAudioProcessorEditor::resized()
 
 void GrooveMorphAudioProcessorEditor::timerCallback()
 {
-    timingLabel.setText(describeTiming(processor), juce::dontSendNotification);
+    timingLabel.setText(describeTiming(audioProcessor), juce::dontSendNotification);
 }
 
 void GrooveMorphAudioProcessorEditor::updateValueLabel()

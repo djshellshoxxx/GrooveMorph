@@ -68,4 +68,18 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         juce::juce_gui_extra
     )
     juce_generate_juce_header(GrooveMorphPlugin)
+
+    if(BUILD_TESTING)
+        # Headless processor tests link the plugin's shared code target.
+        add_executable(GrooveMorphPluginTests tests/PluginProcessorTests.cpp)
+        target_include_directories(GrooveMorphPluginTests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            $<TARGET_PROPERTY:GrooveMorphPlugin,INCLUDE_DIRECTORIES>
+        )
+        target_compile_definitions(GrooveMorphPluginTests PRIVATE
+            $<TARGET_PROPERTY:GrooveMorphPlugin,COMPILE_DEFINITIONS>
+        )
+        target_link_libraries(GrooveMorphPluginTests PRIVATE GrooveMorphPlugin)
+        add_test(NAME GrooveMorphPluginTests COMMAND GrooveMorphPluginTests)
+    endif()
 endif()

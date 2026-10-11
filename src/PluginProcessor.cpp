@@ -64,7 +64,14 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     juce::ignoreUnused(samplesPerBlock);
     currentSampleRate = sampleRate;
     freeRunSample = 0;
+    previousGain = loadParameter(parameters, masterIntensityId, 1.0f);
     setLatencySamples(0);
+    prepared.store(true, std::memory_order_relaxed);
+}
+
+void GrooveMorphAudioProcessor::releaseResources()
+{
+    prepared.store(false, std::memory_order_relaxed);
 }
 
 groovemorph::core::HostTransport GrooveMorphAudioProcessor::readHostTransport() const
@@ -124,7 +131,8 @@ void GrooveMorphAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         buffer.clear(channel, 0, buffer.getNumSamples());
 
     for (int channel = 0; channel < channelsToProcess; ++channel)
-        buffer.applyGain(channel, 0, buffer.getNumSamples(), gain);
+        buffer.applyGainRamp(channel, 0, buffer.getNumSamples(), previousGain, gain);
+    previousGain = gain;
 }
 
 void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
