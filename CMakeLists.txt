@@ -9,21 +9,22 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(GROOVEMORPH_CORE_ONLY_BUILD "Build portable core and tests without fetching JUCE" OFF)
 option(BUILD_TESTING "Build GrooveMorph tests" ON)
 
-add_library(GrooveMorphCore STATIC
-    src/core/PhraseClock.cpp
-    src/core/TransportResolver.cpp
-)
+# Portable core: every .cpp under src/core is part of the library.
+file(GLOB_RECURSE GROOVEMORPH_CORE_SOURCES CONFIGURE_DEPENDS src/core/*.cpp)
+add_library(GrooveMorphCore STATIC ${GROOVEMORPH_CORE_SOURCES})
 target_include_directories(GrooveMorphCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(GrooveMorphCore PUBLIC cxx_std_20)
 
 if(BUILD_TESTING)
     include(CTest)
-    add_executable(GrooveMorphCoreTests tests/PhraseClockTests.cpp)
-    target_link_libraries(GrooveMorphCoreTests PRIVATE GrooveMorphCore)
-    add_test(NAME GrooveMorphCoreTests COMMAND GrooveMorphCoreTests)
-    add_executable(GrooveMorphTransportTests tests/TransportResolverTests.cpp)
-    target_link_libraries(GrooveMorphTransportTests PRIVATE GrooveMorphCore)
-    add_test(NAME GrooveMorphTransportTests COMMAND GrooveMorphTransportTests)
+    # Each tests/core/<Name>Tests.cpp is a standalone executable registered with CTest.
+    file(GLOB GROOVEMORPH_CORE_TESTS CONFIGURE_DEPENDS tests/core/*Tests.cpp)
+    foreach(test_source IN LISTS GROOVEMORPH_CORE_TESTS)
+        get_filename_component(test_name ${test_source} NAME_WE)
+        add_executable(${test_name} ${test_source})
+        target_link_libraries(${test_name} PRIVATE GrooveMorphCore)
+        add_test(NAME ${test_name} COMMAND ${test_name})
+    endforeach()
 endif()
 
 if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
