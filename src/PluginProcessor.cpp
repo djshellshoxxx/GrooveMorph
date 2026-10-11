@@ -4,6 +4,17 @@ namespace
 {
 constexpr auto stateType = "GrooveMorphState";
 constexpr auto masterIntensityId = "masterIntensity";
+constexpr auto manualTempoId = "manualTempo";
+constexpr auto manualMeterNumeratorId = "manualMeterNumerator";
+constexpr auto manualMeterDenominatorId = "manualMeterDenominator";
+constexpr auto phraseBarsId = "phraseBars";
+constexpr int meterDenominators[] = {1, 2, 4, 8, 16};
+
+float loadParameter(const juce::AudioProcessorValueTreeState& state, const char* id, float fallback)
+{
+    const auto* value = state.getRawParameterValue(id);
+    return value != nullptr ? value->load(std::memory_order_relaxed) : fallback;
+}
 }
 
 GrooveMorphAudioProcessor::GrooveMorphAudioProcessor()
@@ -23,6 +34,20 @@ GrooveMorphAudioProcessor::createParameterLayout()
         "Master Intensity",
         juce::NormalisableRange<float>{0.0f, 1.0f},
         0.5f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{manualTempoId, 1},
+        "Manual Tempo",
+        juce::NormalisableRange<float>{20.0f, 300.0f, 0.01f},
+        120.0f));
+    layout.add(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{manualMeterNumeratorId, 1}, "Manual Meter Numerator", 1, 16, 4));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{manualMeterDenominatorId, 1},
+        "Manual Meter Denominator",
+        juce::StringArray{"1", "2", "4", "8", "16"},
+        2));
+    layout.add(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{phraseBarsId, 1}, "Phrase Bars", 1, 16, 4));
     return layout;
 }
 
@@ -36,8 +61,34 @@ bool GrooveMorphAudioProcessor::isBusesLayoutSupported(const BusesLayout& layout
 
 void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    juce::ignoreUnused(sampleRate, samplesPerBlock);
+    juce::ignoreUnused(samplesPerBlock);
+    currentSampleRate = sampleRate;
+    freeRunSample = 0;
     setLatencySamples(0);
+}
+
+groovemorph::core::HostTransport GrooveMorphAudioProcessor::readHostTransport() const
+{
+    groovemorph::core::HostTransport transport;
+    auto* playHead = getPlayHead();
+    if (playHead == nullptr)
+        return transport;
+
+    const auto position = playHead->getPosition();
+    if (!position.hasValue())
+        return transport;
+
+    if (const auto bpm = position->getBpm())
+        transport.tempoBpm = *bpm;
+    if (const auto signature = position->getTimeSignature())
+    {
+        transport.meterNumerator = signature->numerator;
+        transport.meterDenominator = signature->denominator;
+    }
+    transport.isPlaying = position->getIsPlaying();
+    if (const auto samples = position->getTimeInSamples())
+        transport.timeInSamples = *samples;
+    return transport;
 }
 
 void GrooveMorphAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
@@ -46,8 +97,25 @@ void GrooveMorphAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     juce::ScopedNoDenormals noDenormals;
     juce::ignoreUnused(midiMessages);
 
-    const auto* intensity = parameters.getRawParameterValue(masterIntensityId);
-    const auto gain = intensity != nullptr ? intensity->load(std::memory_order_relaxed) : 1.0f;
+    const auto denominatorIndex = juce::jlimit(
+        0, 4, static_cast<int>(loadParameter(parameters, manualMeterDenominatorId, 2.0f)));
+    const groovemorph::core::PhraseGrid manualGrid{
+        static_cast<double>(loadParameter(parameters, manualTempoId, 120.0f)),
+        static_cast<int>(loadParameter(parameters, manualMeterNumeratorId, 4.0f)),
+        meterDenominators[denominatorIndex],
+        static_cast<int>(loadParameter(parameters, phraseBarsId, 4.0f)),
+        0};
+    const auto timing = groovemorph::core::TransportResolver::resolve(
+        readHostTransport(), manualGrid, freeRunSample, currentSampleRate);
+    timingValid.store(timing.has_value(), std::memory_order_relaxed);
+    if (timing)
+    {
+        timingSource.store(static_cast<int>(timing->source), std::memory_order_relaxed);
+        missingTimingFields.store(timing->missingFields, std::memory_order_relaxed);
+    }
+    freeRunSample += buffer.getNumSamples();
+
+    const auto gain = loadParameter(parameters, masterIntensityId, 1.0f);
     const auto inputChannels = getTotalNumInputChannels();
     const auto outputChannels = getTotalNumOutputChannels();
     const auto channelsToProcess = juce::jmin(inputChannels, outputChannels, buffer.getNumChannels());

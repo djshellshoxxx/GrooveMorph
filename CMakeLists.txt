@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(GrooveMorph VERSION 0.1.0 LANGUAGES CXX)
+project(GrooveMorph VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,6 +11,7 @@ option(BUILD_TESTING "Build GrooveMorph tests" ON)
 
 add_library(GrooveMorphCore STATIC
     src/core/PhraseClock.cpp
+    src/core/TransportResolver.cpp
 )
 target_include_directories(GrooveMorphCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(GrooveMorphCore PUBLIC cxx_std_20)
@@ -20,6 +21,9 @@ if(BUILD_TESTING)
     add_executable(GrooveMorphCoreTests tests/PhraseClockTests.cpp)
     target_link_libraries(GrooveMorphCoreTests PRIVATE GrooveMorphCore)
     add_test(NAME GrooveMorphCoreTests COMMAND GrooveMorphCoreTests)
+    add_executable(GrooveMorphTransportTests tests/TransportResolverTests.cpp)
+    target_link_libraries(GrooveMorphTransportTests PRIVATE GrooveMorphCore)
+    add_test(NAME GrooveMorphTransportTests COMMAND GrooveMorphTransportTests)
 endif()
 
 if(NOT GROOVEMORPH_CORE_ONLY_BUILD)

@@ -4,19 +4,47 @@
 namespace
 {
 constexpr auto masterIntensityId = "masterIntensity";
+
+juce::String describeTiming(const GrooveMorphAudioProcessor& processor)
+{
+    using groovemorph::core::TimingSource;
+    namespace Missing = groovemorph::core::MissingField;
+
+    if (!processor.hasValidTiming())
+        return "Timing: invalid manual settings";
+
+    juce::String text = "Timing: ";
+    switch (processor.getTimingSource())
+    {
+        case TimingSource::Host: text << "host"; break;
+        case TimingSource::Mixed: text << "host + manual"; break;
+        case TimingSource::Manual: text << "manual"; break;
+        case TimingSource::FreeRun: text << "free-run"; break;
+    }
+
+    juce::StringArray missing;
+    const auto fields = processor.getMissingTimingFields();
+    if ((fields & Missing::tempo) != 0) missing.add("tempo");
+    if ((fields & Missing::meter) != 0) missing.add("meter");
+    if ((fields & Missing::playState) != 0) missing.add("play state");
+    if ((fields & Missing::position) != 0) missing.add("position");
+    if (!missing.isEmpty())
+        text << " (host missing: " << missing.joinIntoString(", ") << ")";
+    return text;
+}
 }
 
 GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(
     GrooveMorphAudioProcessor& processorToEdit)
     : AudioProcessorEditor(&processorToEdit), processor(processorToEdit)
 {
-    setSize(420, 180);
+    setSize(420, 210);
     setResizable(true, true);
     setResizeLimits(320, 140, 900, 500);
 
     titleLabel.setText("GrooveMorph", juce::dontSendNotification);
     titleLabel.setJustificationType(juce::Justification::centred);
-    titleLabel.setFont(juce::Font(24.0f, juce::Font::bold));
+    titleLabel.setFont(juce::FontOptions(24.0f, juce::Font::bold));
 
     intensitySlider.setSliderStyle(juce::Slider::LinearHorizontal);
     intensitySlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 60, 24);
@@ -28,8 +56,12 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(
     valueLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(titleLabel);
     addAndMakeVisible(intensitySlider);
+    timingLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(valueLabel);
+    addAndMakeVisible(timingLabel);
     updateValueLabel();
+    timerCallback();
+    startTimerHz(10);
 }
 
 void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
@@ -46,6 +78,12 @@ void GrooveMorphAudioProcessorEditor::resized()
     titleLabel.setBounds(area.removeFromTop(40));
     intensitySlider.setBounds(area.removeFromTop(42).withTrimmedLeft(12).withTrimmedRight(12));
     valueLabel.setBounds(area.removeFromTop(26));
+    timingLabel.setBounds(area.removeFromTop(26));
+}
+
+void GrooveMorphAudioProcessorEditor::timerCallback()
+{
+    timingLabel.setText(describeTiming(processor), juce::dontSendNotification);
 }
 
 void GrooveMorphAudioProcessorEditor::updateValueLabel()

@@ -2,6 +2,11 @@
 
 #include <JuceHeader.h>
 
+#include "core/TransportResolver.h"
+
+#include <atomic>
+#include <cstdint>
+
 class GrooveMorphAudioProcessor final : public juce::AudioProcessor
 {
 public:
@@ -33,8 +38,26 @@ public:
 
     juce::AudioProcessorValueTreeState parameters;
 
+    // Latest resolved timing status, written by the audio thread for the editor to display.
+    groovemorph::core::TimingSource getTimingSource() const noexcept
+    {
+        return static_cast<groovemorph::core::TimingSource>(timingSource.load(std::memory_order_relaxed));
+    }
+    std::uint32_t getMissingTimingFields() const noexcept
+    {
+        return missingTimingFields.load(std::memory_order_relaxed);
+    }
+    bool hasValidTiming() const noexcept { return timingValid.load(std::memory_order_relaxed); }
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    groovemorph::core::HostTransport readHostTransport() const;
+
+    double currentSampleRate = 0.0;
+    std::int64_t freeRunSample = 0;
+    std::atomic<int> timingSource{static_cast<int>(groovemorph::core::TimingSource::Manual)};
+    std::atomic<std::uint32_t> missingTimingFields{0};
+    std::atomic<bool> timingValid{false};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GrooveMorphAudioProcessor)
 };

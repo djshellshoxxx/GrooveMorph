@@ -4,7 +4,8 @@
 
 class GrooveMorphAudioProcessor;
 
-class GrooveMorphAudioProcessorEditor final : public juce::AudioProcessorEditor
+class GrooveMorphAudioProcessorEditor final : public juce::AudioProcessorEditor,
+                                              private juce::Timer
 {
 public:
     explicit GrooveMorphAudioProcessorEditor(GrooveMorphAudioProcessor& processor);
@@ -18,9 +19,11 @@ private:
     juce::Label titleLabel;
     juce::Slider intensitySlider;
     juce::Label valueLabel;
+    juce::Label timingLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> intensityAttachment;
 
     void updateValueLabel();
+    void timerCallback() override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GrooveMorphAudioProcessorEditor)
 };
