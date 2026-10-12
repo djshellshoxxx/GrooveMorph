@@ -15,6 +15,9 @@ struct HostTransport
     std::optional<int> meterDenominator;
     std::optional<bool> isPlaying;
     std::optional<std::int64_t> timeInSamples;
+    // Musical position in quarter notes (JUCE AudioPlayHead conventions).
+    std::optional<double> ppqPosition = std::nullopt;
+    std::optional<double> ppqPositionOfLastBarStart = std::nullopt;
 };
 
 enum class TimingSource
@@ -40,6 +43,21 @@ struct ResolvedTiming
     bool isPlaying = false;
     TimingSource source = TimingSource::Manual;
     std::uint32_t missingFields = 0; // bitmask of MissingField values
+    double sampleRate = 48000.0;
+    // True when grid.originSample was derived from the host musical position (ppq),
+    // so grid beats/bars/phrases align with host bars. Otherwise the origin is the
+    // manual grid's originSample (sample 0 by default).
+    bool barAlignedToHost = false;
+
+    // Helpers for DSP. Valid for any ResolvedTiming returned by TransportResolver.
+    [[nodiscard]] double samplesPerBeat() const noexcept;      // one meter beat
+    [[nodiscard]] double samplesPerBar() const noexcept;
+    [[nodiscard]] double samplesPerPhrase() const noexcept;
+    [[nodiscard]] double positionInBeats() const noexcept;     // since grid origin
+    [[nodiscard]] double positionInBars() const noexcept;
+    [[nodiscard]] double positionInPhrases() const noexcept;
+    [[nodiscard]] double beatInBar() const noexcept;           // [0, meterNumerator)
+    [[nodiscard]] double barInPhrase() const noexcept;         // [0, phraseBars)
 };
 
 class TransportResolver final
@@ -47,6 +65,9 @@ class TransportResolver final
 public:
     // Combines host fields with manual fallbacks. Invalid host values are treated as missing.
     // freeRunSample is used as the position when the host reports none.
+    // When host ppqPosition is valid the grid origin is placed at the start of host bar 1
+    // (ppq 0, assuming a constant tempo/meter); ppqPositionOfLastBarStart, when consistent,
+    // refines bar alignment. Phrases start on host bars 1, 1 + phraseBars, ...
     // Returns nullopt only when the manual grid is itself invalid.
     [[nodiscard]] static std::optional<ResolvedTiming> resolve(
         const HostTransport& host,

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <string_view>
 
 using groovemorph::core::PhraseClock;
@@ -61,6 +62,25 @@ int main()
     result = PhraseClock::samplesUntilBoundary(0, 48000.0, grid,
                                                 Quantization::Bar);
     expectEqual("nonzero grid origin", result.value_or(-1), 95000);
+
+    // Position helpers relative to the grid origin.
+    const auto near = [](std::optional<double> v, double expected) {
+        return v && std::abs(*v - expected) < 1.0e-9;
+    };
+    grid = PhraseGrid{120.0, 3, 4, 2, 24000};
+    if (!near(PhraseClock::positionInBeats(96000, 48000.0, grid), 3.0)
+        || !near(PhraseClock::positionInBars(96000, 48000.0, grid), 1.0)
+        || !near(PhraseClock::positionInPhrases(96000, 48000.0, grid), 0.5)
+        || !near(PhraseClock::positionInBeats(0, 48000.0, grid), -1.0))
+    {
+        std::cerr << "position helpers: unexpected value\n";
+        ++failures;
+    }
+    if (PhraseClock::positionInBeats(0, 0.0, grid).has_value())
+    {
+        std::cerr << "position helpers: invalid rate accepted\n";
+        ++failures;
+    }
 
     grid.tempoBpm = std::numeric_limits<double>::quiet_NaN();
     expectInvalid("NaN tempo", 48000.0, grid);

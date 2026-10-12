@@ -59,25 +59,51 @@ std::optional<std::int64_t> PhraseClock::samplesUntilBoundary(
     if (!samplesPerBeat || !beatCount)
         return std::nullopt;
 
+    // Each boundary lands on the sample nearest its exact position (floor(x + 0.5)), and the
+    // first boundary whose rounded sample is >= currentSample is returned. This keeps the
+    // result consistent across arbitrary block starts: a boundary is never skipped.
     const auto interval = *samplesPerBeat * *beatCount;
-    const auto relative = static_cast<long double>(currentSample)
-        - static_cast<long double>(grid.originSample);
-    const auto positionInIntervals = relative / interval;
+    const auto origin = static_cast<long double>(grid.originSample);
+    const auto current = static_cast<long double>(currentSample);
     constexpr long double boundaryTolerance = 1.0e-12L;
-    const auto boundaryNumber = std::ceil(positionInIntervals - boundaryTolerance);
-    const auto target = static_cast<long double>(grid.originSample)
-        + boundaryNumber * interval;
-    const auto delta = target - static_cast<long double>(currentSample);
+    auto boundaryNumber = std::ceil((current - origin - 0.5L) / interval - boundaryTolerance);
+    auto target = std::floor(origin + boundaryNumber * interval + 0.5L);
+    if (target < current) // guard against precision loss at the rounding edge
+        target = std::floor(origin + (boundaryNumber + 1.0L) * interval + 0.5L);
+    const auto delta = target - current;
 
-    if (!std::isfinite(delta) || delta < -1.0L
+    if (!std::isfinite(delta) || delta < 0.0L
         || delta > static_cast<long double>(std::numeric_limits<std::int64_t>::max()))
         return std::nullopt;
-    if (delta <= 0.0L)
-        return std::int64_t{0};
+    return static_cast<std::int64_t>(delta);
+}
 
-    const auto roundedDelta = std::round(delta);
-    if (roundedDelta > static_cast<long double>(std::numeric_limits<std::int64_t>::max()))
+std::optional<double> PhraseClock::positionInBeats(
+    std::int64_t currentSample, double sampleRate, const PhraseGrid& grid) noexcept
+{
+    const auto samplesPerBeat = samplesPerMeterBeat(sampleRate, grid);
+    if (!samplesPerBeat)
         return std::nullopt;
-    return static_cast<std::int64_t>(roundedDelta);
+    const auto relative = static_cast<long double>(currentSample)
+        - static_cast<long double>(grid.originSample);
+    return static_cast<double>(relative / *samplesPerBeat);
+}
+
+std::optional<double> PhraseClock::positionInBars(
+    std::int64_t currentSample, double sampleRate, const PhraseGrid& grid) noexcept
+{
+    const auto beats = positionInBeats(currentSample, sampleRate, grid);
+    if (!beats)
+        return std::nullopt;
+    return *beats / static_cast<double>(grid.meterNumerator);
+}
+
+std::optional<double> PhraseClock::positionInPhrases(
+    std::int64_t currentSample, double sampleRate, const PhraseGrid& grid) noexcept
+{
+    const auto bars = positionInBars(currentSample, sampleRate, grid);
+    if (!bars)
+        return std::nullopt;
+    return *bars / static_cast<double>(grid.phraseBars);
 }
 } // namespace groovemorph::core

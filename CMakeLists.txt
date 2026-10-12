@@ -14,6 +14,8 @@ file(GLOB_RECURSE GROOVEMORPH_CORE_SOURCES CONFIGURE_DEPENDS src/core/*.cpp)
 add_library(GrooveMorphCore STATIC ${GROOVEMORPH_CORE_SOURCES})
 target_include_directories(GrooveMorphCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(GrooveMorphCore PUBLIC cxx_std_20)
+# Linked into the VST3 shared object, so the static core must be position independent.
+set_target_properties(GrooveMorphCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(BUILD_TESTING)
     include(CTest)

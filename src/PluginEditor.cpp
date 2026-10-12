@@ -70,7 +70,7 @@ void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
 {
     graphics.fillAll(juce::Colours::black);
     graphics.setColour(juce::Colours::white);
-    graphics.drawText("M0 spike: parameterized dry-gain path", getLocalBounds(),
+    graphics.drawText("Intensity 0 = dry path", getLocalBounds(),
                       juce::Justification::centredTop, false);
 }
 
