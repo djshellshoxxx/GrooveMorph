@@ -96,7 +96,8 @@ std::optional<std::int64_t> PhraseClock::samplesUntilPpqBoundary(
     const PhraseGrid& grid,
     Quantization quantization) noexcept
 {
-    if (!std::isfinite(currentPpq) || !std::isfinite(barStartPpq))
+    if (!std::isfinite(currentPpq) || !std::isfinite(barStartPpq)
+        || (quantization == Quantization::Phrase && !std::isfinite(grid.originPpq)))
         return std::nullopt;
 
     const auto samplesPerMeterBeat = PhraseClock::samplesPerMeterBeat(sampleRate, grid);
@@ -106,8 +107,10 @@ std::optional<std::int64_t> PhraseClock::samplesUntilPpqBoundary(
 
     const auto quarterNotesPerMeterBeat = 4.0L / grid.meterDenominator;
     const auto intervalPpq = *beatCount * quarterNotesPerMeterBeat;
-    const auto relativePpq = static_cast<long double>(currentPpq)
-        - static_cast<long double>(barStartPpq);
+    const auto anchorPpq = quantization == Quantization::Phrase
+        ? static_cast<long double>(grid.originPpq)
+        : static_cast<long double>(barStartPpq);
+    const auto relativePpq = static_cast<long double>(currentPpq) - anchorPpq;
     const auto samplesPerPpq = *samplesPerMeterBeat / quarterNotesPerMeterBeat;
     const auto delta = samplesToBoundary(relativePpq, intervalPpq, samplesPerPpq);
     if (!delta)

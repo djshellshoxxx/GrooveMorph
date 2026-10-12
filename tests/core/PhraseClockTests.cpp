@@ -62,7 +62,7 @@ int main()
                                                 Quantization::Bar);
     expectEqual("nonzero sample origin", result.value_or(-1), 95000);
 
-    grid = PhraseGrid{120.0, 4, 4, 1, 0};
+    grid = PhraseGrid{120.0, 4, 4, 1, 0, 0.0};
     result = PhraseClock::samplesUntilPpqBoundary(3.5, 0.0, 48000.0, grid,
                                                    Quantization::Bar);
     expectEqual("PPQ bar alignment before boundary", result.value_or(-1), 12000);
@@ -76,16 +76,22 @@ int main()
     grid.phraseBars = 2;
     result = PhraseClock::samplesUntilPpqBoundary(7.5, 4.0, 48000.0, grid,
                                                    Quantization::Phrase);
-    expectEqual("phrase aligned to bar origin", result.value_or(-1), 108000);
+    expectEqual("phrase aligned to global phrase origin", result.value_or(-1), 12000);
+    result = PhraseClock::samplesUntilPpqBoundary(13.0, 12.0, 48000.0, grid,
+                                                   Quantization::Phrase);
+    expectEqual("phrase alignment remains stable on odd bar", result.value_or(-1), 72000);
 
-    // The local tempo is supplied for the current host block. PPQ alignment stays
-    // independent of the sample position and therefore survives seeks and tempo maps.
-    grid = PhraseGrid{90.0, 4, 4, 1, 0};
+    grid.originPpq = 2.0;
+    result = PhraseClock::samplesUntilPpqBoundary(5.5, 4.0, 48000.0, grid,
+                                                   Quantization::Phrase);
+    expectEqual("user phrase origin respected", result.value_or(-1), 108000);
+
+    grid = PhraseGrid{90.0, 4, 4, 1, 0, 0.0};
     result = PhraseClock::samplesUntilPpqBoundary(10.0, 8.0, 48000.0, grid,
                                                    Quantization::Bar);
     expectEqual("local tempo after tempo-map change", result.value_or(-1), 64000);
 
-    grid = PhraseGrid{120.0, 4, 4, 1, 0};
+    grid = PhraseGrid{120.0, 4, 4, 1, 0, 0.0};
     result = PhraseClock::samplesUntilPpqBoundary(-0.25, -4.0, 48000.0, grid,
                                                    Quantization::Beat);
     expectEqual("negative PPQ preroll", result.value_or(-1), 6000);
