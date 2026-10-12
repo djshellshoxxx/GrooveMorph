@@ -1,5 +1,6 @@
 #include "core/SceneScheduler.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -120,7 +121,8 @@ std::optional<ScheduledSceneEvent> SceneScheduler::process(
     }
 
     if (!timing.isPlaying || !timing.ppqPosition
-        || !std::isfinite(*timing.ppqPosition))
+        || !std::isfinite(*timing.ppqPosition)
+        || !PhraseClock::samplesPerMeterBeat(timing.sampleRate, timing.grid))
         return std::nullopt;
 
     if (timing.discontinuity)

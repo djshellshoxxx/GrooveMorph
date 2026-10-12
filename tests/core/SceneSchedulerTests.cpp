@@ -38,9 +38,9 @@ int main()
         SceneScheduler scheduler;
         expect("accept beat request", scheduler.request(2, Quantization::Beat));
         auto block = timing(0.0);
-        auto event = scheduler.process(block, 12000);
+        auto event = scheduler.process(block, 24000);
         expect("event at exact block end deferred", !event && scheduler.hasPending());
-        block.ppqPosition = 0.25;
+        block.ppqPosition = 1.0;
         event = scheduler.process(block, 12000);
         expect("target is stable across block", event && event->sceneId == 2
                    && event->sampleOffset == 0 && !scheduler.hasPending());
@@ -51,7 +51,7 @@ int main()
         scheduler.request(1, Quantization::Phrase);
         auto block = timing(7.5);
         block.ppqPositionOfLastBarStart.reset();
-        auto event = scheduler.process(block, 12000);
+        auto event = scheduler.process(block, 12001);
         expect("phrase can schedule without bar-start PPQ",
                event && event->sampleOffset == 12000);
     }
