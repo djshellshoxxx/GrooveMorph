@@ -256,6 +256,24 @@ int main()
         processor.setPlayHead(nullptr);
     }
 
+    // Musical PPQ must advance to a MIDI-triggered sub-block before quantization.
+    {
+        GrooveMorphAudioProcessor processor;
+        processor.prepareToPlay(48000.0, 8192);
+        setParameter(processor, "transitionMode", 2.0f); // Next bar
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        setTransport(playHead, 90000); // PPQ 3.75; next bar at sample 96000
+        juce::AudioBuffer<float> buffer(2, 8192);
+        buffer.clear();
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 62, 0.8f), 3000);
+        processor.processBlock(buffer, midi);
+        expect("MIDI sub-block PPQ switch at actual bar", processor.getActiveVariation() == 2
+                   && processor.getLastSwitchSample() == 96000);
+        processor.setPlayHead(nullptr);
+    }
+
     // GM-FR-010: state round trip includes scene edits and MIDI map; malformed scenes default.
     {
         using groovemorph::core::OperationType;
