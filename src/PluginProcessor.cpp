@@ -349,6 +349,11 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         {
             auto segmentTiming = *timing;
             segmentTiming.currentSample += position;
+            // MIDI splits the host block. Advance its musical position to the
+            // exact segment start before quantizing a variation switch.
+            if (segmentTiming.ppqPosition)
+                *segmentTiming.ppqPosition += static_cast<double>(position)
+                    * segmentTiming.grid.tempoBpm / (60.0 * segmentTiming.sampleRate);
             const auto before = playing();
             const auto switchEvent = scheduler.process(segmentTiming, length);
             if (switchEvent.switched)
