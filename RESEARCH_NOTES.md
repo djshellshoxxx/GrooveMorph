@@ -1,41 +1,37 @@
-# GrooveMorph research and M0 progress
+# GrooveMorph research and implementation status
 
-Research/specification details live in [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md). Requirement coverage is tracked in [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md).
+Research/specification details: docs/SPECIFICATION.md. Requirement coverage and evidence: docs/TRACEABILITY.md. Full spec audit: docs/SPEC_REVIEW.md.
 
-## Approved direction (2026-10-10)
+## Approved direction
 
-- Build architecture: C++20, JUCE, and CMake.
-- Current outputs: VST3 and JUCE Standalone.
-- CLAP is deferred unless specifically required by the owner after stack validation.
-- Reference hosts: REAPER on Windows x64 and Linux x86_64.
-- MVP direction: phrase variations and transition policy using bounded short-window rhythmic operations.
-- Full phrase capture is out of scope for MVP; pitch-preserving stretch is deferred.
-- Product differentiation is workflow-first rather than a feature-count race.
+- C++20, CMake, JUCE 8.0.7.
+- Windows x64 and Linux x86_64; VST3 and JUCE Standalone.
+- REAPER is the reference DAW for host validation.
+- CLAP, full phrase capture, pitch-preserving time stretching, multiband processing, generative variation, cloud services, audio-file import, and broad unrelated effect suite are deferred.
+- MVP is a phrase/variation workflow with bounded rhythmic transformations and explicit transition behavior.
 
-## Repository handoff state
+## Active implementation handoff
 
-At the start of this continuation, `main` was the only branch, with latest commit `4b8ed2e` (Windows build guide). There were no pull requests or GitHub Actions runs. The code was a JUCE shell with a dry-gain parameter; CMake declared a standalone GUI target referencing a `src/StandaloneMain.cpp` file absent from the repository tree. The editor implementation was split inconsistently between `PluginEditor.h` and `.cpp`, and no tests or CI workflow were present.
+The active source line is claude/awesome-keller-jx2ck0 at dfcabda030f7e1432f4b51baad471b26ddc91f0c. The continuation branch codex/mvp-continuation starts from this exact commit. It preserves the earlier codex/m0-validation history; no M0 work is being regenerated.
 
-## M0 implementation in progress
+Current code includes PhraseClock, TransportResolver, APVTS scalar timing/intensity parameters, basic timing status UI, shared operation settings, and headless processor tests. The processor remains a timing/gain spike. It does not yet implement transformations, scenes, transitions, MIDI scene triggers, scene state, undo/audition, or the MVP editor.
 
-- Added a JUCE-independent phrase clock that converts tempo/meter/phrase settings to sample-boundary offsets, with input validation and deterministic tests.
-- Reworked the CMake model to offer VST3 and JUCE Standalone from the same processor and a separate core-only test mode.
-- Reworked the processor shell to use an AudioProcessorValueTreeState parameter/state model and mono/stereo layout checks.
-- Added portable-core CTest coverage and Windows/Linux GitHub Actions build jobs.
-- Local verification available in this environment: direct GCC C++20 compilation with `-Wall -Wextra -Wpedantic -Werror` and the phrase-clock test executable. CMake is not installed locally; remote plugin build and DAW tests remain pending.
+## Build evidence at handoff
 
-## M0 gate status
+GitHub Actions workflow run 38148457507 for exact commit dfcabda030f7e1432f4b51baad471b26ddc91f0c completed successfully across Windows and Linux portable-core and JUCE plugin/Standalone jobs. Portable timing/state tests passed within CI. This is build/test evidence only; it does not verify REAPER, physical audio devices, plugin automation/latency behavior, or audio quality.
+
+## Current gates
 
 | Gate | Status | Evidence / next action |
 |---|---|---|
-| Portable phrase-clock tests | Passed locally | `g++ -std=c++20 -Wall -Wextra -Wpedantic -Werror ...`; rerun via CTest in CI |
-| CMake core-only configure | Not run locally | CMake unavailable; CI will verify |
-| Windows VST3/Standalone build | Pending | GitHub Actions on `codex/m0-validation` |
-| Linux VST3/Standalone build | Pending | GitHub Actions on `codex/m0-validation` |
-| REAPER load/state/automation/PDC tests | Pending | Requires REAPER host on Windows and Linux |
-| Standalone device/audio test | Pending | Requires desktop audio host/device |
-| Callback allocation/thread audit | Pending | Static review now; add instrumentation/host test before M0 exit |
+| Portable core builds/tests | Passed on Windows and Linux CI | Run 38148457507 |
+| JUCE VST3/Standalone builds | Passed on Windows and Linux CI | Run 38148457507 |
+| Windows Standalone launch/audio device | Not yet tested | Add artifact + launch smoke step, then test with physical device if available |
+| Linux Standalone launch/audio device | Not yet tested | Requires desktop runtime/device environment |
+| REAPER VST3 load/state/automation/transport | Not yet tested | Requires REAPER on each target OS |
+| Realtime allocation/lock audit | Static review only | Cache APVTS pointers; trace JUCE calls; instrument callback |
+| Product audio quality/latency/performance | Not yet measurable | Implement wet path and DSP first, then benchmark |
 
-## Exit criteria
+## Required sequence
 
-Do not begin broad feature implementation until Windows/Linux targets build, VST3 loads in REAPER on both, state/parameter behavior is verified, standalone is usable, zero-latency model is confirmed, and real-time safety has been reviewed. If a host or machine is unavailable, record the limitation and obtain an explicit fallback decision before claiming M0 complete.
+Follow the current user direction: (1) complete spec review and update traceability; (2) bug search and fix confirmed defects; (3) profile and optimize measured hotspots; (4) QA on the integrated implementation and fix findings; (5) merge reviewed work and create final build artifacts. Do not claim full completion while host/audio-device gates remain unavailable.
