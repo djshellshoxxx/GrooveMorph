@@ -70,7 +70,7 @@ void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
 {
     graphics.fillAll(juce::Colours::black);
     graphics.setColour(juce::Colours::white);
-    graphics.drawText("M0 spike: parameterized dry-gain path", getLocalBounds(),
+    graphics.drawText("Phrase-aware timing foundation in progress", getLocalBounds(),
                       juce::Justification::centredTop, false);
 }
 
@@ -85,7 +85,11 @@ void GrooveMorphAudioProcessorEditor::resized()
 
 void GrooveMorphAudioProcessorEditor::timerCallback()
 {
-    timingLabel.setText(describeTiming(audioProcessor), juce::dontSendNotification);
+    if (audioProcessor.hadStateRecovery())
+        timingLabel.setText("State recovery: factory defaults loaded; save the project again.",
+                            juce::dontSendNotification);
+    else
+        timingLabel.setText(describeTiming(audioProcessor), juce::dontSendNotification);
 }
 
 void GrooveMorphAudioProcessorEditor::updateValueLabel()
