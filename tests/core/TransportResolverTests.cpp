@@ -95,9 +95,9 @@ int main()
     expect("samples per beat", r && near(r->samplesPerBeat(), 24000.0)
                                    && near(r->samplesPerBar(), 96000.0)
                                    && near(r->samplesPerPhrase(), 192000.0));
-    expect("position helpers", r && near(r->positionInBeats(), 2.5) && near(r->positionInBars(), 0.625)
+    expect("position helpers", r && near(r->positionInBeats(), 10.5) && near(r->positionInBars(), 2.625)
                                    && near(r->beatInBar(), 2.5) && near(r->barInPhrase(), 0.625)
-                                   && near(r->positionInPhrases(), 0.3125));
+                                   && near(r->positionInPhrases(), 1.3125));
 
     ppqHost.ppqPosition = 6.5;
     ppqHost.ppqPositionOfLastBarStart = 4.0; // host bar 2, second bar of a phrase
@@ -132,6 +132,17 @@ int main()
     expect("pre-roll origin after current", r && r->grid.originSample == 24000
                                                 && near(r->positionInBeats(), -1.0)
                                                 && near(r->beatInBar(), 3.0));
+
+    r = TransportResolver::resolve(ppqHost, twoBar, 0, 48000.0, TimingMode::SampleClock);
+    expect("sample clock ignores host PPQ origin", r && !r->barAlignedToHost
+           && r->grid.originSample == 0 && near(r->positionInBeats(), 1000000.0 / 24000.0));
+    r = TransportResolver::resolve(HostTransport{}, manual, 1234, 48000.0, TimingMode::SampleClock);
+    expect("explicit sample clock enables preview", r && r->isPlaying && r->currentSample == 1234);
+    r = TransportResolver::resolve(full, manual, 0, 48000.0, TimingMode::SampleClock);
+    expect("sample clock respects explicit host stop", r && !r->isPlaying);
+    nanPpq.ppqPosition = 1.0e100;
+    r = TransportResolver::resolve(nanPpq, twoBar, 0, 48000.0);
+    expect("excessive PPQ ignored", r && !r->ppqPosition);
 
     if (failures == 0)
         std::cout << "TransportResolverTests: all checks passed\n";

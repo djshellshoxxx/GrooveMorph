@@ -20,6 +20,9 @@ struct HostTransport
     std::optional<double> ppqPositionOfLastBarStart = std::nullopt;
 };
 
+// Stable parameter values: append rather than reorder.
+enum class TimingMode { Automatic = 0, HostPpq = 1, SampleClock = 2 };
+
 enum class TimingSource
 {
     Host,        // all timing fields came from the host
@@ -39,6 +42,7 @@ inline constexpr std::uint32_t position = 1u << 3;
 struct ResolvedTiming
 {
     PhraseGrid grid;
+    TimingMode mode = TimingMode::Automatic;
     std::int64_t currentSample = 0;
     bool isPlaying = false;
     std::optional<double> ppqPosition;
@@ -75,6 +79,6 @@ public:
         const HostTransport& host,
         const PhraseGrid& manual,
         std::int64_t freeRunSample,
-        double sampleRate) noexcept;
+        double sampleRate, TimingMode mode = TimingMode::Automatic) noexcept;
 };
 } // namespace groovemorph::core

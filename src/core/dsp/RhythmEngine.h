@@ -58,6 +58,11 @@ public:
     // Clears history and smoothing state (real-time safe).
     void reset() noexcept;
 
+    // Discard captured audio after a transport seek without clearing/allocating the rings.
+    // Negative history times are treated as silence until fresh audio fills each window.
+    // Preserve parameter ramps so a timeline jump does not restart automation smoothing.
+    void resetHistory() noexcept;
+
     // Processes in place. Channels beyond maxChannels are left untouched. Does nothing
     // before prepare().
     void process(float* const* channels,

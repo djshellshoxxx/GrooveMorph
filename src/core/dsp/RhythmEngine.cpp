@@ -103,6 +103,12 @@ void RhythmEngine::reset() noexcept
     gateGain = 1.0f;
 }
 
+void RhythmEngine::resetHistory() noexcept
+{
+    now = 0;
+    voices.fill(Voice{});
+}
+
 double RhythmEngine::maxSliceSamples(OperationType type) const noexcept
 {
     if (historySamples < 8)
@@ -122,10 +128,10 @@ float RhythmEngine::readRing(const float* ring, std::int64_t time, double r) con
         return static_cast<std::size_t>(m < 0 ? m + cap : m);
     };
     const auto i = static_cast<std::int64_t>(base);
-    const float a = ring[wrap(i)];
+    const float a = i < 0 ? 0.0f : ring[wrap(i)];
     if (frac <= 0.0)
         return a;
-    const float b = ring[wrap(i + 1)];
+    const float b = i + 1 < 0 ? 0.0f : ring[wrap(i + 1)];
     return a + static_cast<float>(frac) * (b - a);
 }
 

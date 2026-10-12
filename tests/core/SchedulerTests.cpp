@@ -215,6 +215,48 @@ int main()
         expect("reset", s.activeVariation() == 3 && !s.queuedVariation());
     }
 
+    // Different host clocks can intentionally disagree: selection controls the boundary.
+    for (auto clock : {TimingMode::Automatic, TimingMode::HostPpq, TimingMode::SampleClock})
+    {
+        HostTransport host{120.0, 4, 4, true, 95900};
+        host.ppqPosition = 3.99;
+        host.ppqPositionOfLastBarStart = 0.0;
+        auto t = *TransportResolver::resolve(host, PhraseGrid{}, 0, 48000.0, clock);
+        Scheduler s;
+        s.request(1, TransitionMode::NextBar);
+        auto e = s.process(t, 512);
+        expect("selected clock controls switch", e.switched
+               && e.sampleOffset == (clock == TimingMode::SampleClock ? 100 : 240));
+        s.request(2, TransitionMode::NextBar);
+        t.ppqPosition.reset();
+        e = s.process(t, 512);
+        expect("PPQ strict missing position", clock == TimingMode::HostPpq
+               ? !e.switched && s.queuedVariation() == 2 : e.switched);
+        if (clock == TimingMode::HostPpq)
+        {
+            s.request(2, TransitionMode::Manual);
+            s.trigger();
+            expect("manual works without PPQ", s.process(t, 512).switched);
+        }
+    }
+    for (int numerator : {3, 7})
+    {
+        HostTransport host{120.0, numerator, 8, true, 777};
+        host.ppqPositionOfLastBarStart = 16.0;
+        host.ppqPosition = 16.0 + numerator * 0.5 - 0.01;
+        auto t = *TransportResolver::resolve(host, PhraseGrid{}, 0, 48000.0, TimingMode::HostPpq);
+        Scheduler s;
+        s.request(1, TransitionMode::NextBar);
+        expect("odd meter nonzero bar anchor", s.process(t, 512).sampleOffset == 240);
+        s.request(2, TransitionMode::NextBeat);
+        t.ppqPosition = 0.49; // loop wrapped into first bar
+        t.ppqPositionOfLastBarStart = 0.0;
+        expect("loop recomputes PPQ boundary", s.process(t, 512).sampleOffset == 240);
+        s.request(3, TransitionMode::NextBeat);
+        t.ppqPosition = 0.5;
+        expect("PPQ exact boundary offset zero", s.process(t, 512).sampleOffset == 0);
+    }
+
     if (failures == 0)
         std::cout << "SchedulerTests: all checks passed\n";
     return failures == 0 ? 0 : 1;

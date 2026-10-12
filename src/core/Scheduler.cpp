@@ -90,11 +90,13 @@ SwitchEvent Scheduler::process(const ResolvedTiming& timing, int numSamples) noe
     {
         // Prioritize fresh musical host position to avoid retaining a stale
         // sample-domain phase through tempo maps, seeks, and loop wraps.
-        if (timing.ppqPosition)
+        if (timing.mode != TimingMode::SampleClock && timing.ppqPosition)
             offset = PhraseClock::samplesUntilPpqBoundary(
                 *timing.ppqPosition, timing.ppqPositionOfLastBarStart,
                 timing.sampleRate, timing.grid, *q);
-        if (!offset)
+        // Host PPQ is strict: keep the request armed if required host fields
+        // disappear. Automatic alone may fall back to the sample timeline.
+        if (!offset && timing.mode != TimingMode::HostPpq)
             offset = PhraseClock::samplesUntilBoundary(timing.currentSample, timing.sampleRate,
                                                        timing.grid, *q);
     }

@@ -80,6 +80,7 @@ int main()
         setParameter(source, "manualTempo", 97.5f);
         setParameter(source, "manualMeterNumerator", 7.0f);
         setParameter(source, "phraseBars", 8.0f);
+        setParameter(source, "timingMode", 2.0f);
         juce::MemoryBlock state;
         source.getStateInformation(state);
 
@@ -92,6 +93,7 @@ int main()
         expect("state restores tempo", std::abs(value("manualTempo") - 97.5f) < 1.0e-2f);
         expect("state restores meter", value("manualMeterNumerator") == 7.0f);
         expect("state restores phrase bars", value("phraseBars") == 8.0f);
+        expect("state restores timing mode", value("timingMode") == 2.0f);
 
         const char garbage[] = "not a state";
         restored.setStateInformation(garbage, sizeof(garbage));
@@ -174,6 +176,44 @@ int main()
                 maxDiff = std::max(maxDiff, std::abs(buffer.getSample(0, i) - input.getSample(0, i)));
         }
         expect("intensity 1 transforms", maxDiff > 0.01f);
+        processor.setPlayHead(nullptr);
+    }
+
+    // GM-AT-004: sample and PPQ-only host seeks discard audio from the old
+    // timeline; scheduled transitions remain intact and quantize afresh.
+    for (bool samplesAvailable : {true, false})
+    {
+        GrooveMorphAudioProcessor processor;
+        setParameter(processor, "masterIntensity", 1.0f);
+        groovemorph::core::VariationSettings reverse;
+        reverse[groovemorph::core::OperationType::ReverseSlice] = {true, 1.0f, 0.25f};
+        processor.setVariationSettings(0, reverse);
+        processor.prepareToPlay(48000.0, 256);
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        juce::MidiBuffer midi;
+        for (int block = 0; block < 200; ++block)
+        {
+            setTransport(playHead, block * 256);
+            if (!samplesAvailable)
+                playHead.info.setTimeInSamples(juce::nullopt);
+            juce::AudioBuffer<float> audio(2, 256);
+            for (int channel = 0; channel < 2; ++channel)
+                for (int sample = 0; sample < 256; ++sample)
+                    audio.setSample(channel, sample, 1.0f);
+            processor.processBlock(audio, midi);
+        }
+        setTransport(playHead, 9000); // middle of a reverse slice, far behind prior block
+        if (!samplesAvailable)
+            playHead.info.setTimeInSamples(juce::nullopt);
+        juce::AudioBuffer<float> silence(2, 256);
+        silence.clear();
+        processor.processBlock(silence, midi);
+        bool staleHistoryAbsent = true;
+        for (int channel = 0; channel < 2; ++channel)
+            for (int sample = 0; sample < 256; ++sample)
+                staleHistoryAbsent = staleHistoryAbsent && silence.getSample(channel, sample) == 0.0f;
+        expect(samplesAvailable ? "sample seek clears history" : "PPQ seek clears history", staleHistoryAbsent);
         processor.setPlayHead(nullptr);
     }
 
@@ -272,6 +312,33 @@ int main()
         expect("MIDI sub-block PPQ switch at actual bar", processor.getActiveVariation() == 2
                    && processor.getLastSwitchSample() == 96000);
         processor.setPlayHead(nullptr);
+    }
+
+    // Host PPQ and Sample Clock deliberately select different boundaries.
+    for (int clock : {0, 1, 2})
+    {
+        GrooveMorphAudioProcessor processor;
+        processor.prepareToPlay(48000.0, 512);
+        setParameter(processor, "timingMode", static_cast<float>(clock));
+        setParameter(processor, "transitionMode", 2.0f);
+        FakePlayHead playHead;
+        setTransport(playHead, 95900);
+        playHead.info.setPpqPosition(3.99);
+        processor.setPlayHead(&playHead);
+        processor.requestVariation(1);
+        processSilence(processor, 512);
+        expect("processor selected timing clock", processor.getActiveVariation() == 1
+               && processor.getLastSwitchSample() == 95900 + (clock == 2 ? 100 : 240));
+        processor.setPlayHead(nullptr);
+    }
+    {
+        GrooveMorphAudioProcessor processor;
+        processor.prepareToPlay(48000.0, 256);
+        setParameter(processor, "timingMode", 2.0f);
+        processor.requestVariation(1);
+        processSilence(processor, 256);
+        expect("standalone explicit sample preview", processor.isTransportPlaying()
+               && processor.getActiveVariation() == 1);
     }
 
     // GM-FR-010: state round trip includes scene edits and MIDI map; malformed scenes default.

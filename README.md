@@ -1,6 +1,6 @@
 # GrooveMorph
 
-GrooveMorph is a phrase-aware rhythmic audio effect. The current repository milestone is an M0 stack and timing spike, not a finished product.
+GrooveMorph is a phrase-aware rhythmic audio effect. The integrated MVP provides four editable variations, five rhythmic transformations and selectable musical/sample timing.
 
 ## Current approved direction
 
@@ -11,6 +11,10 @@ GrooveMorph is a phrase-aware rhythmic audio effect. The current repository mile
 - CLAP deferred unless the owner reopens that decision
 - Phrase variations and quantized transitions using bounded short-window operations
 - Full phrase capture and pitch-preserving time stretch deferred
+
+Agent workflows are available in [skills/README.md](skills/README.md): full Superpowers, ten DSP/JUCE skills, and token-efficient communication skills without Antigravity protocols. See [AGENTS.md](AGENTS.md) and the [completion-session prompt](docs/COMPLETION_PROMPT.md) for the current branch-integration handoff.
+
+## Quick start
 
 See [the specification](docs/SPECIFICATION.md), [research and milestone notes](RESEARCH_NOTES.md), and [requirement traceability](docs/TRACEABILITY.md).
 
@@ -28,4 +32,4 @@ The full VST3 and Standalone targets fetch JUCE 8.0.7 on first configuration. Se
 
 ## Current status
 
-The M0 code currently includes a portable phrase clock and host-transport fallback resolver with tests, plus a JUCE processor shell with headless processor tests (state, layout, latency, timing source, gain ramp). CI results and DAW validation are recorded in pull requests and release notes when available. A passing core test does not establish plugin-host compatibility.
+The code includes portable timing, scheduling, bounded-history DSP, scene state and MIDI modules. The editor exposes variation editing, audition/compare, undo/redo and Automatic / Host PPQ / Sample Clock selection. CI results and DAW validation are recorded in pull requests and release notes when available. A passing core test does not establish plugin-host compatibility.
