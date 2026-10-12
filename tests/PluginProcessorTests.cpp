@@ -96,6 +96,12 @@ int main()
         const char garbage[] = "not a state";
         restored.setStateInformation(garbage, sizeof(garbage));
         expect("malformed state ignored", std::abs(value("manualTempo") - 97.5f) < 1.0e-2f);
+
+        // Reject an oversized state envelope without mutating valid loaded parameters.
+        juce::MemoryBlock oversized;
+        oversized.setSize(1024 * 1024 + 1, true);
+        restored.setStateInformation(oversized.getData(), static_cast<int>(oversized.getSize()));
+        expect("oversized state ignored", std::abs(value("manualTempo") - 97.5f) < 1.0e-2f);
     }
 
     {
