@@ -50,16 +50,11 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
     else
         result.missingFields |= MissingField::playState;
 
-    if (host.timeInSamples)
-    {
+    const bool hasSamplePosition = host.timeInSamples.has_value();
+    if (hasSamplePosition)
         result.currentSample = *host.timeInSamples;
-        ++hostFields;
-    }
     else
-    {
         result.currentSample = freeRunSample;
-        result.missingFields |= MissingField::position;
-    }
 
     if (host.ppqPosition && std::isfinite(*host.ppqPosition))
         result.ppqPosition = *host.ppqPosition;
@@ -67,7 +62,15 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
         && std::isfinite(*host.ppqPositionOfLastBarStart))
         result.ppqPositionOfLastBarStart = *host.ppqPositionOfLastBarStart;
 
-    if (!host.timeInSamples)
+    // A musical PPQ position is sufficient for beat/bar scheduling even when the
+    // host omits an absolute sample position. currentSample remains a fallback only.
+    const bool hasHostPosition = hasSamplePosition || result.ppqPosition.has_value();
+    if (hasHostPosition)
+        ++hostFields;
+    else
+        result.missingFields |= MissingField::position;
+
+    if (!hasHostPosition)
         result.source = hostFields == 0 ? TimingSource::Manual : TimingSource::FreeRun;
     else
         result.source = result.missingFields == 0 ? TimingSource::Host : TimingSource::Mixed;

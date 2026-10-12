@@ -55,6 +55,14 @@ int main()
     expect("missing meter is mixed", r && r->source == TimingSource::Mixed
                                          && r->missingFields == MissingField::meter);
 
+    HostTransport ppqOnly{120.0, 4, 4, true, std::nullopt, 6.5, 4.0};
+    r = TransportResolver::resolve(ppqOnly, manual, 96000, 48000.0);
+    expect("PPQ-only host timing remains host-sourced",
+           r && r->source == TimingSource::Host && r->missingFields == 0);
+    expect("PPQ-only host timing keeps musical position and sample fallback",
+           r && r->ppqPosition == 6.5 && r->ppqPositionOfLastBarStart == 4.0
+               && r->currentSample == 96000);
+
     HostTransport negativePreroll{120.0, 4, 4, false, -9600, -0.5, -4.0};
     r = TransportResolver::resolve(negativePreroll, manual, 77, 48000.0);
     expect("negative host sample position is accepted",
@@ -75,8 +83,10 @@ int main()
     HostTransport invalidPpq{120.0, 4, 4, true, 0,
                              std::numeric_limits<double>::infinity(), 0.0};
     r = TransportResolver::resolve(invalidPpq, manual, 0, 48000.0);
-    expect("invalid PPQ omitted without discarding sample transport",
+    expect("invalid PPQ omitted and sample position retained",
            r && !r->ppqPosition && r->currentSample == 0);
+    expect("invalid PPQ with sample position still reports host position",
+           r && r->source == TimingSource::Host && r->missingFields == 0);
 
     HostTransport tooFast{1000.0, 4, 4, true, 0};
     r = TransportResolver::resolve(tooFast, manual, 0, 48000.0);

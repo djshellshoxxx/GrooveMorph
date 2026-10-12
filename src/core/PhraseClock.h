@@ -37,6 +37,9 @@ public:
 
     // PPQ uses quarter-note units. Beat/bar sync uses the host's last bar start;
     // phrase sync uses the configured phrase origin so multi-bar periods remain stable.
+    // The returned sample count assumes tempoBpm remains constant only for this
+    // query. A scheduler must refresh PPQ and tempo every process block rather than
+    // keep a sample countdown across blocks, because a future tempo map is unknown.
     [[nodiscard]] static std::optional<std::int64_t> samplesUntilPpqBoundary(
         double currentPpq,
         double barStartPpq,
