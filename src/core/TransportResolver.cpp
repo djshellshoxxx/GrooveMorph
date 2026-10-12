@@ -159,6 +159,12 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
         result.missingFields |= MissingField::position;
     }
 
+    // A host may provide PPQ without a sample position. Keep only finite values.
+    if (host.ppqPosition && std::isfinite(*host.ppqPosition))
+        result.ppqPosition = *host.ppqPosition;
+    if (host.ppqPositionOfLastBarStart && std::isfinite(*host.ppqPositionOfLastBarStart))
+        result.ppqPositionOfLastBarStart = *host.ppqPositionOfLastBarStart;
+
     if (const auto origin = hostOrigin(host, result.grid, result.currentSample, sampleRate))
     {
         result.grid.originSample = *origin;
