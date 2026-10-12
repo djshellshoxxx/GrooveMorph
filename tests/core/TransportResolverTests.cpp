@@ -66,6 +66,15 @@ int main()
     r = TransportResolver::resolve(signedPreRoll, manual, 77, 48000.0);
     expect("signed host preroll retained", r && r->currentSample == -5 && r->source == TimingSource::Host);
 
+    // Musical PPQ position is usable even without an absolute sample position.
+    HostTransport ppqOnly{120.0, 4, 4, true, std::nullopt};
+    ppqOnly.ppqPosition = 5.0;
+    ppqOnly.ppqPositionOfLastBarStart = 4.0;
+    r = TransportResolver::resolve(ppqOnly, manual, 512, 48000.0);
+    expect("PPQ-only host reports musical position", r && r->ppqPosition == 5.0
+               && r->source == TimingSource::Host
+               && (r->missingFields & MissingField::position) == 0);
+
     HostTransport tooFast{1000.0, 4, 4, true, 0};
     r = TransportResolver::resolve(tooFast, manual, 0, 48000.0);
     expect("out-of-range host tempo falls back", r && r->grid.tempoBpm == 100.0);
