@@ -87,8 +87,17 @@ SwitchEvent Scheduler::process(const ResolvedTiming& timing, int numSamples) noe
         || (pendingMode == TransitionMode::Manual && manualTriggered))
         offset = 0;
     else if (const auto q = quantizationFor(pendingMode); q && timing.isPlaying)
-        offset = PhraseClock::samplesUntilBoundary(timing.currentSample, timing.sampleRate,
-                                                   timing.grid, *q);
+    {
+        // Prioritize fresh musical host position to avoid retaining a stale
+        // sample-domain phase through tempo maps, seeks, and loop wraps.
+        if (timing.ppqPosition)
+            offset = PhraseClock::samplesUntilPpqBoundary(
+                *timing.ppqPosition, timing.ppqPositionOfLastBarStart,
+                timing.sampleRate, timing.grid, *q);
+        if (!offset)
+            offset = PhraseClock::samplesUntilBoundary(timing.currentSample, timing.sampleRate,
+                                                       timing.grid, *q);
+    }
 
     untilSwitch = offset;
     if (!offset || numSamples <= 0 || *offset >= numSamples)
