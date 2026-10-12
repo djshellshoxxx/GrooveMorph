@@ -147,23 +147,19 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
         result.missingFields |= MissingField::playState;
     }
 
-    const bool hasPosition = host.timeInSamples.has_value(); // signed sample positions permit preroll
-    if (hasPosition)
-    {
-        result.currentSample = *host.timeInSamples;
-        ++hostFields;
-    }
-    else
-    {
-        result.currentSample = freeRunSample;
-        result.missingFields |= MissingField::position;
-    }
-
-    // A host may provide PPQ without a sample position. Keep only finite values.
+    // Host musical position is sufficient when the absolute sample count is absent.
+    // Accept signed sample positions so negative pre-roll is not discarded.
+    const bool hasSamplePosition = host.timeInSamples.has_value();
+    result.currentSample = hasSamplePosition ? *host.timeInSamples : freeRunSample;
     if (host.ppqPosition && std::isfinite(*host.ppqPosition))
         result.ppqPosition = *host.ppqPosition;
     if (host.ppqPositionOfLastBarStart && std::isfinite(*host.ppqPositionOfLastBarStart))
         result.ppqPositionOfLastBarStart = *host.ppqPositionOfLastBarStart;
+    const bool hasHostPosition = hasSamplePosition || result.ppqPosition.has_value();
+    if (hasHostPosition)
+        ++hostFields;
+    else
+        result.missingFields |= MissingField::position;
 
     if (const auto origin = hostOrigin(host, result.grid, result.currentSample, sampleRate))
     {
@@ -171,7 +167,7 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
         result.barAlignedToHost = true;
     }
 
-    if (!hasPosition)
+    if (!hasHostPosition)
         result.source = hostFields == 0 ? TimingSource::Manual : TimingSource::FreeRun;
     else
         result.source = result.missingFields == 0 ? TimingSource::Host : TimingSource::Mixed;
