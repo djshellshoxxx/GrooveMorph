@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "status": "INCOMPLETE",
+  "repository": "djshellshoxxx/GrooveMorph",
+  "base_commit": null,
+  "specification_commit": null,
+  "integration_target": "claude/awesome-keller-jx2ck0 (provisional; verify PR #4 integration head)",
+  "feature_specifications": [
+    {
+      "id": "F01",
+      "path": "docs/expansion/features/F01-VARIATION-GENERATOR.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F02",
+      "path": "docs/expansion/features/F02-SCENE-MORPHING.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F03",
+      "path": "docs/expansion/features/F03-GROOVE-PROTECTION.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F04",
+      "path": "docs/expansion/features/F04-PERFORMANCE-MODE.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F05",
+      "path": "docs/expansion/features/F05-PHRASE-EVOLUTION.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F06",
+      "path": "docs/expansion/features/F06-POLYRHYTHMIC-LANES.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F07",
+      "path": "docs/expansion/features/F07-AUDIO-TRIGGERS.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F08",
+      "path": "docs/expansion/features/F08-VARIATION-HISTORY.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F09",
+      "path": "docs/expansion/features/F09-AUDIO-IMPORT-CAPTURE.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F10",
+      "path": "docs/expansion/features/F10-MULTIBAND.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F11",
+      "path": "docs/expansion/features/F11-GESTURE-RECORDER.md",
+      "status": "DRAFT"
+    },
+    {
+      "id": "F12",
+      "path": "docs/expansion/features/F12-MIDI-CLAP-PLATFORMS.md",
+      "status": "DRAFT"
+    }
+  ],
+  "shared_contracts": [
+    "MASTER-ARCHITECTURE.md",
+    "INTERFACE-CATALOG.md",
+    "REALTIME-SAFETY.md",
+    "STATE-COMPATIBILITY.md"
+  ],
+  "task_manifest": "docs/expansion/plans/TASK-MANIFEST.json",
+  "requirements_coverage": "Partial; no audited task-test matrix",
+  "review_results": "Not independently reviewed",
+  "unresolved_blockers": [
+    "Verify active integration branch and current commit SHA",
+    "Reconcile PPQ scheduler conflict between open PRs",
+    "Finish 35-section developer-ready feature specifications and measurable test fixtures",
+    "Freeze exact C++ headers, state schemas and parameter IDs",
+    "Complete research bibliography and module/UX contracts",
+    "Complete independent QA and dependency audits"
+  ],
+  "completed_utc": null
+}
