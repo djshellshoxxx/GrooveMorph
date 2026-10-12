@@ -22,3 +22,23 @@ Replay across buffer partitions and transport seek, tempo changes and loop bound
 
 ## Integration tasks
 Freeze interfaces, create portable core tests, implement isolated module, add format/editor bridge without concurrent edits to PluginProcessor, document migration and failure modes, run full host and callback safety tests, then update traceability. Block feature completion until evidence is recorded.
+
+## Owner-approved implementation contract supplement (2026-10-12)
+
+The proposed interface direction is approved. Existing SceneBank, Scheduler, TransportResolver, JUCE APVTS IDs and current persistence retain precedence until compatible migrations are implemented and tested.
+
+### Data and algorithm
+Represent gestures by scene reference, monotonic sequence, signed musical tick, host epoch and quantization setting. Record events on bounded queue; commit on non-audio worker. Undo/overdub create a revised immutable timeline. Playback translates musical ticks to sample offsets by existing timing resolver and follows deterministic conflict priority.
+Input contract: immutable canonical scene revision, validated timebase, bounded commands and explicit host capabilities. Output contract: immutable generation-stamped plan with status enum (valid, invalid input, missing capability, stale generation, overflow), deterministic event ordering by sample offset, priority and sequence. Enforce finite numeric values, bounded timeline length and known scene references before publishing. Parameter defaults and external schema IDs must be frozen against source-level manifests; do not reinterpret an existing project state.
+
+### Execution and lifecycle
+Idle -> Recording/Planning -> Preview -> Accepted, with Cancelled/Failed preserving previous committed state. Audio callback may read fixed-size validated plans and atomics but cannot allocate, free shared storage, lock, perform I/O, log, or perform UI work. Producer owns dynamic vectors, mappings and history; consumer acknowledges generations and any reclamation occurs off the audio thread. Invalid transport falls back to explicit manual-time mode; loops and seeks increment timeline epochs.
+
+### UI and host integration
+Quick mode exposes minimum safe controls; Editor mode provides detailed gesture/mapping data; Performance mode provides live trigger and clear pending status. Keyboard navigation, labels, controller reconnection and host automation conflicts must be supported. Persist only committed settings and versioned data with undo/redo and corruption recovery.
+
+### Test matrix and acceptance
+Playback reproduces event order after host loop and tempo change; missing scenes do not trigger wrong scene; recording overflow leaves audio safe. Required fixtures: F11-T01 exact replay/determinism, T02 malformed/future state, T03 queue overflow, T04 tempo/meter/loop/seek, T05 standalone/VST3 host serialization, T06 Linux/Windows compatibility, T07 UI/MIDI/automation wiring. Record command, commit SHA, target, expected output, measured result and reviewer. No unverifiable numeric performance promises: determine budgets using baseline benchmarks and approve before release.
+
+### Integration handoff
+Implement in a portable module first, integrate with approved command bridge under single PluginProcessor owner, add state migration and GUI adapter, run core and host regressions, then merge a reviewed PR. Preserve existing worker branches.
