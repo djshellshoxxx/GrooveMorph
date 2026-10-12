@@ -14,6 +14,10 @@ GrooveMorph is a phrase-aware rhythmic audio effect. The integrated MVP provides
 
 Agent workflows are available in [skills/README.md](skills/README.md): full Superpowers, ten DSP/JUCE skills, and token-efficient communication skills without Antigravity protocols. See [AGENTS.md](AGENTS.md) and the [completion-session prompt](docs/COMPLETION_PROMPT.md) for the current branch-integration handoff.
 
+## User help
+
+Read the [illustrated GrooveMorph user guide](help/README.md) for first-run setup, a complete control reference, timing modes, editing and preview, MIDI workflows, troubleshooting, and annotated interface diagrams. The current diagrams are source-derived and explicitly not native screenshots; see the [screenshot capture checklist](help/VISUAL-GUIDE.md).
+
 ## Quick start
 
 See [the specification](docs/SPECIFICATION.md), [research and milestone notes](RESEARCH_NOTES.md), and [requirement traceability](docs/TRACEABILITY.md).
