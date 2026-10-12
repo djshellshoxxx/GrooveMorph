@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "status": "DRAFT",
+  "tasks": [
+    {
+      "task_id": "EXP-M0-RECONCILE",
+      "depends_on": [],
+      "deliverable": "Verified current integration commit and reconciled PPQ scheduler"
+    },
+    {
+      "task_id": "EXP-M1-CONTRACTS",
+      "depends_on": [
+        "EXP-M0-RECONCILE"
+      ],
+      "deliverable": "Canonical model/time/state parameter contracts frozen"
+    },
+    {
+      "task_id": "EXP-F01-CONTRACT",
+      "feature_id": "F01",
+      "title": "Freeze VARIATION-GENERATOR implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F01-VARIATION-GENERATOR.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F02-CONTRACT",
+      "feature_id": "F02",
+      "title": "Freeze SCENE-MORPHING implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F02-SCENE-MORPHING.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F03-CONTRACT",
+      "feature_id": "F03",
+      "title": "Freeze GROOVE-PROTECTION implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F03-GROOVE-PROTECTION.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F04-CONTRACT",
+      "feature_id": "F04",
+      "title": "Freeze PERFORMANCE-MODE implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F04-PERFORMANCE-MODE.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F05-CONTRACT",
+      "feature_id": "F05",
+      "title": "Freeze PHRASE-EVOLUTION implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F05-PHRASE-EVOLUTION.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F06-CONTRACT",
+      "feature_id": "F06",
+      "title": "Freeze POLYRHYTHMIC-LANES implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F06-POLYRHYTHMIC-LANES.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F07-CONTRACT",
+      "feature_id": "F07",
+      "title": "Freeze AUDIO-TRIGGERS implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F07-AUDIO-TRIGGERS.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F08-CONTRACT",
+      "feature_id": "F08",
+      "title": "Freeze VARIATION-HISTORY implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F08-VARIATION-HISTORY.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F09-CONTRACT",
+      "feature_id": "F09",
+      "title": "Freeze AUDIO-IMPORT-CAPTURE implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F09-AUDIO-IMPORT-CAPTURE.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F10-CONTRACT",
+      "feature_id": "F10",
+      "title": "Freeze MULTIBAND implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F10-MULTIBAND.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F11-CONTRACT",
+      "feature_id": "F11",
+      "title": "Freeze GESTURE-RECORDER implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F11-GESTURE-RECORDER.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    },
+    {
+      "task_id": "EXP-F12-CONTRACT",
+      "feature_id": "F12",
+      "title": "Freeze MIDI-CLAP-PLATFORMS implementation contract",
+      "depends_on": [
+        "EXP-M0-RECONCILE",
+        "EXP-M1-CONTRACTS"
+      ],
+      "owner": "assigned feature engineer; coordinator owns shared files",
+      "files": [
+        "docs/expansion/features/F12-MIDI-CLAP-PLATFORMS.md"
+      ],
+      "deliverable": "Typed public interfaces, precise algorithms, error behavior, parameter ranges, fixtures, benchmark budgets and migration contract",
+      "acceptance": "Independent review + reproducible fixture evidence",
+      "integration_branch": "TBD after MVP reconciliation",
+      "merge_prerequisites": [
+        "No shared code conflicts",
+        "Tests pass"
+      ]
+    }
+  ]
+}
