@@ -1,0 +1,42 @@
+#pragma once
+
+#include <array>
+#include <cstddef>
+
+namespace groovemorph::core
+{
+// Rhythmic transformations in the MVP (see SPECIFICATION.md core MVP row).
+enum class OperationType : std::size_t
+{
+    Repeat,       // repeat/stutter a short slice
+    ReverseSlice, // play a bounded slice backwards
+    Gate,         // rhythmic volume gate
+    HalfTime,     // half-speed playback feel
+    TapeStop,     // tape-stop-style rate slowdown curve
+    Count
+};
+
+inline constexpr std::size_t operationCount = static_cast<std::size_t>(OperationType::Count);
+inline constexpr std::size_t variationCount = 4;
+
+struct OperationSettings
+{
+    bool enabled = false;
+    float depth = 1.0f;          // 0..1 per-operation amount
+    float sliceBeats = 0.25f;    // slice/gate length in meter beats, 1/16..4
+};
+
+struct VariationSettings
+{
+    std::array<OperationSettings, operationCount> operations{};
+
+    OperationSettings& operator[](OperationType type) noexcept
+    {
+        return operations[static_cast<std::size_t>(type)];
+    }
+    const OperationSettings& operator[](OperationType type) const noexcept
+    {
+        return operations[static_cast<std::size_t>(type)];
+    }
+};
+} // namespace groovemorph::core

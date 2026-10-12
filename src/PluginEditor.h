@@ -1,68 +1,59 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "core/scene/SceneBank.h"
 
-class GrooveMorphAudioProcessorEditor : public juce::AudioProcessorEditor
+#include <memory>
+#include <vector>
+
+class GrooveMorphAudioProcessor;
+
+class GrooveMorphAudioProcessorEditor final : public juce::AudioProcessorEditor,
+                                              private juce::Timer
 {
 public:
-    explicit GrooveMorphAudioProcessorEditor(GrooveMorphAudioProcessor& p)
-        : AudioProcessorEditor(&p), processor(p)
-    {
-        setSize(420, 180);
-
-        titleLabel.setText("GrooveMorph", juce::dontSendNotification);
-        titleLabel.setJustificationType(juce::Justification::centred);
-        titleLabel.setFont(juce::Font(24.0f, juce::Font::bold));
-
-        intensitySlider.setRange(0.0, 1.0, 0.01);
-        intensitySlider.setValue(processor.getParameters()[0]->getValue());
-        intensitySlider.onValueChange = [this]
-        {
-            processor.getParameters()[0]->setValueNotifyingHost(intensitySlider.getValue());
-        };
-
-        addAndMakeVisible(titleLabel);
-        addAndMakeVisible(intensitySlider);
-        addAndMakeVisible(valueLabel);
-
-        updateValueLabel();
-    }
-
-    ~GrooveMorphAudioProcessorEditor() override = default;
-
-    void paint(juce::Graphics& g) override
-    {
-        g.fillAll(juce::Colours::black);
-        g.setColour(juce::Colours::white);
-        g.drawText("M0 JUCE spike: bounded dry gain prototype", getLocalBounds(), juce::Justification::centredTop, false);
-    }
-
-    void resized() override
-    {
-        auto area = getLocalBounds().reduced(20);
-        titleLabel.setBounds(area.removeFromTop(40));
-        intensitySlider.setBounds(area.removeFromTop(40).withTrimmedLeft(20).withTrimmedRight(20));
-        valueLabel.setBounds(area.removeFromTop(25));
-    }
+    explicit GrooveMorphAudioProcessorEditor(GrooveMorphAudioProcessor& processor);
+    ~GrooveMorphAudioProcessorEditor() override;
+    void paint(juce::Graphics&) override;
+    void resized() override;
 
 private:
-    void updateValueLabel()
+    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
+    struct OperationRow
     {
-        valueLabel.setText("Master Intensity: " + juce::String(intensitySlider.getValue(), 2), juce::dontSendNotification);
-        valueLabel.setJustificationType(juce::Justification::centred);
-    }
-
-    GrooveMorphAudioProcessor& processor;
-    juce::Label titleLabel;
-    juce::Slider intensitySlider;
-    juce::Label valueLabel;
-
+        juce::ToggleButton enabled;
+        juce::Slider depth, slice;
+        bool draggingDepth = false, draggingSlice = false;
+    };
+    GrooveMorphAudioProcessor& audioProcessor;
+    juce::TooltipWindow tooltipWindow{this, 700};
+    juce::Label titleLabel, timingLabel, statusLabel, midiLabel;
+    juce::Slider intensitySlider, dryWetSlider, tempoSlider, meterSlider, phraseSlider, midiNoteSlider;
+    juce::ComboBox timingMode, transitionMode, denominator, editVariation;
+    juce::ToggleButton bypassButton{"Bypass"}, returnOnNoteOff{"Return on MIDI note-off"};
+    std::array<juce::TextButton, 4> variationButtons;
+    std::array<OperationRow, groovemorph::core::operationCount> operations;
+    juce::TextEditor variationName;
+    juce::TextButton triggerButton{"Trigger queued"}, cancelButton{"Cancel queued"};
+    juce::TextButton previewButton{"Preview"}, compareButton{"Hear stored"},
+                     applyButton{"Apply preview"}, revertButton{"Revert preview"},
+                     undoButton{"Undo"}, redoButton{"Redo"};
+    std::vector<std::unique_ptr<SliderAttachment>> sliderAttachments;
+    std::vector<std::unique_ptr<ComboAttachment>> comboAttachments;
+    std::unique_ptr<ButtonAttachment> bypassAttachment;
+    std::size_t editingIndex = 0;
+    groovemorph::core::scene::Variation editedVariation;
+    bool refreshing = false, comparingStored = false, draggingMidi = false;
+    void timerCallback() override;
+    void refreshSceneControls();
+    void editOperation(std::size_t index);
+    void editName();
+    void editMidiMap();
+    void finishPreview(bool apply);
+    void addSlider(juce::Slider&, const juce::String& parameter, const juce::String& name);
+    void addCombo(juce::ComboBox&, const juce::String& parameter,
+                  const juce::StringArray& choices, const juce::String& name);
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GrooveMorphAudioProcessorEditor)
 };
-
-#include "PluginProcessor.h"
-
-juce::AudioProcessorEditor* GrooveMorphAudioProcessor::createEditor()
-{
-    return new GrooveMorphAudioProcessorEditor(*this);
-}
