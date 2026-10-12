@@ -91,13 +91,17 @@ std::optional<std::int64_t> PhraseClock::samplesUntilBoundary(
 
 std::optional<std::int64_t> PhraseClock::samplesUntilPpqBoundary(
     double currentPpq,
-    double barStartPpq,
+    std::optional<double> barStartPpq,
     double sampleRate,
     const PhraseGrid& grid,
     Quantization quantization) noexcept
 {
-    if (!std::isfinite(currentPpq) || !std::isfinite(barStartPpq)
+    if (!std::isfinite(currentPpq)
         || (quantization == Quantization::Phrase && !std::isfinite(grid.originPpq)))
+        return std::nullopt;
+
+    if ((quantization == Quantization::Beat || quantization == Quantization::Bar)
+        && (!barStartPpq || !std::isfinite(*barStartPpq)))
         return std::nullopt;
 
     const auto samplesPerMeterBeat = PhraseClock::samplesPerMeterBeat(sampleRate, grid);
@@ -109,7 +113,7 @@ std::optional<std::int64_t> PhraseClock::samplesUntilPpqBoundary(
     const auto intervalPpq = *beatCount * quarterNotesPerMeterBeat;
     const auto anchorPpq = quantization == Quantization::Phrase
         ? static_cast<long double>(grid.originPpq)
-        : static_cast<long double>(barStartPpq);
+        : static_cast<long double>(*barStartPpq);
     const auto relativePpq = static_cast<long double>(currentPpq) - anchorPpq;
     const auto samplesPerPpq = *samplesPerMeterBeat / quarterNotesPerMeterBeat;
     const auto delta = samplesToBoundary(relativePpq, intervalPpq, samplesPerPpq);

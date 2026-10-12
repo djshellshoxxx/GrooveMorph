@@ -80,6 +80,13 @@ int main()
     result = PhraseClock::samplesUntilPpqBoundary(13.0, 12.0, 48000.0, grid,
                                                    Quantization::Phrase);
     expectEqual("phrase alignment remains stable on odd bar", result.value_or(-1), 72000);
+    result = PhraseClock::samplesUntilPpqBoundary(7.5, std::nullopt, 48000.0, grid,
+                                                   Quantization::Phrase);
+    expectEqual("phrase timing works without host bar start", result.value_or(-1), 12000);
+    result = PhraseClock::samplesUntilPpqBoundary(4.0, std::nullopt, 48000.0, grid,
+                                                   Quantization::Bar);
+    expectEqual("bar timing rejected without host bar start",
+                result.has_value(), false);
 
     grid.originPpq = 2.0;
     result = PhraseClock::samplesUntilPpqBoundary(5.5, 4.0, 48000.0, grid,
@@ -95,6 +102,9 @@ int main()
     result = PhraseClock::samplesUntilPpqBoundary(-0.25, -4.0, 48000.0, grid,
                                                    Quantization::Beat);
     expectEqual("negative PPQ preroll", result.value_or(-1), 6000);
+    result = PhraseClock::samplesUntilPpqBoundary(-4.0, -4.0, 48000.0, grid,
+                                                   Quantization::Beat);
+    expectEqual("negative PPQ exact boundary", result.value_or(-1), 0);
 
     result = PhraseClock::samplesUntilPpqBoundary(
         std::numeric_limits<double>::quiet_NaN(), 0.0, 48000.0, grid, Quantization::Bar);
