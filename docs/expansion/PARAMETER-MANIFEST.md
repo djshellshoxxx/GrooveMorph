@@ -1,0 +1,7 @@
+# Canonical parameter manifest and extension policy
+
+Existing IDs confirmed in src/PluginProcessor.h: `masterIntensity` [float 0..1, default 0.5], `dryWet` [float 0..1, default 1], `manualTempo` [float BPM 20..300, default 120], `manualMeterNumerator` [integer 1..16, default 4], `manualMeterDenominator` [choice 1,2,4,8,16 default 4], `phraseBars` [integer 1..16, default 4], `activeVariation` [choice A/B/C/D default A], `transitionMode` [Immediate,Next Beat,Next Bar,Next Phrase,Manual default Next Bar], `bypass` [bool default false]. Parameter ID version 1 from processor creation code. Preserve normalized values and automation identity; test host project reopening.
+
+Scene-specific OperationSettings fields (enabled, depth [0,1], sliceBeats [1/16,4]) are currently persisted as SceneBank data and **must not** be silently turned into global host parameters. New expansion parameters must be namespaced (`exp.f01.*` etc.) and added only after source/host tests. MIDI map and protected intervals belong to versioned scenes or controller profile as appropriate. Audio-to-UI metrics are not host parameters. Any host automatable parameter must specify units, normalized conversion, smoothing policy, minimum API version and test with saved automation fixture.
+
+Next gate: capture exact serialized form, compatibility fixtures and all new IDs before final signoff. Existing state identity must be retained.
