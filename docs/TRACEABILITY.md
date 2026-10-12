@@ -1,36 +1,41 @@
 # Requirement traceability
 
-Reviewed against the approved MVP specification on 2026-10-12. The active implementation at dfcabda is a timing/processor spike, not an MVP release. “Implemented” requires code, integration, and evidence; the presence of a type or parameter stub is not completion.
+Reviewed against the approved MVP specification and continuation branch on 2026-10-12. The active implementation is still a timing/processor foundation, not a product-complete MVP. “Implemented” requires code, integration, and evidence on the same commit.
 
 | Requirement | Current implementation | Verification evidence | Status / next action |
 |---|---|---|---|
-| GM-FR-001 phrase grid | PhraseClock computes meter-beat/bar/phrase sample offsets. Processor exposes tempo, meter, phrase-bars. No subdivision/sync mode UI or PPQ origin. | PhraseClock tests pass; CI run 38148457507 succeeded on Windows/Linux, including plugin/Standalone build. | Partial. Add canonical PPQ, last-bar origin, subdivision/sync policy, negative pre-roll tests. |
-| GM-FR-002 variations | No scene model; OperationParams is an unused settings stub. | None. | Not implemented. Add four stable-ID independent scenes and model tests. |
-| GM-FR-003 transformations | No history or transform engine. Processor applies a gain ramp. | No operation audio tests. | Not implemented. Add bounded history and deterministic DSP. |
+| GM-FR-001 phrase grid | PhraseClock supports sample and PPQ boundaries, stable phrase origin, meter, phrase length, and negative PPQ. TransportResolver carries host PPQ, last-bar PPQ, signed sample position, and fails closed for missing play state. No subdivision or explicit sync-mode UI. PPQ sample estimates use current tempo and must be refreshed every audio block. | New deterministic tests added for PPQ origin, odd-bar phrases, tempo-local calculation, PPQ-only transport and preroll. Current branch CI has not completed yet. | Partial. Add scheduler/display integration, sync modes and host seek/loop tests. |
+| GM-FR-002 variations | No integrated scene model or UI yet. | None. | Not implemented. |
+| GM-FR-003 transformations | No history or transform engine yet; callback still applies a gain ramp. | No transformation audio fixtures. | Not implemented. |
 | GM-FR-004 transitions | No scene scheduler, queue, active/queued state, or transition mixer. | None. | Not implemented. |
-| GM-FR-005 intensity/dry path | masterIntensity is output gain; zero gives silence. | Gain ramp test only. | Known defect. Convert intensity to wet contribution with aligned dry output. |
-| GM-FR-006 host timing | TransportResolver accepts tempo/meter/play/sample position; editor displays source/missing fields. PPQ/loops/seek policy absent; missing play state currently defaults to playing. | TransportResolver unit tests and processor mock-playhead tests pass in CI run 38148457507. | Partial. Implement explicit Host/Manual/Free-run policy; unknown play state; PPQ/bar origin and discontinuity handling. |
-| GM-FR-007 automation | APVTS exposes intensity and manual timing parameters; no scene/transition parameters. IDs exist for current five scalar controls. | Headless parameter state tests pass in CI; REAPER automation not run. | Partial. Freeze ID manifest; add stable discrete scene/transition mapping and host test. |
-| GM-FR-008 MIDI triggers | Plugin advertises MIDI input but ignores MIDI buffer. | None. | Not implemented. Add timestamped command routing and host routing tests. |
-| GM-FR-009 audition/undo | No preview model, compare, or undo/redo. | None. | Not implemented. |
-| GM-FR-010 state | APVTS scalar state round-trip; no model/schema/migration; malformed input is silently ignored. | Headless scalar round-trip and malformed-state check pass in CI, but malformed recovery contract is wrong. | Partial with known defect. Add capped, transactional versioned StateCodec and defaults/diagnostic recovery tests. |
-| GM-FR-011 visible state | Editor has intensity slider and timing source/missing fields only. | No UI automation/accessibility tests. | Partial. Add scene/queue/status UI; capture/analysis status remains deferred unless features are added. |
-| GM-FR-012 bypass/dry-wet | No internal dry/wet or explicit bypass contract; zero algorithmic latency is set. | Headless latency/layout checks pass; no host PDC or audio bypass QA. | Not implemented beyond zero-latency declaration. |
-| GM-QR-001 real-time safety | Callback reads APVTS through per-block ID lookup, reads playhead each block, updates atomics, applies gain ramp. No instrumented allocation/lock test. | Static source review only; no allocation/sanitizer run. | Partial and not release-verified. Cache parameter pointers; inspect JUCE host calls and instrument later. |
-| GM-QR-002 resource use | No DSP performance benchmark. | None. | Pending M2 benchmark. |
-| GM-QR-003 memory | No history/scratch allocation model yet. | None. | Pending AudioHistory design and max configuration measurement. |
-| GM-QR-004 clicks | Gain uses block ramp; no transition residual test. | One ramp endpoint check. | Partial. Define and run transition measurement protocol. |
-| GM-QR-005 timing | PhraseClock math and resolver fixtures exist; tempo-map phase remains wrong without PPQ. | Unit tests only; no REAPER sample alignment. | Partial. Implement PPQ and add host test. |
-| GM-QR-006 latency | Processor reports zero. No operation path to measure. | Processor headless latency test passes; no PDC host test. | Partial. Reverify after DSP/wet path. |
-| GM-QR-007 determinism | Timing tests deterministic; no output-level DSP fixtures. | Core tests pass. | Partial. Add repeatability/reset/seek render tests. |
-| GM-QR-008 reliability | No long-running stress. | None. | Pending 24-hour run before full beta acceptance. |
-| GM-QR-009 state recovery | Existing malformed state is ignored, leaving prior state. | Test only asserts malformed input ignored. | Fails contract. Fix after spec review and update tests. |
-| GM-QR-010 accessibility | Basic labels exist; no core workflow or scaling/focus test. | None. | Pending UI milestone. |
-| GM-QR-011 portability | Core clock and resolver are standard-library-only; other required DSP/state modules absent. | Linux/Windows CI core and plugin build passed at exact commit dfcabda. | Partial. Keep core targets JUCE-free and test as modules are added. |
-| GM-QR-012 privacy/security | No network features in current source. No release dependency inventory. | No sockets observed in source reviewed; no dependency/license release audit. | Partial. Add dependency/license inventory before packaging. |
+| GM-FR-005 intensity/dry path | masterIntensity remains output gain, so zero still produces silence. | Legacy gain ramp test; current behavior violates the dry-at-zero contract. | Known defect. Replace with wet contribution and aligned dry path after the transform engine exists. |
+| GM-FR-006 host timing | Host fields and PPQ reach the resolver; missing play state does not imply playback. No user-selectable Host/Manual/Free-run mode, loop policy, or scene scheduler. | Resolver tests extended for signed sample positions, PPQ-only hosts and unavailable fields. Current branch CI pending. | Partial. Add explicit mode selection and host discontinuity behavior. |
+| GM-FR-007 automation | APVTS exposes intensity/manual tempo/meter/phrase-bars; raw parameter pointers are cached outside processBlock. No scene/transition automation map. | Headless APVTS tests exist; no REAPER automation test. | Partial. Freeze full stable-ID manifest and add scene controls/host test. |
+| GM-FR-008 MIDI triggers | Plugin declares MIDI input but currently ignores messages. | None. | Not implemented. |
+| GM-FR-009 audition/undo | No preview, compare, or undo/redo model. | None. | Not implemented. |
+| GM-FR-010 state | APVTS scalar state round-trip; input is capped at 1 MiB, invalid state resets to factory parameter defaults, and an atomic recovery flag is displayed by the editor. No scene schema, version migrations, or transactional scene-state codec. | Processor tests cover scalar restore, malformed and oversized input, recovery flag, and defaults; current branch CI pending. | Partial. Add bounded versioned StateCodec after scene model stabilizes. |
+| GM-FR-011 visible state | Editor contains intensity control, timing source/missing fields and state recovery text. No variation/phrase canvas or queued-state UI. | No UI automation/accessibility tests. | Partial. Implement the approved scene and transition workflow. |
+| GM-FR-012 bypass/dry-wet | Processor declares zero latency; no transform mixer, explicit bypass, or dry/wet path yet. | Legacy layout and latency headless assertions only. | Not implemented beyond declaration. |
+| GM-QR-001 real-time safety | APVTS atomic pointers are cached at construction; callback still calls host playhead once per block and publishes status atomically. Complete callback allocation/lock audit is pending. | Static review only; current branch tests pending. | Partial. Audit full call graph and instrument allocation/lock behavior. |
+| GM-QR-002 resource use | No integrated DSP benchmark. | None. | Pending after transforms are integrated. |
+| GM-QR-003 memory | No AudioHistory yet. | None. | Pending bounded-memory design and max-configuration measurement. |
+| GM-QR-004 clicks | Gain transition now uses a fixed 1 ms sample-domain ramp, independent of host block size. No rhythmic transition or dry/wet residual check. | Processor test compares 480 rendered samples as one block and split 64/256/160 blocks. Current branch CI pending. | Partial. Add transition audio-quality fixtures. |
+| GM-QR-005 timing | PPQ phrase clock and resolver tests added; future-tempo behavior requires a fresh host position/tempo query per block. No REAPER timing test. | Unit tests pending CI. | Partial. Integrate scheduler and test tempo maps, seeks, loops and block partitioning in hosts. |
+| GM-QR-006 latency | Processor reports zero before transforms exist. | Headless latency assertion; no PDC test. | Pending transform integration and host PDC validation. |
+| GM-QR-007 determinism | Timing math deterministic; no integrated DSP render test. | None. | Partial. Add repeatable renders after DSP exists. |
+| GM-QR-008 reliability | No long-run stress test. | None. | Pending. |
+| GM-QR-009 state recovery | Invalid state now defaults parameters and reports recovery. Scene-level versioning/migration is absent. | Headless tests added; current branch CI pending. | Partial. |
+| GM-QR-010 accessibility | Recovery and timing use text; rest of MVP controls absent. | No keyboard/scaling test. | Pending UI milestone. |
+| GM-QR-011 portability | PhraseClock/TransportResolver are portable standard-library modules; other DSP/state modules remain absent. | Prior run 38148457507 passed Windows/Linux core and plugin/Standalone jobs at older commit dfcabda. Current branch CI pending. | Partial. |
+| GM-QR-012 privacy/security | No networking or content export path is present. .gitignore was malformed and is now replaced with build/IDE exclusions. Release dependency/license inventory remains open. | Source inspection and repository fix; no security scan or final dependency inventory. | Partial. |
 
-## Integration gates
+## Build and QA evidence
 
-- Current CI evidence: workflow run [38148457507](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38148457507) for exact head dfcabda030f7e1432f4b51baad471b26ddc91f0c passed. This verifies configured CI build and tests only; it does not establish REAPER, physical audio-device, audio-quality, or distribution acceptance.
-- Remaining host checks: REAPER Windows/Linux VST3 scan/load, transport/tempo map, automation, MIDI, state save/reopen, bypass/PDC, offline render, standalone audio-device flow.
-- Planned validation branch: codex/mvp-continuation; merge to main only after the user-requested spec review, defect fixes, optimization pass, QA fixes, and final acceptance decision.
+- Run [38148457507](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38148457507) passed the four configured Windows/Linux core and plugin/Standalone jobs at dfcabda030f7e1432f4b51baad471b26ddc91f0c; this predates the continuation fixes.
+- Run [38192285882](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38192285882) passed a Windows Standalone five-second launch smoke and artifact upload on the separate codex/m0-validation branch at 90e0a601e4ef4ffbc329ae112e8518695ca1382f. Artifact ID: 11722056502; it expires 2026-11-11. This validates the harness, not the current source branch.
+- The current working branch is codex/mvp-continuation; draft PR [#2](https://github.com/djshellshoxxx/GrooveMorph/pull/2) targets main.
+- No current-branch CI run, REAPER host test, physical audio-device test, timing alignment measurement, PDC/bypass check, listening test, 24-hour stress run, or release packaging has yet been verified.
+
+## Remaining requirements and release gates
+
+Implement the approved scene model, bounded history and five operations, transition scheduler/mixer, dry/wet path, trigger/automation mapping, versioned state and preview/undo; wire every visible UI control to those modules; then benchmark, optimize measured hotspots, run regression and native builds. Keep REAPER and physical device gates explicitly pending until actually executed.
