@@ -483,7 +483,7 @@ Evidence limitations: product pages document marketed features, not exhaustive f
 The `timingMode` host parameter appends three stable choice values: 0 Automatic
 (default), 1 Host PPQ, 2 Sample Clock. All choices use the same Scheduler, scene
 bank and rhythm engine; there is no alternate processor or competing scheduler.
-Existing state without the parameter retains Automatic on a fresh instance.
+Existing state without the parameter restores Automatic, including on an already running instance.
 
 Automatic uses fresh host PPQ for quantization and sample timing when the musical
 fields required for that boundary are absent or invalid. Host PPQ holds beat/bar

@@ -37,6 +37,8 @@ inline constexpr std::uint32_t tempo = 1u << 0;
 inline constexpr std::uint32_t meter = 1u << 1;
 inline constexpr std::uint32_t playState = 1u << 2;
 inline constexpr std::uint32_t position = 1u << 3;
+inline constexpr std::uint32_t ppq = 1u << 4;
+inline constexpr std::uint32_t barAnchor = 1u << 5;
 } // namespace MissingField
 
 struct ResolvedTiming

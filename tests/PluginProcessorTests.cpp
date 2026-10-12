@@ -1,4 +1,7 @@
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
+
+#include <cstdlib>
 
 #include <algorithm>
 #include <cmath>
@@ -94,6 +97,13 @@ int main()
         expect("state restores meter", value("manualMeterNumerator") == 7.0f);
         expect("state restores phrase bars", value("phraseBars") == 8.0f);
         expect("state restores timing mode", value("timingMode") == 2.0f);
+
+        auto oldTree = source.parameters.copyState();
+        oldTree.removeChild(oldTree.getChildWithProperty("id", "timingMode"), nullptr);
+        juce::MemoryBlock legacyState;
+        juce::AudioProcessor::copyXmlToBinary(*oldTree.createXml(), legacyState);
+        restored.setStateInformation(legacyState.getData(), static_cast<int>(legacyState.getSize()));
+        expect("legacy state resets timing to automatic", value("timingMode") == 0.0f);
 
         const char garbage[] = "not a state";
         restored.setStateInformation(garbage, sizeof(garbage));
@@ -312,6 +322,93 @@ int main()
         expect("MIDI sub-block PPQ switch at actual bar", processor.getActiveVariation() == 2
                    && processor.getLastSwitchSample() == 96000);
         processor.setPlayHead(nullptr);
+    }
+
+    // Rendering phase must agree with/without unrelated MIDI and max-block splits.
+    {
+        GrooveMorphAudioProcessor whole, split;
+        for (auto* processor : {&whole, &split})
+        {
+            processor->prepareToPlay(48000.0, 256);
+            setParameter(*processor, "masterIntensity", 1.0f);
+            auto settings = processor->getSceneBank().variation(0).settings;
+            settings[groovemorph::core::OperationType::Gate] = {true, 1.0f, 0.25f};
+            processor->setVariationSettings(0, settings);
+        }
+        FakePlayHead playHead;
+        setTransport(playHead, 18000);
+        whole.setPlayHead(&playHead);
+        split.setPlayHead(&playHead);
+        juce::AudioBuffer<float> a(2, 2048), b(2, 2048);
+        for (int channel = 0; channel < 2; ++channel)
+            for (int sample = 0; sample < 2048; ++sample)
+                a.setSample(channel, sample, std::sin(sample * 0.07f));
+        b.makeCopyOf(a);
+        juce::MidiBuffer none, unrelated;
+        unrelated.addEvent(juce::MidiMessage::controllerEvent(1, 1, 64), 333);
+        unrelated.addEvent(juce::MidiMessage::controllerEvent(1, 1, 32), 1191);
+        whole.processBlock(a, none);
+        split.processBlock(b, unrelated);
+        float difference = 0.0f;
+        for (int channel = 0; channel < 2; ++channel)
+            for (int sample = 0; sample < 2048; ++sample)
+                difference = std::max(difference, std::abs(a.getSample(channel, sample) - b.getSample(channel, sample)));
+        expect("PPQ rendering independent of irrelevant MIDI splits", difference < 1.0e-5f);
+        whole.setPlayHead(nullptr);
+        split.setPlayHead(nullptr);
+    }
+
+    // Exercise the editor's actual callbacks, attachments and preview lifecycle.
+    {
+        GrooveMorphAudioProcessor processor;
+        processor.prepareToPlay(48000.0, 512);
+        std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+        juce::ComboBox* clockChoice = nullptr;
+        juce::TextButton* preview = nullptr;
+        juce::TextButton* revert = nullptr;
+        juce::ToggleButton* gate = nullptr;
+        for (auto* child : editor->getChildren())
+        {
+            if (auto* box = dynamic_cast<juce::ComboBox*>(child); box && box->getName() == "Timing method")
+                clockChoice = box;
+            if (auto* button = dynamic_cast<juce::TextButton*>(child))
+            {
+                if (button->getButtonText() == "Preview") preview = button;
+                if (button->getButtonText() == "Revert preview") revert = button;
+            }
+            if (auto* button = dynamic_cast<juce::ToggleButton*>(child); button && button->getButtonText() == "Gate")
+                gate = button;
+        }
+        expect("editor timing selector and scene controls exist", clockChoice && preview && revert && gate);
+        if (clockChoice && preview && revert && gate)
+        {
+            clockChoice->setSelectedId(3, juce::sendNotificationSync);
+            expect("timing selector drives persistent host parameter",
+                   processor.parameters.getRawParameterValue("timingMode")->load() == 2.0f);
+            processSilence(processor, 512);
+            const auto before = processor.getSceneBank();
+            preview->onClick();
+            gate->setToggleState(!gate->getToggleState(), juce::dontSendNotification);
+            gate->onClick();
+            expect("editor preview edit remains isolated", processor.isAuditionDirty()
+                   && processor.getSceneBank() == before);
+            revert->onClick();
+            expect("editor revert preserves stored bank", !processor.isAuditioning()
+                   && processor.getSceneBank() == before);
+            preview->onClick();
+        }
+        // Optional software-rendered layout evidence for the integration coordinator.
+        if (const auto* path = std::getenv("GROOVEMORPH_UI_SNAPSHOT"))
+        {
+            juce::FileOutputStream output{juce::File{juce::String{path}}};
+            output.setPosition(0);
+            output.truncate();
+            juce::PNGImageFormat png;
+            expect("editor snapshot saved", output.openedOk()
+                   && png.writeImageToStream(editor->createComponentSnapshot(editor->getLocalBounds()), output));
+        }
+        editor.reset();
+        expect("closing editor ends preview", !processor.isAuditioning());
     }
 
     // Host PPQ and Sample Clock deliberately select different boundaries.

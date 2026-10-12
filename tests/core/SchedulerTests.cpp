@@ -215,6 +215,24 @@ int main()
         expect("reset", s.activeVariation() == 3 && !s.queuedVariation());
     }
 
+    // Fractional musical boundaries belong to their rounded sample. A callback
+    // starting just past exact PPQ must not skip the boundary by a whole beat.
+    {
+        constexpr double samplesPerQuarter = 48000.0 * 60.0 / 137.0;
+        HostTransport host{137.0, 4, 4, true, 20766};
+        host.ppqPosition = 20766.0 / samplesPerQuarter;
+        host.ppqPositionOfLastBarStart = 0.0;
+        Scheduler s;
+        s.request(1, TransitionMode::NextBeat);
+        auto t = *TransportResolver::resolve(host, PhraseGrid{}, 0, 48000.0, TimingMode::HostPpq);
+        expect("fractional PPQ boundary excluded from previous block", !s.process(t, 256).switched);
+        host.timeInSamples = 21022;
+        host.ppqPosition = 21022.0 / samplesPerQuarter;
+        t = *TransportResolver::resolve(host, PhraseGrid{}, 0, 48000.0, TimingMode::HostPpq);
+        const auto event = s.process(t, 256);
+        expect("fractional PPQ boundary fires on its rounded sample", event.switched && event.sampleOffset == 0);
+    }
+
     // Different host clocks can intentionally disagree: selection controls the boundary.
     for (auto clock : {TimingMode::Automatic, TimingMode::HostPpq, TimingMode::SampleClock})
     {

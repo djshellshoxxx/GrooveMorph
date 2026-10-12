@@ -23,6 +23,8 @@ juce::String describeTiming(const GrooveMorphAudioProcessor& processor)
     if ((fields & Missing::meter) != 0) missing.add("meter");
     if ((fields & Missing::playState) != 0) missing.add("play state");
     if ((fields & Missing::position) != 0) missing.add("position");
+    if ((fields & Missing::ppq) != 0) missing.add("PPQ (quantized requests held)");
+    if ((fields & Missing::barAnchor) != 0) missing.add("bar anchor (beat/bar requests held)");
     if (!missing.isEmpty()) text << " | host missing " << missing.joinIntoString(", ");
     return text;
 }
@@ -65,6 +67,13 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     addSlider(tempoSlider, "manualTempo", "Manual tempo (BPM)");
     addSlider(meterSlider, "manualMeterNumerator", "Manual beats per bar");
     addSlider(phraseSlider, "phraseBars", "Phrase length (bars)");
+    intensitySlider.textFromValueFunction = [](double value) { return juce::String(value, 2); };
+    dryWetSlider.textFromValueFunction = [](double value) { return juce::String(value, 2); };
+    intensitySlider.setNumDecimalPlacesToDisplay(2);
+    dryWetSlider.setNumDecimalPlacesToDisplay(2);
+    tempoSlider.setNumDecimalPlacesToDisplay(2);
+    meterSlider.setNumDecimalPlacesToDisplay(0);
+    phraseSlider.setNumDecimalPlacesToDisplay(0);
     addCombo(timingMode, "timingMode", {"Automatic", "Host PPQ", "Sample Clock"}, "Timing method");
     timingMode.setTooltip("Automatic prefers host PPQ and falls back to samples. Host PPQ holds scheduled switches when PPQ is missing. Sample Clock free-runs without a host; a stopped host stays stopped.");
     addCombo(transitionMode, "transitionMode", {"Immediate", "Next Beat", "Next Bar", "Next Phrase", "Manual"}, "Transition");
@@ -110,7 +119,10 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
         configureSlider(row.depth, names[static_cast<int>(i)] + " depth");
         configureSlider(row.slice, names[static_cast<int>(i)] + " slice (meter beats)");
         row.depth.setRange(0, 1, 0.01);
+        row.depth.setNumDecimalPlacesToDisplay(2);
+        row.slice.setNumDecimalPlacesToDisplay(3);
         row.slice.setRange(1.0 / 16.0, 4, 1.0 / 16.0);
+        row.slice.setTooltip(names[static_cast<int>(i)] + " slice in meter beats. Bounded 4-second history limits effective duration: repeat < 1.33 s, reverse < 2 s, half-time/tape stop < 4 s; gate uses the full requested value.");
         row.enabled.onClick = [this, i] { editOperation(i); };
         row.depth.onDragStart = [this, i] { operations[i].draggingDepth = true; };
         row.slice.onDragStart = [this, i] { operations[i].draggingSlice = true; };
@@ -145,6 +157,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
         addAndMakeVisible(*button);
     configureSlider(midiNoteSlider, "MIDI note for edited variation (0-127)");
     midiNoteSlider.setRange(0, 127, 1);
+    midiNoteSlider.setNumDecimalPlacesToDisplay(0);
     midiNoteSlider.onDragStart = [this] { draggingMidi = true; };
     midiNoteSlider.onDragEnd = [this] { draggingMidi = false; editMidiMap(); };
     midiNoteSlider.onValueChange = [this] { if (!draggingMidi) editMidiMap(); };
@@ -283,7 +296,9 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
     midiNoteSlider.setEnabled(!preview);
     returnOnNoteOff.setEnabled(!preview);
     cancelButton.setEnabled(queued >= 0);
-    triggerButton.setEnabled(queued >= 0 && transitionMode.getSelectedId() == 5);
+    // The scheduler captures the request policy; changing the selector does not
+    // rewrite it. Keep manual triggering available for any armed request.
+    triggerButton.setEnabled(queued >= 0);
     midiLabel.setText(audioProcessor.getMidiNoteEventCount() == 0
         ? "MIDI: no notes received; route host MIDI to GrooveMorph"
         : "MIDI: " + juce::String(audioProcessor.getMidiNoteEventCount()) + " note events received",

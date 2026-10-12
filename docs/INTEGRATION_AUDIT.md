@@ -4,7 +4,7 @@
 
 The Claude/Codex reconciliation preserves the substantive Claude scene/DSP implementation and the Codex PPQ boundary calculations. It replaces the alternative `SceneScheduler` with one `Scheduler` consumed by the processor, avoiding two competing processors and two conflicting scene owners. The prior M0 traceability checklist was stale: four scenes, five transformations, quantized transitions, MIDI, undo/audition, host state and bypass already have code and tests.
 
-The requested selectable timing modes and editor completion are concurrent integration tasks. This audit does not certify their final merged implementation or a finished release. Expansion F01–F12 is a separate specification branch and outside this audit.
+The selectable timing modes and editor controls are integrated and covered by headless regressions. This audit does not certify a finished release. Expansion F01–F12 is a separate specification branch and outside this audit.
 
 ## Preserved behavior
 
@@ -34,23 +34,23 @@ Limitations: host seeks inherently change source audio and can remain audible; t
 |---|---|---|
 | GM-FR-001 exposes editable phrase origin and beat subdivision | Manual tempo/meter/phrase bars; derived sample/PPQ origin; operation slice lengths | Concrete feature gap; do not advertise arbitrary grid-origin/subdivision authoring |
 | GM-FR-002 independent rhythmic event data and visual lanes | Four independent uniform operation-setting groups, no arbitrary per-step event model | Existing MVP is an operation-settings model; event-lane sequencing needs a separate schema/scheduler specification |
-| Slow-tempo history clamp visibly disclosed | DSP clamps effective repeat/reverse/rate slice lengths silently | UI must show the requested/effective limit or release notes disclose it; storage is bounded and tested |
+| Slow-tempo history clamp visibly disclosed | DSP clamps effective repeat/reverse/rate slice lengths silently | Editor slice tooltips now disclose operation-specific limits; storage is bounded and tested |
 | GM-FR-011 MIDI unavailable status | Note event count reports whether notes have arrived | Lack of notes does not establish that the host cannot route MIDI; phrase UI as “no MIDI notes received” |
 | GM-FR-006 standalone timing fallback | Automatic no-playhead resolver uses manual fields but remains stopped | Explicit Sample Clock mode must provide a free-running operation path; automatic mode must not fabricate host playback |
-| P0 UI audition/compare/undo/edit controls | Processor/core APIs exist; original editor only had intensity/status | Concurrent editor worker completes the controls; verify final combined UI in headless and real-host checks |
+| P0 UI audition/compare/undo/edit controls | Processor/core APIs exist; original editor only had intensity/status | Combined editor callback/preview regression passes locally; real-host UI remains unverified |
 | GM-QR-004 seek behavior | History isolation repaired; existing fades handle operation wraps/changes | Audible source discontinuities need target-host listening and measured criteria |
 
 ## Static real-time review
 
 `RhythmEngine::process` allocates no containers, performs no I/O and uses fixed-size operation/voice arrays. Ring memory is allocated in prepare. Processor callback uses existing buffer storage and chunks oversized host buffers. Model strings, serializer and undo allocations stay behind message-thread APIs. Audio snapshot handoff uses a try-lock and retains the prior scene on contention. Scheduler and clock calculations are bounded pure operations.
 
-Parameter lookup and host transport adapter behavior require final integration review: repeated string-based parameter lookup can be replaced with cached raw pointers to reduce callback overhead. Actual framework callback allocation/lock instrumentation and stress testing remain necessary. Static review cannot prove deadline compliance.
+The integrated processor caches all callback parameter pointers at construction; processing loads atomic scalar values directly. Host transport adapter behavior still requires host verification. Actual framework callback allocation/lock instrumentation and stress testing remain necessary. Static review cannot prove deadline compliance.
 
 ## Tests and build evidence
 
 Audit-local Linux GCC 13.3 Release portable build passed all seven CTest targets. These cover clock boundaries, optional transport resolution, scheduler policies, DSP fixtures/dry null/determinism/crossfades/history limits, scene isolation/sanitization, serialization recovery/round trips, MIDI note-map policy, undo and audition. The history-reset regression was observed failing with the reset disabled and passing with it restored.
 
-No full JUCE binary, target DAW, audio device, Windows process, plugin validator, CPU budget or installation result was produced by this audit worker. Results from earlier PRs are historical until rerun on the final integration head. The coordinator should update verification evidence after timing, UI and this fix are combined.
+Coordinator verification on the combined code: Linux GCC Release VST3 and Standalone builds succeeded; all eight CTest executables passed, including processor and editor callback tests. A software-rendered editor snapshot was inspected. Independent review found and fixed fractional-PPQ sample rounding and queued-manual trigger availability. Windows CI results are recorded in the final integration handoff when available. No target DAW, audio device, plugin validator, CPU-budget or installation result has been produced.
 
 ## Release checks still required
 

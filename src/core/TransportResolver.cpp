@@ -183,6 +183,11 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
         result.barAlignedToHost = true;
     }
 
+    if (mode == TimingMode::HostPpq)
+    {
+        if (!result.ppqPosition) result.missingFields |= MissingField::ppq;
+        if (!result.ppqPositionOfLastBarStart) result.missingFields |= MissingField::barAnchor;
+    }
     if (!hasHostPosition)
         result.source = hostFields == 0 ? TimingSource::Manual : TimingSource::FreeRun;
     else

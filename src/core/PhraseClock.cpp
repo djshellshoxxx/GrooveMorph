@@ -38,7 +38,10 @@ std::optional<long double> samplesToBoundary(long double position,
         return std::nullopt;
 
     constexpr long double boundaryTolerance = 1.0e-12L;
-    const auto boundaryNumber = std::ceil(position / interval - boundaryTolerance);
+    // A musical boundary belongs to its nearest sample, including when the
+    // callback starts just past the exact PPQ boundary but on that same sample.
+    const auto boundaryNumber = std::ceil((position - 0.5L / samplesPerBeat)
+                                          / interval - boundaryTolerance);
     const auto delta = (boundaryNumber * interval - position) * samplesPerBeat;
     if (!std::isfinite(delta) || delta < -1.0L
         || delta > static_cast<long double>(std::numeric_limits<std::int64_t>::max()))

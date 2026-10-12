@@ -242,7 +242,8 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
                     * t.grid.tempoBpm / (60.0 * t.sampleRate);
             rhythm.samplesPerBeat = t.samplesPerBeat();
             rhythm.beatAtBlockStart = t.positionInBeats();
-            rhythm.isPlaying = t.isPlaying;
+            rhythm.isPlaying = t.isPlaying
+                && (t.mode != core::TimingMode::HostPpq || t.ppqPosition.has_value());
         }
         engine.process(channels.data(), numChannels, n, settings, wetAmount, rhythm);
 
@@ -661,6 +662,15 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
     {
         sceneText = sceneTree.getProperty(sceneDataProperty).toString().toStdString();
         restoredState.removeChild(sceneTree, nullptr);
+    }
+    // Pre-selector projects always used Automatic. Restore that behavior even
+    // when an older preset is loaded into an instance currently using Sample Clock.
+    if (!restoredState.getChildWithProperty("id", timingModeId).isValid())
+    {
+        juce::ValueTree clockState{"PARAM"};
+        clockState.setProperty("id", timingModeId, nullptr);
+        clockState.setProperty("value", 0.0f, nullptr);
+        restoredState.appendChild(clockState, nullptr);
     }
     parameters.replaceState(restoredState);
 

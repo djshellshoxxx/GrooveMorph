@@ -55,7 +55,8 @@ public:
     // Allocates all state. Not real-time safe. Resets the engine.
     void prepare(double sampleRate, int maxBlockSize, int maxChannels);
 
-    // Clears history and smoothing state (real-time safe).
+    // Lifecycle reset clears the complete preallocated history and smoothing state.
+    // Use resetHistory() for constant-time invalidation inside the callback.
     void reset() noexcept;
 
     // Discard captured audio after a transport seek without clearing/allocating the rings.
