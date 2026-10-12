@@ -141,6 +141,26 @@ int main()
         expect("ppq-aligned bar", t && e.switched && e.sampleOffset == 2400);
     }
 
+    // A fresh host PPQ position takes precedence over the sample timeline.
+    // Changing host tempo between blocks must update the sample offset.
+    {
+        Scheduler s;
+        expect("request ppq-aligned", s.request(1, TransitionMode::NextBar));
+        auto t = timingAt(1000, 120.0, 48000.0);
+        t.ppqPosition = 11.95;
+        t.ppqPositionOfLastBarStart = 8.0;
+        auto e = s.process(t, 512);
+        expect("PPQ wins over inconsistent sample origin", !e.switched
+                   && s.samplesUntilSwitch() == 1200);
+        t.grid.tempoBpm = 60.0;
+        e = s.process(t, 512);
+        expect("tempo change recomputes PPQ offset", !e.switched
+                   && s.samplesUntilSwitch() == 2400);
+        t.ppqPosition = 11.99;
+        e = s.process(t, 512);
+        expect("PPQ switch inside block", e.switched && e.sampleOffset == 480);
+    }
+
     // Stopped transport keeps quantized requests pending.
     {
         Scheduler s;
