@@ -43,6 +43,7 @@ public:
     static constexpr const char* phraseBarsId = "phraseBars";
     static constexpr const char* activeVariationId = "activeVariation";
     static constexpr const char* transitionModeId = "transitionMode";
+    static constexpr const char* timingModeId = "timingMode";
     static constexpr const char* bypassId = "bypass";
 
     static constexpr double bypassFadeSeconds = 0.010;
@@ -160,6 +161,19 @@ private:
                        std::size_t variation, float wetAmount, float bypassTarget) noexcept;
     void process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, bool forceBypass) noexcept;
 
+    // Cache APVTS lookup results once; the callback only loads atomic scalars.
+    struct ParameterCache
+    {
+        std::atomic<float>* masterIntensity = nullptr;
+        std::atomic<float>* dryWet = nullptr;
+        std::atomic<float>* manualTempo = nullptr;
+        std::atomic<float>* manualMeterNumerator = nullptr;
+        std::atomic<float>* manualMeterDenominator = nullptr;
+        std::atomic<float>* phraseBars = nullptr;
+        std::atomic<float>* activeVariation = nullptr;
+        std::atomic<float>* transitionMode = nullptr;
+        std::atomic<float>* timingMode = nullptr;
+    } cached;
     juce::AudioParameterBool* bypassParameter = nullptr;
 
     // Message-thread model.
@@ -183,6 +197,11 @@ private:
     int maxBlock = 0;
     double currentSampleRate = 0.0;
     std::int64_t freeRunSample = 0;
+    std::optional<std::int64_t> previousHostSamplePosition;
+    std::optional<double> previousHostPpqPosition;
+    double previousHostTempo = 120.0;
+    int previousHostBlockSamples = 0;
+    bool previousHostWasPlaying = false;
     float bypassGain = 0.0f; // 0 = processed, 1 = dry
     float bypassStep = 1.0f;
     int lastSeenVariationParam = 0;

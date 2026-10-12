@@ -141,6 +141,26 @@ int main()
         expect("ppq-aligned bar", t && e.switched && e.sampleOffset == 2400);
     }
 
+    // A fresh host PPQ position takes precedence over the sample timeline.
+    // Changing host tempo between blocks must update the sample offset.
+    {
+        Scheduler s;
+        expect("request ppq-aligned", s.request(1, TransitionMode::NextBar));
+        auto t = timingAt(1000, 120.0, 48000.0);
+        t.ppqPosition = 11.95;
+        t.ppqPositionOfLastBarStart = 8.0;
+        auto e = s.process(t, 512);
+        expect("PPQ wins over inconsistent sample origin", !e.switched
+                   && s.samplesUntilSwitch() == 1200);
+        t.grid.tempoBpm = 60.0;
+        e = s.process(t, 512);
+        expect("tempo change recomputes PPQ offset", !e.switched
+                   && s.samplesUntilSwitch() == 2400);
+        t.ppqPosition = 11.99;
+        e = s.process(t, 512);
+        expect("PPQ switch inside block", e.switched && e.sampleOffset == 480);
+    }
+
     // Stopped transport keeps quantized requests pending.
     {
         Scheduler s;
@@ -193,6 +213,66 @@ int main()
 
         s.reset(3);
         expect("reset", s.activeVariation() == 3 && !s.queuedVariation());
+    }
+
+    // Fractional musical boundaries belong to their rounded sample. A callback
+    // starting just past exact PPQ must not skip the boundary by a whole beat.
+    {
+        constexpr double samplesPerQuarter = 48000.0 * 60.0 / 137.0;
+        HostTransport host{137.0, 4, 4, true, 20766};
+        host.ppqPosition = 20766.0 / samplesPerQuarter;
+        host.ppqPositionOfLastBarStart = 0.0;
+        Scheduler s;
+        s.request(1, TransitionMode::NextBeat);
+        auto t = *TransportResolver::resolve(host, PhraseGrid{}, 0, 48000.0, TimingMode::HostPpq);
+        expect("fractional PPQ boundary excluded from previous block", !s.process(t, 256).switched);
+        host.timeInSamples = 21022;
+        host.ppqPosition = 21022.0 / samplesPerQuarter;
+        t = *TransportResolver::resolve(host, PhraseGrid{}, 0, 48000.0, TimingMode::HostPpq);
+        const auto event = s.process(t, 256);
+        expect("fractional PPQ boundary fires on its rounded sample", event.switched && event.sampleOffset == 0);
+    }
+
+    // Different host clocks can intentionally disagree: selection controls the boundary.
+    for (auto clock : {TimingMode::Automatic, TimingMode::HostPpq, TimingMode::SampleClock})
+    {
+        HostTransport host{120.0, 4, 4, true, 95900};
+        host.ppqPosition = 3.99;
+        host.ppqPositionOfLastBarStart = 0.0;
+        auto t = *TransportResolver::resolve(host, PhraseGrid{}, 0, 48000.0, clock);
+        Scheduler s;
+        s.request(1, TransitionMode::NextBar);
+        auto e = s.process(t, 512);
+        expect("selected clock controls switch", e.switched
+               && e.sampleOffset == (clock == TimingMode::SampleClock ? 100 : 240));
+        s.request(2, TransitionMode::NextBar);
+        t.ppqPosition.reset();
+        e = s.process(t, 512);
+        expect("PPQ strict missing position", clock == TimingMode::HostPpq
+               ? !e.switched && s.queuedVariation() == 2 : e.switched);
+        if (clock == TimingMode::HostPpq)
+        {
+            s.request(2, TransitionMode::Manual);
+            s.trigger();
+            expect("manual works without PPQ", s.process(t, 512).switched);
+        }
+    }
+    for (int numerator : {3, 7})
+    {
+        HostTransport host{120.0, numerator, 8, true, 777};
+        host.ppqPositionOfLastBarStart = 16.0;
+        host.ppqPosition = 16.0 + numerator * 0.5 - 0.01;
+        auto t = *TransportResolver::resolve(host, PhraseGrid{}, 0, 48000.0, TimingMode::HostPpq);
+        Scheduler s;
+        s.request(1, TransitionMode::NextBar);
+        expect("odd meter nonzero bar anchor", s.process(t, 512).sampleOffset == 240);
+        s.request(2, TransitionMode::NextBeat);
+        t.ppqPosition = 0.49; // loop wrapped into first bar
+        t.ppqPositionOfLastBarStart = 0.0;
+        expect("loop recomputes PPQ boundary", s.process(t, 512).sampleOffset == 240);
+        s.request(3, TransitionMode::NextBeat);
+        t.ppqPosition = 0.5;
+        expect("PPQ exact boundary offset zero", s.process(t, 512).sampleOffset == 0);
     }
 
     if (failures == 0)

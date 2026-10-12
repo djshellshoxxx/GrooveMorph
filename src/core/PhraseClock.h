@@ -19,6 +19,7 @@ struct PhraseGrid
     int meterDenominator = 4;
     int phraseBars = 1;
     std::int64_t originSample = 0;
+    double originPpq = 0.0; // explicit musical phrase anchor in quarter-note units
 };
 
 class PhraseClock final
@@ -35,6 +36,12 @@ public:
         double sampleRate,
         const PhraseGrid& grid,
         Quantization quantization) noexcept;
+
+    // Musical boundary at the current host tempo; updated each callback rather than
+    // counting down stale samples through tempo-map changes.
+    [[nodiscard]] static std::optional<std::int64_t> samplesUntilPpqBoundary(
+        double currentPpq, std::optional<double> barStartPpq,
+        double sampleRate, const PhraseGrid& grid, Quantization quantization) noexcept;
 
     // Position relative to grid.originSample, in meter beats / bars / phrases.
     // Negative before the origin. nullopt when the grid or sample rate is invalid.

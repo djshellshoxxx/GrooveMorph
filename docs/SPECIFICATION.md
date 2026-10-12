@@ -477,3 +477,27 @@ Evidence limitations: product pages document marketed features, not exhaustive f
 - **Consistency:** full phrase capture is not simultaneously promised as zero latency; it is deferred behind an explicit latency/capture decision. Host, manual and analysis timing have distinct precedence and missing-data behavior. CLAP is deferred by the current repository decision.
 - **Real-time review:** audio-thread restrictions and thread ownership are specified; analysis, state parsing, file work and UI are outside the process callback.
 - **Remaining uncertainties:** exact target hosts/versions, owner hardware, capture duration and monitoring tolerance, JUCE license/business fit, stable JUCE CLAP route, acceptable quality/CPU tradeoffs, final scene-bank format, product license and name. This document is a research/specification artifact; the separate M0 engineering work is tracked in the repository.
+
+## Approved timing integration contract (2026-10-12)
+
+The `timingMode` host parameter appends three stable choice values: 0 Automatic
+(default), 1 Host PPQ, 2 Sample Clock. All choices use the same Scheduler, scene
+bank and rhythm engine; there is no alternate processor or competing scheduler.
+Existing state without the parameter restores Automatic, including on an already running instance.
+
+Automatic uses fresh host PPQ for quantization and sample timing when the musical
+fields required for that boundary are absent or invalid. Host PPQ holds beat/bar
+requests while PPQ or a credible last-bar anchor is missing; phrase quantization
+uses PPQ relative to `PhraseGrid::originPpq`. Immediate/manual switches remain
+available in every mode. Sample Clock deliberately ignores PPQ for quantization
+and phase, using host sample position or the internal sample counter, with host
+BPM/meter when valid and manual settings otherwise. In Sample Clock, missing
+host play state enables explicitly selected standalone preview. An explicitly
+stopped host suspends rhythmic playback in every mode.
+
+Pending requests are recomputed from each fresh callback or MIDI segment, so
+mode changes, tempo changes, loop wraps and seeks do not retain a stale countdown.
+PPQ advances across MIDI and render sub-blocks at the reported block tempo.
+Within-block tempo ramps cannot be inferred from a single JUCE transport snapshot;
+accuracy is limited to timing data delivered by the host. Sample Clock is a
+constant-current-tempo grid, and is not a reconstruction of the host tempo map.

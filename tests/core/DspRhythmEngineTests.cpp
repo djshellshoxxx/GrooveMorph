@@ -249,6 +249,24 @@ int main()
         expect("slow tempo finite", finite);
     }
 
+    // A seek must not replay the previous timeline's captured audio. The reset is
+    // constant-time: untouched physical ring slots are invalid before time zero.
+    {
+        engine.reset();
+        const auto reverse = only(OperationType::ReverseSlice, 0.25f);
+        std::vector<float> prime(12000, 1.0f);
+        const auto prior = run(engine, prime, 1.0f, [&](std::size_t) { return reverse; });
+        expect("history populated before seek", !prior.empty() && prior.back() == 1.0f);
+        engine.resetHistory();
+        std::vector<float> silence(256, 0.0f);
+        float* chans[] = {silence.data()};
+        engine.process(chans, 1, 256, reverse, 1.0f, RhythmTiming{samplesPerBeat, 0.125, true});
+        bool empty = true;
+        for (float sample : silence)
+            empty = empty && sample == 0.0f;
+        expect("seek discards stale history", empty);
+    }
+
     if (failures == 0)
         std::cout << "All RhythmEngine tests passed\n";
     return failures == 0 ? 0 : 1;

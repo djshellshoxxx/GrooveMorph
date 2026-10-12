@@ -14,18 +14,18 @@ constexpr auto sceneDataProperty = "data";
 constexpr int meterDenominators[] = {1, 2, 4, 8, 16};
 constexpr int maxProcessedChannels = 2;
 
-float loadParameter(const juce::AudioProcessorValueTreeState& state, const char* id, float fallback)
+float loadParameter(const std::atomic<float>* parameter, float fallback) noexcept
 {
-    const auto* value = state.getRawParameterValue(id);
-    return value != nullptr ? value->load(std::memory_order_relaxed) : fallback;
+    const auto value = parameter != nullptr ? parameter->load(std::memory_order_relaxed) : fallback;
+    return std::isfinite(value) ? value : fallback;
 }
 
-int loadIndex(const juce::AudioProcessorValueTreeState& state, const char* id, int maxIndex)
+int loadIndex(const std::atomic<float>* parameter, int maxIndex) noexcept
 {
-    const auto value = loadParameter(state, id, 0.0f);
+    const auto value = loadParameter(parameter, 0.0f);
     if (!std::isfinite(value))
         return 0;
-    return juce::jlimit(0, maxIndex, static_cast<int>(std::lround(value)));
+    return juce::jlimit(0, maxIndex, static_cast<int>(std::lround(juce::jlimit(0.0f, static_cast<float>(maxIndex), value))));
 }
 } // namespace
 
@@ -35,8 +35,17 @@ GrooveMorphAudioProcessor::GrooveMorphAudioProcessor()
           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, stateType, createParameterLayout())
 {
+    cached.masterIntensity = parameters.getRawParameterValue(masterIntensityId);
+    cached.dryWet = parameters.getRawParameterValue(dryWetId);
+    cached.manualTempo = parameters.getRawParameterValue(manualTempoId);
+    cached.manualMeterNumerator = parameters.getRawParameterValue(manualMeterNumeratorId);
+    cached.manualMeterDenominator = parameters.getRawParameterValue(manualMeterDenominatorId);
+    cached.phraseBars = parameters.getRawParameterValue(phraseBarsId);
+    cached.activeVariation = parameters.getRawParameterValue(activeVariationId);
+    cached.transitionMode = parameters.getRawParameterValue(transitionModeId);
+    cached.timingMode = parameters.getRawParameterValue(timingModeId);
     bypassParameter = dynamic_cast<juce::AudioParameterBool*>(parameters.getParameter(bypassId));
-    lastSeenVariationParam = loadIndex(parameters, activeVariationId, static_cast<int>(core::variationCount) - 1);
+    lastSeenVariationParam = loadIndex(cached.activeVariation, static_cast<int>(core::variationCount) - 1);
     const std::lock_guard<std::mutex> lock(modelMutex);
     publishSceneLocked();
 }
@@ -83,6 +92,9 @@ GrooveMorphAudioProcessor::createParameterLayout()
         2));
     layout.add(std::make_unique<juce::AudioParameterBool>(
         juce::ParameterID{bypassId, 1}, "Bypass", false));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{timingModeId, 1}, "Timing Mode",
+        juce::StringArray{"Automatic", "Host PPQ", "Sample Clock"}, 0));
     return layout;
 }
 
@@ -102,6 +114,10 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     engine.prepare(currentSampleRate, maxBlock, maxProcessedChannels);
     dryBuffer.setSize(maxProcessedChannels, maxBlock, false, true, false);
     freeRunSample = 0;
+    previousHostSamplePosition.reset();
+    previousHostPpqPosition.reset();
+    previousHostBlockSamples = 0;
+    previousHostWasPlaying = false;
     bypassStep = static_cast<float>(1.0 / juce::jmax(1.0, bypassFadeSeconds * currentSampleRate));
     const bool bypassed = bypassParameter != nullptr && bypassParameter->get();
     bypassGain = bypassed ? 1.0f : 0.0f;
@@ -150,7 +166,7 @@ core::HostTransport GrooveMorphAudioProcessor::readHostTransport() const
 
 core::TransitionMode GrooveMorphAudioProcessor::currentTransitionMode() const noexcept
 {
-    return static_cast<core::TransitionMode>(loadIndex(parameters, transitionModeId, 4));
+    return static_cast<core::TransitionMode>(loadIndex(cached.transitionMode, 4));
 }
 
 void GrooveMorphAudioProcessor::requestVariation(std::size_t index) noexcept
@@ -221,9 +237,13 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
         {
             auto t = *blockTiming;
             t.currentSample += offset;
+            if (t.ppqPosition)
+                *t.ppqPosition += static_cast<double>(offset)
+                    * t.grid.tempoBpm / (60.0 * t.sampleRate);
             rhythm.samplesPerBeat = t.samplesPerBeat();
             rhythm.beatAtBlockStart = t.positionInBeats();
-            rhythm.isPlaying = t.isPlaying;
+            rhythm.isPlaying = t.isPlaying
+                && (t.mode != core::TimingMode::HostPpq || t.ppqPosition.has_value());
         }
         engine.process(channels.data(), numChannels, n, settings, wetAmount, rhythm);
 
@@ -283,7 +303,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         scheduler.reset(static_cast<std::size_t>(reset));
         midiTrigger.reset();
     }
-    const int variationParam = loadIndex(parameters, activeVariationId, static_cast<int>(core::variationCount) - 1);
+    const int variationParam = loadIndex(cached.activeVariation, static_cast<int>(core::variationCount) - 1);
     if (uiResyncParam.exchange(false, std::memory_order_acq_rel))
         lastSeenVariationParam = variationParam;
     const auto mode = currentTransitionMode();
@@ -300,15 +320,45 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         scheduler.trigger();
 
     // Timing at the block start.
-    const auto denominatorIndex = loadIndex(parameters, manualMeterDenominatorId, 4);
+    const auto denominatorIndex = loadIndex(cached.manualMeterDenominator, 4);
     const core::PhraseGrid manualGrid{
-        static_cast<double>(loadParameter(parameters, manualTempoId, 120.0f)),
-        static_cast<int>(loadParameter(parameters, manualMeterNumeratorId, 4.0f)),
+        static_cast<double>(loadParameter(cached.manualTempo, 120.0f)),
+        static_cast<int>(loadParameter(cached.manualMeterNumerator, 4.0f)),
         meterDenominators[denominatorIndex],
-        static_cast<int>(loadParameter(parameters, phraseBarsId, 4.0f)),
+        static_cast<int>(loadParameter(cached.phraseBars, 4.0f)),
         0};
+    const auto hostTransport = readHostTransport();
     const auto timing = core::TransportResolver::resolve(
-        readHostTransport(), manualGrid, freeRunSample, currentSampleRate);
+        hostTransport, manualGrid, freeRunSample, currentSampleRate,
+        static_cast<core::TimingMode>(loadIndex(cached.timingMode, 2)));
+
+    // Sample position is authoritative for detecting host seeks/loop wraps. For
+    // PPQ-only hosts compare against the prior block's tempo, and suspend this
+    // check at tempo changes because a ramp may integrate differently in the host.
+    // Use wide arithmetic so a hostile sample counter cannot overflow subtraction.
+    bool hostDiscontinuity = false;
+    if (hostTransport.timeInSamples && previousHostSamplePosition)
+    {
+        const long double advance = static_cast<long double>(*hostTransport.timeInSamples)
+                                    - static_cast<long double>(*previousHostSamplePosition);
+        const int expected = previousHostWasPlaying ? previousHostBlockSamples : 0;
+        hostDiscontinuity = std::abs(advance - expected) > 1.0L;
+    }
+    else if (timing && timing->ppqPosition && previousHostPpqPosition
+             && timing->grid.tempoBpm == previousHostTempo)
+    {
+        const double expected = previousHostWasPlaying
+            ? previousHostBlockSamples * previousHostTempo / (60.0 * currentSampleRate) : 0.0;
+        const double tolerance = std::max(1.0e-7, 2.0 * previousHostTempo / (60.0 * currentSampleRate));
+        hostDiscontinuity = std::abs(*timing->ppqPosition - *previousHostPpqPosition - expected) > tolerance;
+    }
+    if (hostDiscontinuity)
+        engine.resetHistory();
+    previousHostSamplePosition = hostTransport.timeInSamples;
+    previousHostPpqPosition = timing ? timing->ppqPosition : std::nullopt;
+    previousHostTempo = timing ? timing->grid.tempoBpm : previousHostTempo;
+    previousHostWasPlaying = hostTransport.isPlaying.value_or(false);
+    previousHostBlockSamples = numSamples;
     timingValid.store(timing.has_value(), std::memory_order_relaxed);
     if (timing)
     {
@@ -319,8 +369,8 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         beatInBar.store(timing->beatInBar(), std::memory_order_relaxed);
     }
 
-    const float intensity = juce::jlimit(0.0f, 1.0f, loadParameter(parameters, masterIntensityId, 0.0f));
-    const float dryWet = juce::jlimit(0.0f, 1.0f, loadParameter(parameters, dryWetId, 1.0f));
+    const float intensity = juce::jlimit(0.0f, 1.0f, loadParameter(cached.masterIntensity, 0.0f));
+    const float dryWet = juce::jlimit(0.0f, 1.0f, loadParameter(cached.dryWet, 1.0f));
     const float wetAmount = intensity * dryWet;
     const bool bypassed = forceBypass || (bypassParameter != nullptr && bypassParameter->get());
     const float bypassTarget = bypassed ? 1.0f : 0.0f;
@@ -349,6 +399,11 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         {
             auto segmentTiming = *timing;
             segmentTiming.currentSample += position;
+            // MIDI splits the host block. Advance its musical position to the
+            // exact segment start before quantizing a variation switch.
+            if (segmentTiming.ppqPosition)
+                *segmentTiming.ppqPosition += static_cast<double>(position)
+                    * segmentTiming.grid.tempoBpm / (60.0 * segmentTiming.sampleRate);
             const auto before = playing();
             const auto switchEvent = scheduler.process(segmentTiming, length);
             if (switchEvent.switched)
@@ -587,6 +642,12 @@ void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 
 void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
+    // Limit untrusted host-supplied state before JUCE XML decoding. Preserve the
+    // currently loaded scene and parameters if the envelope itself is invalid.
+    constexpr int maximumStateBytes = 1024 * 1024;
+    if (data == nullptr || sizeInBytes <= 0 || sizeInBytes > maximumStateBytes)
+        return;
+
     const auto xml = getXmlFromBinary(data, sizeInBytes);
     if (xml == nullptr || !xml->hasTagName(stateType))
         return;
@@ -601,6 +662,15 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
     {
         sceneText = sceneTree.getProperty(sceneDataProperty).toString().toStdString();
         restoredState.removeChild(sceneTree, nullptr);
+    }
+    // Pre-selector projects always used Automatic. Restore that behavior even
+    // when an older preset is loaded into an instance currently using Sample Clock.
+    if (!restoredState.getChildWithProperty("id", timingModeId).isValid())
+    {
+        juce::ValueTree clockState{"PARAM"};
+        clockState.setProperty("id", timingModeId, nullptr);
+        clockState.setProperty("value", 0.0f, nullptr);
+        restoredState.appendChild(clockState, nullptr);
     }
     parameters.replaceState(restoredState);
 

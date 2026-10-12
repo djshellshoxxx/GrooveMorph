@@ -20,6 +20,9 @@ struct HostTransport
     std::optional<double> ppqPositionOfLastBarStart = std::nullopt;
 };
 
+// Stable parameter values: append rather than reorder.
+enum class TimingMode { Automatic = 0, HostPpq = 1, SampleClock = 2 };
+
 enum class TimingSource
 {
     Host,        // all timing fields came from the host
@@ -34,13 +37,18 @@ inline constexpr std::uint32_t tempo = 1u << 0;
 inline constexpr std::uint32_t meter = 1u << 1;
 inline constexpr std::uint32_t playState = 1u << 2;
 inline constexpr std::uint32_t position = 1u << 3;
+inline constexpr std::uint32_t ppq = 1u << 4;
+inline constexpr std::uint32_t barAnchor = 1u << 5;
 } // namespace MissingField
 
 struct ResolvedTiming
 {
     PhraseGrid grid;
+    TimingMode mode = TimingMode::Automatic;
     std::int64_t currentSample = 0;
     bool isPlaying = false;
+    std::optional<double> ppqPosition;
+    std::optional<double> ppqPositionOfLastBarStart;
     TimingSource source = TimingSource::Manual;
     std::uint32_t missingFields = 0; // bitmask of MissingField values
     double sampleRate = 48000.0;
@@ -73,6 +81,6 @@ public:
         const HostTransport& host,
         const PhraseGrid& manual,
         std::int64_t freeRunSample,
-        double sampleRate) noexcept;
+        double sampleRate, TimingMode mode = TimingMode::Automatic) noexcept;
 };
 } // namespace groovemorph::core

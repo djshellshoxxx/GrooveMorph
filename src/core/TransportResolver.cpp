@@ -33,7 +33,8 @@ std::optional<std::int64_t> hostOrigin(const HostTransport& host,
     const long double ppq = *host.ppqPosition;
 
     long double samplesBack = ppq * samplesPerQuarter; // distance back to ppq 0
-    if (host.ppqPositionOfLastBarStart && std::isfinite(*host.ppqPositionOfLastBarStart))
+    if (host.ppqPositionOfLastBarStart && std::isfinite(*host.ppqPositionOfLastBarStart)
+        && std::abs(*host.ppqPositionOfLastBarStart) <= 1.0e9)
     {
         const long double barStart = *host.ppqPositionOfLastBarStart;
         const long double sinceBar = ppq - barStart;
@@ -72,17 +73,19 @@ double ResolvedTiming::samplesPerPhrase() const noexcept
 
 double ResolvedTiming::positionInBeats() const noexcept
 {
+    if (mode != TimingMode::SampleClock && ppqPosition)
+        return (*ppqPosition - grid.originPpq) * grid.meterDenominator / 4.0;
     return PhraseClock::positionInBeats(currentSample, sampleRate, grid).value_or(0.0);
 }
 
 double ResolvedTiming::positionInBars() const noexcept
 {
-    return PhraseClock::positionInBars(currentSample, sampleRate, grid).value_or(0.0);
+    return positionInBeats() / grid.meterNumerator;
 }
 
 double ResolvedTiming::positionInPhrases() const noexcept
 {
-    return PhraseClock::positionInPhrases(currentSample, sampleRate, grid).value_or(0.0);
+    return positionInBars() / grid.phraseBars;
 }
 
 double ResolvedTiming::beatInBar() const noexcept
@@ -99,13 +102,14 @@ double ResolvedTiming::barInPhrase() const noexcept
 std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& host,
                                                          const PhraseGrid& manual,
                                                          std::int64_t freeRunSample,
-                                                         double sampleRate) noexcept
+                                                         double sampleRate, TimingMode mode) noexcept
 {
     if (!PhraseClock::samplesPerMeterBeat(sampleRate, manual).has_value())
         return std::nullopt;
 
     ResolvedTiming result;
     result.grid = manual;
+    result.mode = mode;
     result.sampleRate = sampleRate;
     int hostFields = 0;
 
@@ -143,29 +147,48 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
     }
     else
     {
-        result.isPlaying = true; // free-run keeps the grid advancing
+        // Explicit Sample Clock selection permits standalone preview/free-run.
+        // An explicitly stopped host still stops every mode.
+        result.isPlaying = mode == TimingMode::SampleClock;
         result.missingFields |= MissingField::playState;
     }
 
-    const bool hasPosition = host.timeInSamples.has_value() && *host.timeInSamples >= 0;
-    if (hasPosition)
+    // Host musical position is sufficient when the absolute sample count is absent.
+    // Accept signed sample positions so negative pre-roll is not discarded.
+    const bool hasSamplePosition = host.timeInSamples.has_value();
+    result.currentSample = hasSamplePosition ? *host.timeInSamples : freeRunSample;
+    if (host.ppqPosition && std::isfinite(*host.ppqPosition)
+        && std::abs(*host.ppqPosition) <= 1.0e9)
+        result.ppqPosition = *host.ppqPosition;
+    if (host.ppqPositionOfLastBarStart && std::isfinite(*host.ppqPositionOfLastBarStart)
+        && std::abs(*host.ppqPositionOfLastBarStart) <= 1.0e9)
+        result.ppqPositionOfLastBarStart = *host.ppqPositionOfLastBarStart;
+    if (result.ppqPositionOfLastBarStart && result.ppqPosition)
     {
-        result.currentSample = *host.timeInSamples;
+        const auto sinceBar = *result.ppqPosition - *result.ppqPositionOfLastBarStart;
+        const auto quartersPerBar = result.grid.meterNumerator * 4.0 / result.grid.meterDenominator;
+        if (sinceBar < -1.0e-6 || sinceBar >= quartersPerBar + 1.0e-6)
+            result.ppqPositionOfLastBarStart.reset();
+    }
+    const bool hasHostPosition = hasSamplePosition || result.ppqPosition.has_value();
+    if (hasHostPosition)
         ++hostFields;
-    }
     else
-    {
-        result.currentSample = freeRunSample;
         result.missingFields |= MissingField::position;
-    }
 
+    if (mode != TimingMode::SampleClock)
     if (const auto origin = hostOrigin(host, result.grid, result.currentSample, sampleRate))
     {
         result.grid.originSample = *origin;
         result.barAlignedToHost = true;
     }
 
-    if (!hasPosition)
+    if (mode == TimingMode::HostPpq)
+    {
+        if (!result.ppqPosition) result.missingFields |= MissingField::ppq;
+        if (!result.ppqPositionOfLastBarStart) result.missingFields |= MissingField::barAnchor;
+    }
+    if (!hasHostPosition)
         result.source = hostFields == 0 ? TimingSource::Manual : TimingSource::FreeRun;
     else
         result.source = result.missingFields == 0 ? TimingSource::Host : TimingSource::Mixed;
