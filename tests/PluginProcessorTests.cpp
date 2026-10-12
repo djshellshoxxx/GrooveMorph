@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <string_view>
@@ -45,6 +46,28 @@ void processSilence(GrooveMorphAudioProcessor& processor, int samples)
     buffer.clear();
     juce::MidiBuffer midi;
     processor.processBlock(buffer, midi);
+}
+
+std::vector<float> renderGainRamp(const std::vector<int>& blocks)
+{
+    GrooveMorphAudioProcessor processor;
+    setParameter(processor, "masterIntensity", 1.0f);
+    processor.prepareToPlay(48000.0, 256);
+    setParameter(processor, "masterIntensity", 0.0f);
+
+    std::vector<float> output;
+    output.reserve(480);
+    for (const auto count : blocks)
+    {
+        juce::AudioBuffer<float> buffer(2, count);
+        for (int channel = 0; channel < 2; ++channel)
+            juce::FloatVectorOperations::fill(buffer.getWritePointer(channel), 1.0f, count);
+        juce::MidiBuffer midi;
+        processor.processBlock(buffer, midi);
+        for (int sample = 0; sample < count; ++sample)
+            output.push_back(buffer.getSample(0, sample));
+    }
+    return output;
 }
 } // namespace
 
@@ -127,18 +150,15 @@ int main()
     }
 
     {
-        GrooveMorphAudioProcessor processor;
-        setParameter(processor, "masterIntensity", 1.0f);
-        processor.prepareToPlay(48000.0, 64);
-        setParameter(processor, "masterIntensity", 0.0f);
-
-        juce::AudioBuffer<float> buffer(2, 64);
-        for (int channel = 0; channel < 2; ++channel)
-            juce::FloatVectorOperations::fill(buffer.getWritePointer(channel), 1.0f, 64);
-        juce::MidiBuffer midi;
-        processor.processBlock(buffer, midi);
-        expect("gain change ramps from previous value", buffer.getSample(0, 0) > 0.9f);
-        expect("gain change reaches target", buffer.getSample(0, 63) < 0.05f);
+        const auto singleBlock = renderGainRamp({480});
+        const auto splitBlocks = renderGainRamp({64, 256, 160});
+        expect("gain smoothing output size", singleBlock.size() == 480 && splitBlocks.size() == 480);
+        bool blockInvariant = singleBlock.size() == splitBlocks.size();
+        for (std::size_t i = 0; blockInvariant && i < singleBlock.size(); ++i)
+            blockInvariant = std::abs(singleBlock[i] - splitBlocks[i]) < 1.0e-6f;
+        expect("gain ramp is sample-domain and block-size invariant", blockInvariant);
+        expect("ramp starts near previous gain", singleBlock.front() > 0.9f);
+        expect("1 ms ramp reaches target", singleBlock.back() < 0.05f);
     }
 
     if (failures == 0)

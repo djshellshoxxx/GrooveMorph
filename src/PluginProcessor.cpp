@@ -1,5 +1,8 @@
 #include "PluginProcessor.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace
 {
 constexpr auto stateType = "GrooveMorphState";
@@ -10,6 +13,7 @@ constexpr auto manualMeterDenominatorId = "manualMeterDenominator";
 constexpr auto phraseBarsId = "phraseBars";
 constexpr int meterDenominators[] = {1, 2, 4, 8, 16};
 constexpr int maximumStateBytes = 1024 * 1024;
+constexpr double gainRampSeconds = 0.001;
 
 float loadParameter(const std::atomic<float>* value, float fallback) noexcept
 {
@@ -69,7 +73,10 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     juce::ignoreUnused(samplesPerBlock);
     currentSampleRate = sampleRate;
     freeRunSample = 0;
-    previousGain = loadParameter(intensityParameter, 1.0f);
+    currentGain = loadParameter(intensityParameter, 1.0f);
+    targetGain = currentGain;
+    gainStep = 0.0f;
+    gainRampRemaining = 0;
     setLatencySamples(0);
     prepared.store(true, std::memory_order_relaxed);
 }
@@ -132,6 +139,13 @@ void GrooveMorphAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     freeRunSample += buffer.getNumSamples();
 
     const auto gain = loadParameter(intensityParameter, 1.0f);
+    if (gain != targetGain)
+    {
+        targetGain = gain;
+        gainRampRemaining = juce::jmax(1, static_cast<int>(std::lround(currentSampleRate * gainRampSeconds)));
+        gainStep = (targetGain - currentGain) / static_cast<float>(gainRampRemaining);
+    }
+
     const auto inputChannels = getTotalNumInputChannels();
     const auto outputChannels = getTotalNumOutputChannels();
     const auto channelsToProcess = juce::jmin(inputChannels, outputChannels, buffer.getNumChannels());
@@ -139,9 +153,17 @@ void GrooveMorphAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     for (int channel = channelsToProcess; channel < buffer.getNumChannels(); ++channel)
         buffer.clear(channel, 0, buffer.getNumSamples());
 
-    for (int channel = 0; channel < channelsToProcess; ++channel)
-        buffer.applyGainRamp(channel, 0, buffer.getNumSamples(), previousGain, gain);
-    previousGain = gain;
+    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    {
+        if (gainRampRemaining > 0)
+        {
+            currentGain += gainStep;
+            if (--gainRampRemaining == 0)
+                currentGain = targetGain;
+        }
+        for (int channel = 0; channel < channelsToProcess; ++channel)
+            buffer.getWritePointer(channel)[sample] *= currentGain;
+    }
 }
 
 void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)

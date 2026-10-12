@@ -57,7 +57,10 @@ private:
 
     double currentSampleRate = 0.0;
     std::int64_t freeRunSample = 0;
-    float previousGain = 0.0f;
+    float currentGain = 0.0f;
+    float targetGain = 0.0f;
+    float gainStep = 0.0f;
+    int gainRampRemaining = 0;
     std::atomic<float>* intensityParameter = nullptr;
     std::atomic<float>* tempoParameter = nullptr;
     std::atomic<float>* meterNumeratorParameter = nullptr;
