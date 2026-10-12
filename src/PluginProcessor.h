@@ -7,6 +7,13 @@
 #include <atomic>
 #include <cstdint>
 
+struct TimingStatusSnapshot
+{
+    groovemorph::core::TimingSource source = groovemorph::core::TimingSource::Manual;
+    std::uint32_t missingFields = 0;
+    bool valid = false;
+};
+
 class GrooveMorphAudioProcessor final : public juce::AudioProcessor
 {
 public:
@@ -38,19 +45,35 @@ public:
 
     juce::AudioProcessorValueTreeState parameters;
 
+    // One packed atomic keeps the UI's timing source, missing fields, and validity
+    // from the same completed audio callback.
+    TimingStatusSnapshot getTimingStatus() const noexcept
+    {
+        const auto packed = timingStatus.load(std::memory_order_relaxed);
+        return {
+            static_cast<groovemorph::core::TimingSource>((packed >> sourceShift) & sourceMask),
+            static_cast<std::uint32_t>(packed & missingMask),
+            ((packed >> validShift) & 1u) != 0
+        };
+    }
     groovemorph::core::TimingSource getTimingSource() const noexcept
     {
-        return static_cast<groovemorph::core::TimingSource>(timingSource.load(std::memory_order_relaxed));
+        return getTimingStatus().source;
     }
     std::uint32_t getMissingTimingFields() const noexcept
     {
-        return missingTimingFields.load(std::memory_order_relaxed);
+        return getTimingStatus().missingFields;
     }
-    bool hasValidTiming() const noexcept { return timingValid.load(std::memory_order_relaxed); }
+    bool hasValidTiming() const noexcept { return getTimingStatus().valid; }
     bool isPrepared() const noexcept { return prepared.load(std::memory_order_relaxed); }
     bool hadStateRecovery() const noexcept { return stateRecoveryNeeded.load(std::memory_order_relaxed); }
 
 private:
+    static constexpr unsigned sourceShift = 32;
+    static constexpr unsigned validShift = 34;
+    static constexpr std::uint64_t sourceMask = 0x3u;
+    static constexpr std::uint64_t missingMask = 0xffffffffu;
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     groovemorph::core::HostTransport readHostTransport() const;
     void resetParametersToDefaults() noexcept;
@@ -67,9 +90,7 @@ private:
     std::atomic<float>* meterDenominatorParameter = nullptr;
     std::atomic<float>* phraseBarsParameter = nullptr;
     std::atomic<bool> prepared{false};
-    std::atomic<int> timingSource{static_cast<int>(groovemorph::core::TimingSource::Manual)};
-    std::atomic<std::uint32_t> missingTimingFields{0};
-    std::atomic<bool> timingValid{false};
+    std::atomic<std::uint64_t> timingStatus{0};
     std::atomic<bool> stateRecoveryNeeded{false};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GrooveMorphAudioProcessor)

@@ -130,12 +130,12 @@ void GrooveMorphAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         0};
     const auto timing = groovemorph::core::TransportResolver::resolve(
         readHostTransport(), manualGrid, freeRunSample, currentSampleRate);
-    timingValid.store(timing.has_value(), std::memory_order_relaxed);
-    if (timing)
-    {
-        timingSource.store(static_cast<int>(timing->source), std::memory_order_relaxed);
-        missingTimingFields.store(timing->missingFields, std::memory_order_relaxed);
-    }
+    const auto source = timing ? timing->source : groovemorph::core::TimingSource::Manual;
+    const auto missing = timing ? timing->missingFields : 0u;
+    const auto packedTiming = static_cast<std::uint64_t>(missing)
+        | (static_cast<std::uint64_t>(source) << 32)
+        | (static_cast<std::uint64_t>(timing.has_value()) << 34);
+    timingStatus.store(packedTiming, std::memory_order_relaxed);
     freeRunSample += buffer.getNumSamples();
 
     const auto gain = loadParameter(intensityParameter, 1.0f);

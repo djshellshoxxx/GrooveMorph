@@ -25,7 +25,7 @@ juce::String describeTiming(const GrooveMorphAudioProcessor& processor)
     }
 
     juce::StringArray missing;
-    const auto fields = processor.getMissingTimingFields();
+    const auto fields = status.missingFields;
     if ((fields & Missing::tempo) != 0) missing.add("tempo");
     if ((fields & Missing::meter) != 0) missing.add("meter");
     if ((fields & Missing::playState) != 0) missing.add("play state");
