@@ -38,7 +38,6 @@ public:
 
     juce::AudioProcessorValueTreeState parameters;
 
-    // Latest resolved timing status, written by the audio thread for the editor to display.
     groovemorph::core::TimingSource getTimingSource() const noexcept
     {
         return static_cast<groovemorph::core::TimingSource>(timingSource.load(std::memory_order_relaxed));
@@ -49,18 +48,26 @@ public:
     }
     bool hasValidTiming() const noexcept { return timingValid.load(std::memory_order_relaxed); }
     bool isPrepared() const noexcept { return prepared.load(std::memory_order_relaxed); }
+    bool hadStateRecovery() const noexcept { return stateRecoveryNeeded.load(std::memory_order_relaxed); }
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     groovemorph::core::HostTransport readHostTransport() const;
+    void resetParametersToDefaults() noexcept;
 
     double currentSampleRate = 0.0;
     std::int64_t freeRunSample = 0;
     float previousGain = 0.0f;
+    std::atomic<float>* intensityParameter = nullptr;
+    std::atomic<float>* tempoParameter = nullptr;
+    std::atomic<float>* meterNumeratorParameter = nullptr;
+    std::atomic<float>* meterDenominatorParameter = nullptr;
+    std::atomic<float>* phraseBarsParameter = nullptr;
     std::atomic<bool> prepared{false};
     std::atomic<int> timingSource{static_cast<int>(groovemorph::core::TimingSource::Manual)};
     std::atomic<std::uint32_t> missingTimingFields{0};
     std::atomic<bool> timingValid{false};
+    std::atomic<bool> stateRecoveryNeeded{false};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GrooveMorphAudioProcessor)
 };

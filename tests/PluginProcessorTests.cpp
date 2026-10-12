@@ -3,6 +3,7 @@
 #include <cmath>
 #include <iostream>
 #include <string_view>
+#include <vector>
 
 using groovemorph::core::TimingSource;
 namespace Missing = groovemorph::core::MissingField;
@@ -31,6 +32,11 @@ void setParameter(GrooveMorphAudioProcessor& processor, const char* id, float pl
 {
     auto* parameter = processor.parameters.getParameter(id);
     parameter->setValueNotifyingHost(parameter->convertTo0to1(plainValue));
+}
+
+float getParameter(const GrooveMorphAudioProcessor& processor, const char* id)
+{
+    return processor.parameters.getRawParameterValue(id)->load();
 }
 
 void processSilence(GrooveMorphAudioProcessor& processor, int samples)
@@ -71,17 +77,21 @@ int main()
 
         GrooveMorphAudioProcessor restored;
         restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
-        const auto value = [&restored](const char* id) {
-            return restored.parameters.getRawParameterValue(id)->load();
-        };
-        expect("state restores intensity", std::abs(value("masterIntensity") - 0.25f) < 1.0e-4f);
-        expect("state restores tempo", std::abs(value("manualTempo") - 97.5f) < 1.0e-2f);
-        expect("state restores meter", value("manualMeterNumerator") == 7.0f);
-        expect("state restores phrase bars", value("phraseBars") == 8.0f);
+        expect("state restores intensity", std::abs(getParameter(restored, "masterIntensity") - 0.25f) < 1.0e-4f);
+        expect("state restores tempo", std::abs(getParameter(restored, "manualTempo") - 97.5f) < 1.0e-2f);
+        expect("state restores meter", getParameter(restored, "manualMeterNumerator") == 7.0f);
+        expect("state restores phrase bars", getParameter(restored, "phraseBars") == 8.0f);
+        expect("valid state clears recovery status", !restored.hadStateRecovery());
 
         const char garbage[] = "not a state";
         restored.setStateInformation(garbage, sizeof(garbage));
-        expect("malformed state ignored", std::abs(value("manualTempo") - 97.5f) < 1.0e-2f);
+        expect("malformed state reports recovery", restored.hadStateRecovery());
+        expect("malformed state resets tempo default", std::abs(getParameter(restored, "manualTempo") - 120.0f) < 1.0e-2f);
+        expect("malformed state resets intensity default", std::abs(getParameter(restored, "masterIntensity") - 0.5f) < 1.0e-4f);
+
+        std::vector<char> oversized(1024 * 1024 + 1, 'x');
+        restored.setStateInformation(oversized.data(), static_cast<int>(oversized.size()));
+        expect("oversized state rejected and recovered", restored.hadStateRecovery());
     }
 
     {
@@ -89,18 +99,23 @@ int main()
         expect("not prepared before prepareToPlay", !processor.isPrepared());
         processor.prepareToPlay(48000.0, 256);
         processSilence(processor, 256);
-        expect("no playhead is manual", processor.hasValidTiming()
-                                            && processor.getTimingSource() == TimingSource::Manual);
+        expect("no playhead uses manual timing", processor.hasValidTiming()
+                    && processor.getTimingSource() == TimingSource::Manual);
+        expect("missing host play state is reported",
+               (processor.getMissingTimingFields() & Missing::playState) != 0);
 
         FakePlayHead playHead;
         playHead.info.setBpm(128.0);
         playHead.info.setTimeSignature(juce::AudioPlayHead::TimeSignature{3, 4});
         playHead.info.setIsPlaying(true);
-        playHead.info.setTimeInSamples(1024);
+        playHead.info.setTimeInSamples(-1024);
+        playHead.info.setPpqPosition(-0.25);
+        playHead.info.setPpqPositionOfLastBarStart(-4.0);
         processor.setPlayHead(&playHead);
         processSilence(processor, 256);
-        expect("full playhead is host", processor.getTimingSource() == TimingSource::Host
-                                            && processor.getMissingTimingFields() == 0);
+        expect("host preroll and musical position are accepted",
+               processor.getTimingSource() == TimingSource::Host
+                   && processor.getMissingTimingFields() == 0);
 
         playHead.info.setTimeSignature(juce::nullopt);
         processSilence(processor, 256);

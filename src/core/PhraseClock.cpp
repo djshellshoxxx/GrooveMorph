@@ -1,5 +1,6 @@
 #include "PhraseClock.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -27,6 +28,23 @@ std::optional<long double> beatsPerBoundary(const PhraseGrid& grid,
                  * static_cast<long double>(grid.phraseBars);
     }
     return std::nullopt;
+}
+
+std::optional<long double> samplesToBoundary(long double position,
+                                              long double interval,
+                                              long double samplesPerBeat) noexcept
+{
+    if (!std::isfinite(position) || !std::isfinite(interval) || interval <= 0.0L
+        || !std::isfinite(samplesPerBeat) || samplesPerBeat <= 0.0L)
+        return std::nullopt;
+
+    constexpr long double boundaryTolerance = 1.0e-12L;
+    const auto boundaryNumber = std::ceil(position / interval - boundaryTolerance);
+    const auto delta = (boundaryNumber * interval - position) * samplesPerBeat;
+    if (!std::isfinite(delta) || delta < -1.0L
+        || delta > static_cast<long double>(std::numeric_limits<std::int64_t>::max()))
+        return std::nullopt;
+    return std::max(0.0L, delta);
 }
 } // namespace
 
@@ -62,22 +80,42 @@ std::optional<std::int64_t> PhraseClock::samplesUntilBoundary(
     const auto interval = *samplesPerBeat * *beatCount;
     const auto relative = static_cast<long double>(currentSample)
         - static_cast<long double>(grid.originSample);
-    const auto positionInIntervals = relative / interval;
-    constexpr long double boundaryTolerance = 1.0e-12L;
-    const auto boundaryNumber = std::ceil(positionInIntervals - boundaryTolerance);
-    const auto target = static_cast<long double>(grid.originSample)
-        + boundaryNumber * interval;
-    const auto delta = target - static_cast<long double>(currentSample);
-
-    if (!std::isfinite(delta) || delta < -1.0L
-        || delta > static_cast<long double>(std::numeric_limits<std::int64_t>::max()))
+    const auto delta = samplesToBoundary(relative, interval, 1.0L);
+    if (!delta)
         return std::nullopt;
-    if (delta <= 0.0L)
-        return std::int64_t{0};
-
-    const auto roundedDelta = std::round(delta);
-    if (roundedDelta > static_cast<long double>(std::numeric_limits<std::int64_t>::max()))
+    const auto rounded = std::round(*delta);
+    if (rounded > static_cast<long double>(std::numeric_limits<std::int64_t>::max()))
         return std::nullopt;
-    return static_cast<std::int64_t>(roundedDelta);
+    return static_cast<std::int64_t>(rounded);
+}
+
+std::optional<std::int64_t> PhraseClock::samplesUntilPpqBoundary(
+    double currentPpq,
+    double barStartPpq,
+    double sampleRate,
+    const PhraseGrid& grid,
+    Quantization quantization) noexcept
+{
+    if (!std::isfinite(currentPpq) || !std::isfinite(barStartPpq))
+        return std::nullopt;
+
+    const auto samplesPerMeterBeat = PhraseClock::samplesPerMeterBeat(sampleRate, grid);
+    const auto beatCount = beatsPerBoundary(grid, quantization);
+    if (!samplesPerMeterBeat || !beatCount)
+        return std::nullopt;
+
+    const auto quarterNotesPerMeterBeat = 4.0L / grid.meterDenominator;
+    const auto intervalPpq = *beatCount * quarterNotesPerMeterBeat;
+    const auto relativePpq = static_cast<long double>(currentPpq)
+        - static_cast<long double>(barStartPpq);
+    const auto samplesPerPpq = *samplesPerMeterBeat / quarterNotesPerMeterBeat;
+    const auto delta = samplesToBoundary(relativePpq, intervalPpq, samplesPerPpq);
+    if (!delta)
+        return std::nullopt;
+
+    const auto rounded = std::round(*delta);
+    if (rounded > static_cast<long double>(std::numeric_limits<std::int64_t>::max()))
+        return std::nullopt;
+    return static_cast<std::int64_t>(rounded);
 }
 } // namespace groovemorph::core

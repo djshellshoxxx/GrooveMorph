@@ -60,7 +60,39 @@ int main()
     grid = PhraseGrid{120.0, 4, 4, 1, -1000};
     result = PhraseClock::samplesUntilBoundary(0, 48000.0, grid,
                                                 Quantization::Bar);
-    expectEqual("nonzero grid origin", result.value_or(-1), 95000);
+    expectEqual("nonzero sample origin", result.value_or(-1), 95000);
+
+    grid = PhraseGrid{120.0, 4, 4, 1, 0};
+    result = PhraseClock::samplesUntilPpqBoundary(3.5, 0.0, 48000.0, grid,
+                                                   Quantization::Bar);
+    expectEqual("PPQ bar alignment before boundary", result.value_or(-1), 12000);
+    result = PhraseClock::samplesUntilPpqBoundary(4.0, 0.0, 48000.0, grid,
+                                                   Quantization::Bar);
+    expectEqual("PPQ exact bar boundary", result.value_or(-1), 0);
+    result = PhraseClock::samplesUntilPpqBoundary(5.5, 4.0, 48000.0, grid,
+                                                   Quantization::Bar);
+    expectEqual("nonzero last-bar PPQ origin", result.value_or(-1), 60000);
+
+    grid.phraseBars = 2;
+    result = PhraseClock::samplesUntilPpqBoundary(7.5, 4.0, 48000.0, grid,
+                                                   Quantization::Phrase);
+    expectEqual("phrase aligned to bar origin", result.value_or(-1), 108000);
+
+    // The local tempo is supplied for the current host block. PPQ alignment stays
+    // independent of the sample position and therefore survives seeks and tempo maps.
+    grid = PhraseGrid{90.0, 4, 4, 1, 0};
+    result = PhraseClock::samplesUntilPpqBoundary(10.0, 8.0, 48000.0, grid,
+                                                   Quantization::Bar);
+    expectEqual("local tempo after tempo-map change", result.value_or(-1), 64000);
+
+    grid = PhraseGrid{120.0, 4, 4, 1, 0};
+    result = PhraseClock::samplesUntilPpqBoundary(-0.25, -4.0, 48000.0, grid,
+                                                   Quantization::Beat);
+    expectEqual("negative PPQ preroll", result.value_or(-1), 6000);
+
+    result = PhraseClock::samplesUntilPpqBoundary(
+        std::numeric_limits<double>::quiet_NaN(), 0.0, 48000.0, grid, Quantization::Bar);
+    expectEqual("non-finite PPQ rejected", result.has_value(), false);
 
     grid.tempoBpm = std::numeric_limits<double>::quiet_NaN();
     expectInvalid("NaN tempo", 48000.0, grid);

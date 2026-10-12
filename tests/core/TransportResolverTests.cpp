@@ -24,18 +24,21 @@ int main()
 {
     const PhraseGrid manual{100.0, 3, 4, 2, 0};
 
-    HostTransport full{140.0, 7, 8, false, 4800};
+    HostTransport full{140.0, 7, 8, false, 4800, 1.5, 0.0};
     auto r = TransportResolver::resolve(full, manual, 0, 48000.0);
     expect("full host resolves", r.has_value());
     expect("full host source", r && r->source == TimingSource::Host && r->missingFields == 0);
     expect("full host values", r && r->grid.tempoBpm == 140.0 && r->grid.meterNumerator == 7
                                    && r->grid.meterDenominator == 8 && !r->isPlaying
                                    && r->currentSample == 4800);
+    expect("host musical position kept", r && r->ppqPosition == 1.5
+                                             && r->ppqPositionOfLastBarStart == 0.0);
     expect("manual phrase length kept", r && r->grid.phraseBars == 2);
 
     r = TransportResolver::resolve(HostTransport{}, manual, 1234, 48000.0);
     expect("empty host is manual", r && r->source == TimingSource::Manual);
-    expect("manual uses free-run sample", r && r->currentSample == 1234 && r->isPlaying);
+    expect("manual free-run sample and unknown play defaults stopped",
+           r && r->currentSample == 1234 && !r->isPlaying);
     expect("manual tempo/meter", r && r->grid.tempoBpm == 100.0 && r->grid.meterNumerator == 3);
     expect("all fields missing", r && r->missingFields == (MissingField::tempo | MissingField::meter
                                                             | MissingField::playState
@@ -52,14 +55,28 @@ int main()
     expect("missing meter is mixed", r && r->source == TimingSource::Mixed
                                          && r->missingFields == MissingField::meter);
 
+    HostTransport negativePreroll{120.0, 4, 4, false, -9600, -0.5, -4.0};
+    r = TransportResolver::resolve(negativePreroll, manual, 77, 48000.0);
+    expect("negative host sample position is accepted",
+           r && r->currentSample == -9600 && r->ppqPosition == -0.5
+               && r->ppqPositionOfLastBarStart == -4.0);
+    expect("negative host position remains host timing",
+           r && r->source == TimingSource::Host && r->missingFields == 0);
+
     HostTransport invalid{std::numeric_limits<double>::quiet_NaN(), 4, 3, true, -5};
     r = TransportResolver::resolve(invalid, manual, 77, 48000.0);
     expect("invalid host values fall back", r && r->grid.tempoBpm == 100.0
                                                 && r->grid.meterDenominator == 4
-                                                && r->currentSample == 77);
+                                                && r->currentSample == -5);
     expect("invalid fields flagged missing",
-           r && (r->missingFields & (MissingField::tempo | MissingField::meter | MissingField::position))
-                    == (MissingField::tempo | MissingField::meter | MissingField::position));
+           r && (r->missingFields & (MissingField::tempo | MissingField::meter))
+                    == (MissingField::tempo | MissingField::meter));
+
+    HostTransport invalidPpq{120.0, 4, 4, true, 0,
+                             std::numeric_limits<double>::infinity(), 0.0};
+    r = TransportResolver::resolve(invalidPpq, manual, 0, 48000.0);
+    expect("invalid PPQ omitted without discarding sample transport",
+           r && !r->ppqPosition && r->currentSample == 0);
 
     HostTransport tooFast{1000.0, 4, 4, true, 0};
     r = TransportResolver::resolve(tooFast, manual, 0, 48000.0);

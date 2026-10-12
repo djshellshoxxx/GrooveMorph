@@ -15,14 +15,16 @@ struct HostTransport
     std::optional<int> meterDenominator;
     std::optional<bool> isPlaying;
     std::optional<std::int64_t> timeInSamples;
+    std::optional<double> ppqPosition;
+    std::optional<double> ppqPositionOfLastBarStart;
 };
 
 enum class TimingSource
 {
-    Host,        // all timing fields came from the host
-    Mixed,       // some fields came from the host, the rest from manual settings
-    Manual,      // host provided no usable timing; manual tempo/meter in use
-    FreeRun      // no host position; internal sample counter drives the grid
+    Host,
+    Mixed,
+    Manual,
+    FreeRun
 };
 
 namespace MissingField
@@ -37,17 +39,18 @@ struct ResolvedTiming
 {
     PhraseGrid grid;
     std::int64_t currentSample = 0;
-    bool isPlaying = false;
+    bool isPlaying = false; // Unknown host state fails closed; free-run position still advances independently.
+    std::optional<double> ppqPosition;
+    std::optional<double> ppqPositionOfLastBarStart;
     TimingSource source = TimingSource::Manual;
-    std::uint32_t missingFields = 0; // bitmask of MissingField values
+    std::uint32_t missingFields = 0;
 };
 
 class TransportResolver final
 {
 public:
-    // Combines host fields with manual fallbacks. Invalid host values are treated as missing.
-    // freeRunSample is used as the position when the host reports none.
-    // Returns nullopt only when the manual grid is itself invalid.
+    // Combines valid host fields with manual fallbacks. Negative sample positions are valid
+    // preroll positions. Missing play state is reported and never inferred as "playing".
     [[nodiscard]] static std::optional<ResolvedTiming> resolve(
         const HostTransport& host,
         const PhraseGrid& manual,

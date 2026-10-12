@@ -1,8 +1,9 @@
 #include "core/TransportResolver.h"
 
+#include <cmath>
+
 namespace groovemorph::core
 {
-
 std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& host,
                                                          const PhraseGrid& manual,
                                                          std::int64_t freeRunSample,
@@ -15,7 +16,6 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
     result.grid = manual;
     int hostFields = 0;
 
-    // Each host field is accepted only if PhraseClock accepts the grid with it applied.
     auto candidate = result.grid;
     if (host.tempoBpm)
         candidate.tempoBpm = *host.tempoBpm;
@@ -48,13 +48,9 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
         ++hostFields;
     }
     else
-    {
-        result.isPlaying = true; // free-run keeps the grid advancing
         result.missingFields |= MissingField::playState;
-    }
 
-    const bool hasPosition = host.timeInSamples.has_value() && *host.timeInSamples >= 0;
-    if (hasPosition)
+    if (host.timeInSamples)
     {
         result.currentSample = *host.timeInSamples;
         ++hostFields;
@@ -65,7 +61,13 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
         result.missingFields |= MissingField::position;
     }
 
-    if (!hasPosition)
+    if (host.ppqPosition && std::isfinite(*host.ppqPosition))
+        result.ppqPosition = *host.ppqPosition;
+    if (host.ppqPositionOfLastBarStart
+        && std::isfinite(*host.ppqPositionOfLastBarStart))
+        result.ppqPositionOfLastBarStart = *host.ppqPositionOfLastBarStart;
+
+    if (!host.timeInSamples)
         result.source = hostFields == 0 ? TimingSource::Manual : TimingSource::FreeRun;
     else
         result.source = result.missingFields == 0 ? TimingSource::Host : TimingSource::Mixed;
