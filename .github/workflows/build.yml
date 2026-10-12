@@ -52,3 +52,27 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Run core tests
         run: ctest --test-dir build --build-config Release --output-on-failure
+      - name: Windows Standalone launch smoke test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $standalone = Join-Path $PWD 'build/GrooveMorphPlugin_artefacts/Release/Standalone/GrooveMorph.exe'
+          if (-not (Test-Path $standalone)) {
+            throw "Standalone executable not found: $standalone"
+          }
+          $process = Start-Process -FilePath $standalone -PassThru
+          Start-Sleep -Seconds 5
+          $process.Refresh()
+          if ($process.HasExited) {
+            throw "Standalone exited during startup with code $($process.ExitCode)"
+          }
+          Stop-Process -Id $process.Id -Force
+          Write-Host "Standalone remained running for five seconds; smoke harness terminated the process."
+      - name: Upload Windows Standalone build
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrooveMorph-Windows-Standalone
+          path: build/GrooveMorphPlugin_artefacts/Release/Standalone/GrooveMorph.exe
+          if-no-files-found: error
+          retention-days: 30
