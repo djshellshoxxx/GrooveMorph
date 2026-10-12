@@ -37,8 +37,8 @@ int main()
     {
         SceneScheduler scheduler;
         expect("accept beat request", scheduler.request(2, Quantization::Beat));
-        auto block = timing(0.0);
-        auto event = scheduler.process(block, 24000);
+        auto block = timing(0.25);
+        auto event = scheduler.process(block, 18000);
         expect("event at exact block end deferred", !event && scheduler.hasPending());
         block.ppqPosition = 1.0;
         event = scheduler.process(block, 12000);
@@ -64,6 +64,7 @@ int main()
         expect("bar waits for a valid bar anchor",
                !scheduler.process(block, 48000) && scheduler.hasPending());
         block.ppqPositionOfLastBarStart = 0.0;
+        block.ppqPosition = 3.0;
         const auto event = scheduler.process(block, 48000);
         expect("bar request schedules once anchor returns",
                event && event->sampleOffset == 24000);
@@ -84,11 +85,14 @@ int main()
     {
         SceneScheduler scheduler;
         scheduler.request(1, Quantization::Beat);
-        auto block = timing(0.0);
+        auto block = timing(0.25);
+        expect("first block resolves target",
+               !scheduler.process(block, 6000) && scheduler.hasPending());
+        block.ppqPosition = 2.25;
         block.discontinuity = true;
-        auto event = scheduler.process(block, 12000);
+        auto event = scheduler.process(block, 24000);
         expect("seek/loop block reanchors from fresh PPQ",
-               event && event->sampleOffset == 0);
+               event && event->sampleOffset == 18000);
     }
 
     {
