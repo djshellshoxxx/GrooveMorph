@@ -36,7 +36,7 @@ int main()
 
     r = TransportResolver::resolve(HostTransport{}, manual, 1234, 48000.0);
     expect("empty host is manual", r && r->source == TimingSource::Manual);
-    expect("manual uses free-run sample", r && r->currentSample == 1234 && r->isPlaying);
+    expect("manual uses free-run sample", r && r->currentSample == 1234 && !r->isPlaying);
     expect("manual tempo/meter", r && r->grid.tempoBpm == 100.0 && r->grid.meterNumerator == 3);
     expect("all fields missing", r && r->missingFields == (MissingField::tempo | MissingField::meter
                                                             | MissingField::playState
@@ -53,7 +53,7 @@ int main()
     expect("missing meter is mixed", r && r->source == TimingSource::Mixed
                                          && r->missingFields == MissingField::meter);
 
-    HostTransport invalid{std::numeric_limits<double>::quiet_NaN(), 4, 3, true, -5};
+    HostTransport invalid{std::numeric_limits<double>::quiet_NaN(), 4, 3, true, std::nullopt};
     r = TransportResolver::resolve(invalid, manual, 77, 48000.0);
     expect("invalid host values fall back", r && r->grid.tempoBpm == 100.0
                                                 && r->grid.meterDenominator == 4
@@ -61,6 +61,10 @@ int main()
     expect("invalid fields flagged missing",
            r && (r->missingFields & (MissingField::tempo | MissingField::meter | MissingField::position))
                     == (MissingField::tempo | MissingField::meter | MissingField::position));
+
+    HostTransport signedPreRoll{120.0, 4, 4, true, -5};
+    r = TransportResolver::resolve(signedPreRoll, manual, 77, 48000.0);
+    expect("signed host preroll retained", r && r->currentSample == -5 && r->source == TimingSource::Host);
 
     HostTransport tooFast{1000.0, 4, 4, true, 0};
     r = TransportResolver::resolve(tooFast, manual, 0, 48000.0);
