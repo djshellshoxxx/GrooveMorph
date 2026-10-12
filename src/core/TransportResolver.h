@@ -41,6 +41,8 @@ struct ResolvedTiming
     PhraseGrid grid;
     std::int64_t currentSample = 0;
     bool isPlaying = false;
+    std::optional<double> ppqPosition;
+    std::optional<double> ppqPositionOfLastBarStart;
     TimingSource source = TimingSource::Manual;
     std::uint32_t missingFields = 0; // bitmask of MissingField values
     double sampleRate = 48000.0;
