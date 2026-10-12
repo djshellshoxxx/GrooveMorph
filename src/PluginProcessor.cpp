@@ -587,6 +587,12 @@ void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 
 void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
+    // Limit untrusted host-supplied state before JUCE XML decoding. Preserve the
+    // currently loaded scene and parameters if the envelope itself is invalid.
+    constexpr int maximumStateBytes = 1024 * 1024;
+    if (data == nullptr || sizeInBytes <= 0 || sizeInBytes > maximumStateBytes)
+        return;
+
     const auto xml = getXmlFromBinary(data, sizeInBytes);
     if (xml == nullptr || !xml->hasTagName(stateType))
         return;
