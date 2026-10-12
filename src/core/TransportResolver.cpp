@@ -143,11 +143,11 @@ std::optional<ResolvedTiming> TransportResolver::resolve(const HostTransport& ho
     }
     else
     {
-        result.isPlaying = true; // free-run keeps the grid advancing
+        result.isPlaying = false; // missing play state must not assert host playback
         result.missingFields |= MissingField::playState;
     }
 
-    const bool hasPosition = host.timeInSamples.has_value() && *host.timeInSamples >= 0;
+    const bool hasPosition = host.timeInSamples.has_value(); // signed sample positions permit preroll
     if (hasPosition)
     {
         result.currentSample = *host.timeInSamples;
