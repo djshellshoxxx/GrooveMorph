@@ -60,14 +60,20 @@ jobs:
           if (-not (Test-Path $standalone)) {
             throw "Standalone executable not found: $standalone"
           }
-          $process = Start-Process -FilePath $standalone -PassThru
-          Start-Sleep -Seconds 5
-          $process.Refresh()
-          if ($process.HasExited) {
-            throw "Standalone exited during startup with code $($process.ExitCode)"
+          $process = $null
+          try {
+            $process = Start-Process -FilePath $standalone -PassThru
+            Start-Sleep -Seconds 5
+            $process.Refresh()
+            if ($process.HasExited) {
+              throw "Standalone exited during startup with code $($process.ExitCode)"
+            }
+            Write-Host "Standalone process remained alive for five seconds."
+          } finally {
+            if ($null -ne $process -and -not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
           }
-          Stop-Process -Id $process.Id -Force
-          Write-Host "Standalone remained running for five seconds; smoke harness terminated the process."
       - name: Upload Windows Standalone build
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
