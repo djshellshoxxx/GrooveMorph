@@ -36,9 +36,27 @@ independence from unrelated MIDI splits, sample/PPQ-only seek isolation and real
 editor callbacks for timing selection and isolated preview/revert/close behavior.
 The editor was software-rendered and visually inspected.
 
-Latest CI and merged commit references will be appended once verified. REAPER
-Windows/Linux listening, actual devices, VST3 validator, deadline/allocation
-instrumentation and clean-machine install remain unavailable in this session.
+Integration verification completed 2026-10-13 against runtime commit
+`7f2784a0571f2a6ffb93ea261c386cd89cdde6af`. The integration was merged to main
+in [PR #7](https://github.com/djshellshoxxx/GrooveMorph/pull/7), merge commit
+`aaa8dae587d6439061dfeef3794cccd14ddefcfe`. PR #2 is reconciled ancestry and
+PR #4 is merged into the Claude baseline; no duplicate processor is active.
+
+| Verified gate | Result | Evidence |
+|---|---|---|
+| Windows/Linux portable tests, VST3 and Standalone builds, processor tests | Passed | [Build and test](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38241019688) |
+| Portable AddressSanitizer and UndefinedBehaviorSanitizer tests | Passed | [Sanitizers](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38241019653) |
+| Windows Standalone launch and artifact upload | Passed | [Windows smoke and download](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38241019648) |
+
+The Windows artifact is `GrooveMorph-Windows-Standalone`, produced from the same
+verified runtime SHA; it is a CI build, not a published production release.
+All eight local Linux test executables were rerun successfully on 2026-10-13.
+The newer main commits add illustrated help and an auditor definition; comparison
+confirmed no changes to src, tests, CMakeLists.txt or build workflows after the
+verified runtime. The post-integration feature audit remains INTEGRATION_AUDIT.md.
+
+REAPER Windows/Linux listening, actual devices, VST3 validator, deadline/allocation
+instrumentation and clean-machine install remain unverified.
 The integration is not a claim that all original release acceptance gates pass.
 
 ## Post-integration audit and ownership
