@@ -9,11 +9,12 @@ Use Caveman for concise communication when requested. Ultimate mode is opt-in.
 Antigravity protocol skills are excluded. Skills do not override current user
 authorization, project contracts, host instructions, or actual capabilities.
 
-Inspect all active branches and PRs first. At this file's creation, newer M0 code
-and `docs/SPECIFICATION.md`, `docs/SPEC_INDEX.md`, and `docs/TRACEABILITY.md` were on
-`claude/awesome-keller-jx2ck0`, which contains `codex/m0-validation`; `main` still
-held an older scaffold. Verify refs, review/test existing work, and integrate it
-without duplicating implementation or overwriting another session's changes.
+Inspect active branches/PRs and task ownership before substantive work. Updated
+2026-10-13: main includes runtime 7f2784a via PR #7; PRs #2/#4 are reconciled.
+Read docs/TODO.md, docs/feature-audit/FEATURE_AUDIT_2026-10-13.md and the timing
+handoff. Do not overwrite the canonical Scheduler/DSP/scene/state runtime with
+the earlier M0 processor. PR #6 is INCOMPLETE expansion specifications; PR #9 is
+an unmerged, unwired planner with a documented Linux build blocker. Recheck refs.
 
 Follow C++20, CMake, and the pinned JUCE dependency. Current formats are VST3 and
 JUCE Standalone on Windows x64/Linux x86_64. REAPER is the reference host. CLAP,

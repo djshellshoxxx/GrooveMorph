@@ -41,3 +41,17 @@ MIDI note mapping is disabled while a preview audition is active, so finish the 
 ## Live performance safeguards
 
 Set and test the phrase length and transition policy before playing. Prefer bar/phrase changes for structured section changes and Manual when you need explicit launch control. Test tempo changes, seek/loop behavior, MIDI note releases and reloading presets in the exact host and buffer configuration before a public performance. This MVP has not yet completed independent host/device acceptance testing.
+
+## Current workflow limitations (2026-10-13)
+
+Use distinct MIDI note assignments. Duplicate notes are accepted, and the first
+matching variation wins without a warning. Scene buttons/MIDI can change the
+active variation while the host's Variation parameter still shows its earlier
+value; inspect the plugin active/queued labels and verify automation behavior.
+These are known gaps, tracked in [TODO](../docs/TODO.md).
+
+Undo/Redo covers scene names, operation edits, mappings and scene-bank changes;
+global tempo/intensity/dry-wet/transition parameters are outside that scene history.
+Per-operation controls cannot currently be automated as separate host parameters.
+A slice's effective duration may be shorter than requested at slow tempos because
+history is bounded; inspect its tooltip for operation-specific limits.

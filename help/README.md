@@ -13,7 +13,7 @@
 
 ## Scope
 
-GrooveMorph is a **rhythmic audio effect** (not an instrument). This version implements four variations A–D, five short-window transformations, wet/dry mixing, gain intensity, transition quantization, MIDI note triggering, variation audition, undo/redo, host parameter/state persistence, and host/manual timing.
+GrooveMorph is a **rhythmic audio effect** (not an instrument). This version implements four variations A–D, five short-window transformations, wet/dry mixing, master effect intensity (zero = dry), transition quantization, MIDI note triggering, variation audition, undo/redo, host parameter/state persistence, and host/manual timing.
 
 The illustrated SVGs in `help/images/` are **source-derived UI diagrams**, **not captured screenshots**. They map to bounds and labels in `src/PluginEditor.cpp` and deliberately distinguish verified controls from imagery. True Windows/Linux screenshots, arrow overlays and visual QA must be captured from a running built binary before calling the image set complete. See [visual guide](VISUAL-GUIDE.md).
 

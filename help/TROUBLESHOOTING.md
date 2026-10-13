@@ -10,7 +10,7 @@ Intensity of 0 is dry; Dry/wet of 0 is dry; disabled operations also yield littl
 
 ## Clicking a variation does not change it
 
-Read the A–D labels for `[queued]`, the Transition selector and the status countdown. Next Beat/Bar/Phrase waits for a boundary; Manual waits for Trigger queued. An unavailable or stopped transport may hold the request. You can press Trigger queued to force the pending request or Cancel queued to abandon it. Changing Transition **after** clicking does not change the policy of that queued request.
+Read the A–D labels for `[queued]`, the Transition selector and the status countdown. Next Beat/Bar/Phrase waits for a boundary; Manual waits for Trigger queued. An unavailable or stopped transport may hold the request. Trigger queued only activates a request captured in Manual mode. For a timed request, wait for valid timing or select Immediate and click the target again; Cancel queued abandons the request. Changing Transition **after** clicking does not change the policy of that queued request.
 
 ## Host timing is unavailable
 

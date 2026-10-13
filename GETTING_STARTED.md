@@ -1,4 +1,4 @@
-# Getting Started: GrooveMorph M0
+# Getting Started: GrooveMorph integrated MVP
 
 This guide builds the current JUCE VST3 and Standalone targets. CLAP is deferred by the approved project direction.
 
@@ -18,7 +18,7 @@ cd GrooveMorph
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 ```
 
-To build only the portable phrase-clock core and tests, without downloading JUCE:
+To build only the portable timing, scheduling, DSP, scene/state core and tests, without downloading JUCE:
 
 ```sh
 cmake -S . -B build-core -DGROOVEMORPH_CORE_ONLY_BUILD=ON -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
@@ -43,6 +43,18 @@ cmake --build build --config Release --parallel
 ctest --test-dir build --build-config Release --output-on-failure
 ```
 
-## M0 validation
+## Verified builds and validation still required
 
-The current implementation is a timing and stack spike. Validate plugin scanning, state recall, automation, mono/stereo layout, zero-latency reporting, and standalone audio-device behavior in REAPER before treating the spike as complete. A successful compilation alone does not complete M0.
+Windows/Linux VST3 and Standalone builds, portable sanitizers and Windows
+five-second startup smoke passed for runtime commit 7f2784a. All eight matching
+Linux test executables were rerun successfully on 2026-10-13. See
+[exact CI and artifact links](docs/TIMING_INTEGRATION_HANDOFF.md).
+
+The Windows CI download contains the Standalone executable, not a packaged VST3
+release or installer. Build the VST3 bundle with the commands above. Verify scan,
+MIDI routing, automation, project recall, PDC and actual audio-device operation in
+REAPER before claiming host compatibility. No completed production release is implied.
+
+For standalone audio processing without a host playhead, choose Sample Clock and
+set manual BPM/meter. Automatic without host play state remains stopped. An explicitly
+stopped host remains stopped in every mode. See [timing help](help/TIMING.md).
