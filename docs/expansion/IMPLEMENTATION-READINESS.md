@@ -1,7 +1,19 @@
 # Specification readiness gate
 
-Status: INCOMPLETE.
+Updated 2026-10-13. Status: INCOMPLETE.
 
-Reasons: This pass delivers initial contracts and per-feature design kernels, not the required full standalone 35-section specifications; integration SHA, exact public headers, numeric budgets, exhaustive host validation and independent architecture review remain unverified. Expansion must not be represented as implementation-ready until all 12 specifications, module contracts, task-to-test traceability and required peer reviews are completed.
+Resolved: canonical runtime and timing integration are verified at 7f2784a, merged
+to main by PR #7. Windows/Linux builds, sanitizers and Windows startup passed.
+This clears baseline discovery and competing-Scheduler integration blockers.
 
-Next steps: inspect repository head and PR files in full; reconcile clock/scheduler, freeze types and stable parameter manifest, complete algorithms with mathematical definitions and explicit test vectors, run dependency cycle validation, perform research bibliography and independent reviewer signoff, then commit a verified READY status only if all gates pass.
+Unresolved: full standalone 35-section feature specifications, exact compatible
+headers/state/parameter schemas, numeric budgets and fixtures, task-to-test
+traceability, research bibliography, dependency review and independent sign-off.
+REAPER/device/performance release acceptance also remains unverified. All twelve
+feature specifications remain DRAFT. No READY status is justified by this refresh.
+
+Next: reconcile proposed interfaces with actual core types; freeze contracts and
+migration fixtures; complete algorithms and negative/acceptance vectors; review
+DAG/RT/state/research evidence; then pin the final spec commit and record review.
+The owner's feature-direction approval is preserved; missing technical detail is
+work to complete, not a reason to invent implemented features.

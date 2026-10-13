@@ -2,9 +2,9 @@
   "schema_version": 1,
   "status": "INCOMPLETE",
   "repository": "djshellshoxxx/GrooveMorph",
-  "base_commit": null,
+  "base_commit": "7f2784a0571f2a6ffb93ea261c386cd89cdde6af",
   "specification_commit": null,
-  "integration_target": "claude/awesome-keller-jx2ck0 (provisional; verify PR #4 integration head)",
+  "integration_target": "main (canonical runtime merged via PR #7)",
   "feature_specifications": [
     {
       "id": "F01",
@@ -77,12 +77,13 @@
   "requirements_coverage": "Partial; no audited task-test matrix",
   "review_results": "Not independently reviewed",
   "unresolved_blockers": [
-    "Verify active integration branch and current commit SHA",
-    "Reconcile PPQ scheduler conflict between open PRs",
+    "Reconcile proposed expansion interfaces and state/parameter schemas with verified runtime 7f2784a",
     "Finish 35-section developer-ready feature specifications and measurable test fixtures",
     "Freeze exact C++ headers, state schemas and parameter IDs",
     "Complete research bibliography and module/UX contracts",
     "Complete independent QA and dependency audits"
   ],
-  "completed_utc": null
+  "completed_utc": null,
+  "baseline_verified_utc": "2026-10-13",
+  "baseline_merge_commit": "aaa8dae587d6439061dfeef3794cccd14ddefcfe"
 }

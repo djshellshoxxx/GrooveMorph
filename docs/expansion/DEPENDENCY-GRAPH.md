@@ -20,4 +20,4 @@ flowchart TD
  F04 --> F12[F12 Host/MIDI/CLAP]
  ```
 
-Contract freeze order: MusicalTime -> SceneBank migration adapters -> History -> EventScheduler -> F01 / F06 -> remaining planners -> host/UI adapters. This dependency DAG forbids concurrent ownership of PluginProcessor, PluginEditor, core state schema and global CMake. Scheduler PPQ semantics need merging from PR #4 before the phase M1 contract is frozen. An implementation agent must compare the actual mainline head with the integration head before changing these dependencies.
+Contract freeze order: MusicalTime -> SceneBank migration adapters -> History -> EventScheduler -> F01 / F06 -> remaining planners -> host/UI adapters. This dependency DAG forbids concurrent ownership of PluginProcessor, PluginEditor, core state schema and global CMake. Scheduler PPQ semantics are merged at runtime 7f2784a via PR #7; phase M1 must reconcile draft expansion interfaces with that canonical baseline before contract freeze. An implementation agent must compare the actual mainline head with the integration head before changing these dependencies.

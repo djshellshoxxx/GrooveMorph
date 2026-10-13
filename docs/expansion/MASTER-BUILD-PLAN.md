@@ -4,7 +4,7 @@ The following is the requested sequence; execution must respect task dependencie
 
 | Phase | Entry | Exit evidence |
 |---|---|---|
-| M0 | Inspect open PRs #2/#4 and source ownership | Verified integration head, PPQ/scheduler conflict resolved, existing MVP checklist recorded |
+| M0 | Baseline discovery/integration completed at 7f2784a via PR #7; recheck current ownership | Passing Windows/Linux/sanitizer/startup evidence recorded; native host/device acceptance still outstanding |
 | M1 | M0 | Scene/time/parameter/state API contract tests and migration fixtures passing |
 | M2 | M1 | Quick/Editor UX baseline + F08 history unit tests |
 | M3 | M2 | F01 deterministic planner, constraints and preview tests |
