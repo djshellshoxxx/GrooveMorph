@@ -14,6 +14,13 @@ Updated 2026-10-13. Main contains the integrated runtime, not the former M0 shel
 | [Completion prompt](COMPLETION_PROMPT.md) | Autonomous engineering continuation instructions | Use current TODO and ownership, preserve canonical runtime |
 | [User help](../help/README.md) | Actual controls and workflows | Guides/diagrams merged; native screenshots missing |
 
+## Six requested musical controls
+
+[Six-control specification package](control-specs/README.md) defines phrase placement,
+variation distance, change permissions, transition phase, automatic return and
+effect activity limits, with shared state/automation/GUI contracts and integration QA.
+These are specifications; no runtime implementation is claimed.
+
 ## Expansion specifications
 
 The separate [PR #6](https://github.com/djshellshoxxx/GrooveMorph/pull/6) workspace
