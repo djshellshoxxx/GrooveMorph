@@ -1,5 +1,7 @@
 # Integration audit, 2026-10-12
 
+> Current inventory: [feature audit, 2026-10-13](feature-audit/FEATURE_AUDIT_2026-10-13.md). This document preserves the integration review; build evidence is in [the timing handoff](TIMING_INTEGRATION_HANDOFF.md).
+
 ## Scope and result
 
 The Claude/Codex reconciliation preserves the substantive Claude scene/DSP implementation and the Codex PPQ boundary calculations. It replaces the alternative `SceneScheduler` with one `Scheduler` consumed by the processor, avoiding two competing processors and two conflicting scene owners. The prior M0 traceability checklist was stale: four scenes, five transformations, quantized transitions, MIDI, undo/audition, host state and bypass already have code and tests.

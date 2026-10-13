@@ -44,3 +44,10 @@ Depth controls how strongly each transformation contributes. The system processe
 The five operation-row settings belong to variations in the internal scene bank; do not assume they appear as host-exposed automation parameters. The top-level controls including Intensity, Dry/Wet, manual timing, timing/transition selection, and Bypass use the processor's parameter state. The plugin is intended to restore stored scenes and parameter state with a saved host project; test the specific DAW before relying on it live.
 
 For modes, fallback, and quantized scheduling, see [Timing](TIMING.md). For interactions, see [Workflows](WORKFLOWS.md).
+
+## Known control limits
+
+Trigger queued acts on Manual requests only; its enabled state does not make it a
+universal override. Scene buttons do not currently synchronize the host Variation
+parameter. Avoid duplicate MIDI notes because the first mapped scene wins. Undo is
+scene-bank history, not global-parameter history. See [current TODO](../docs/TODO.md).

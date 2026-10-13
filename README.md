@@ -36,4 +36,12 @@ The full VST3 and Standalone targets fetch JUCE 8.0.7 on first configuration. Se
 
 ## Current status
 
+Updated 2026-10-13. Start with the [prioritized TODO list](docs/TODO.md),
+[current feature audit](docs/feature-audit/FEATURE_AUDIT_2026-10-13.md), and
+[verified integration/build evidence](docs/TIMING_INTEGRATION_HANDOFF.md).
+The integrated runtime is on main; PRs #2, #4 and #7 are merged. Expansion PR #6
+is a draft specification workspace. Generator PR #9 is unmerged and fails Linux
+compilation; it is not a usable plugin feature.
+
+
 The code includes portable timing, scheduling, bounded-history DSP, scene state and MIDI modules. The editor exposes variation editing, audition/compare, undo/redo and Automatic / Host PPQ / Sample Clock selection. CI results and DAW validation are recorded in pull requests and release notes when available. A passing core test does not establish plugin-host compatibility.

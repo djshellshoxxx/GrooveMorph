@@ -1,9 +1,33 @@
 # GrooveMorph — Developer Specification Package
 
-**Status:** Research-backed proposal for owner review; specification only  
+**Status:** Original research-backed requirements with approved direction and current implementation overlay; incomplete release acceptance
 **Research date:** 2026-10-10  
-**Repository:** [djshellshoxxx/GrooveMorph](https://github.com/djshellshoxxx/GrooveMorph) — owner describes it as new and empty; source contents were not independently inspected.  
+**Repository:** [djshellshoxxx/GrooveMorph](https://github.com/djshellshoxxx/GrooveMorph) — current source inspected at main 61d5156 on 2026-10-13; runtime 7f2784a is integrated.
 **Name:** Working name; branding and product name remain open.
+
+## Current implementation overlay (2026-10-13)
+
+This document retains requirements, future designs and original research history;
+it is not a claim that every described capability is implemented. Main delivers
+four editable operation-setting variations, five bounded-history effects, one
+Scheduler, selectable Automatic/Host PPQ/Sample Clock, MIDI input, scene undo,
+audition/compare, host state and VST3/Standalone builds. Windows/Linux builds,
+portable sanitizers and Windows startup passed at 7f2784a. DAW/device/performance
+acceptance remains unverified. See [TODO](TODO.md), [feature audit](feature-audit/FEATURE_AUDIT_2026-10-13.md)
+and [timing contract/evidence](TIMING_INTEGRATION_HANDOFF.md).
+
+FR-001/002 remain partial: phrase origin/subdivision authoring and event lanes are
+absent; the phrase display currently shows bars/cursor only. Operation settings
+are scene state rather than host automation parameters. Host Variation readback
+and duplicate MIDI mapping gaps are reproduced. Undo applies to scene-bank edits,
+not global APVTS controls. No external preset-bank browser is delivered.
+
+Later lane/event/model/parameter examples below are target designs, not frozen
+public interfaces or shipped IDs. Preserve actual IDs in PluginProcessor.h.
+F01–F12 expansion direction is approved, but PR #6 technical specs remain drafts;
+PR #9 is only an unmerged planner core with a Linux compilation blocker. Do not
+mark proposals complete or remove unmet requirements just to match current code.
+Original source-access dates and provisional numeric targets remain unchanged.
 
 ## 1. Project inputs and critical unknowns
 

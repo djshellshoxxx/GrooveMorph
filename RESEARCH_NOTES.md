@@ -1,41 +1,54 @@
-# GrooveMorph research and M0 progress
+# GrooveMorph research and implementation progress
 
-Research/specification details live in [`docs/SPECIFICATION.md`](docs/SPECIFICATION.md). Requirement coverage is tracked in [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md).
+Updated 2026-10-13. The original 2026-10-10 research remains in
+[the developer specification](docs/SPECIFICATION.md). Current evidence is in
+[the integration handoff](docs/TIMING_INTEGRATION_HANDOFF.md),
+[feature audit](docs/feature-audit/FEATURE_AUDIT_2026-10-13.md) and
+[prioritized TODO list](docs/TODO.md).
 
-## Approved direction (2026-10-10)
+## Approved direction
 
-- Build architecture: C++20, JUCE, and CMake.
-- Current outputs: VST3 and JUCE Standalone.
-- CLAP is deferred unless specifically required by the owner after stack validation.
-- Reference hosts: REAPER on Windows x64 and Linux x86_64.
-- MVP direction: phrase variations and transition policy using bounded short-window rhythmic operations.
-- Full phrase capture is out of scope for MVP; pitch-preserving stretch is deferred.
-- Product differentiation is workflow-first rather than a feature-count race.
+C++20, CMake and pinned JUCE 8.0.7; VST3 and JUCE Standalone on Windows x64/Linux
+x86_64. REAPER is the reference host. The integrated effect uses four named
+variations and five short-window operations with one canonical Scheduler.
+Full phrase capture, pitch-preserving stretch and CLAP remain outside the current
+runtime. Expansion direction is approved, but its technical package is incomplete.
 
-## Repository handoff state
+## Delivered since the original M0 scaffold
 
-At the start of this continuation, `main` was the only branch, with latest commit `4b8ed2e` (Windows build guide). There were no pull requests or GitHub Actions runs. The code was a JUCE shell with a dry-gain parameter; CMake declared a standalone GUI target referencing a `src/StandaloneMain.cpp` file absent from the repository tree. The editor implementation was split inconsistently between `PluginEditor.h` and `.cpp`, and no tests or CI workflow were present.
+The original shell/build inconsistencies and malformed .gitignore are repaired.
+Main now contains the portable clock/resolver/scheduler, bounded-history DSP,
+scene state, MIDI, undo/audition and wired editor controls. Timing selection is
+Automatic, strict Host PPQ or Sample Clock, persisted in host state. PRs #2 and #4
+are reconciled; PR #7 merged the runtime into main. PR #8 merged illustrated help.
+Documentation PR #10 records exact verification; PR #11 adds the feature audit.
 
-## M0 implementation in progress
-
-- Added a JUCE-independent phrase clock that converts tempo/meter/phrase settings to sample-boundary offsets, with input validation and deterministic tests.
-- Reworked the CMake model to offer VST3 and JUCE Standalone from the same processor and a separate core-only test mode.
-- Reworked the processor shell to use an AudioProcessorValueTreeState parameter/state model and mono/stereo layout checks.
-- Added portable-core CTest coverage and Windows/Linux GitHub Actions build jobs.
-- Local verification available in this environment: direct GCC C++20 compilation with `-Wall -Wextra -Wpedantic -Werror` and the phrase-clock test executable. CMake is not installed locally; remote plugin build and DAW tests remain pending.
-
-## M0 gate status
-
-| Gate | Status | Evidence / next action |
+| Gate | Current evidence | Remaining work |
 |---|---|---|
-| Portable phrase-clock tests | Passed locally | `g++ -std=c++20 -Wall -Wextra -Wpedantic -Werror ...`; rerun via CTest in CI |
-| CMake core-only configure | Not run locally | CMake unavailable; CI will verify |
-| Windows VST3/Standalone build | Pending | GitHub Actions on `codex/m0-validation` |
-| Linux VST3/Standalone build | Pending | GitHub Actions on `codex/m0-validation` |
-| REAPER load/state/automation/PDC tests | Pending | Requires REAPER host on Windows and Linux |
-| Standalone device/audio test | Pending | Requires desktop audio host/device |
-| Callback allocation/thread audit | Pending | Static review now; add instrumentation/host test before M0 exit |
+| Portable core, processor and editor callbacks | Eight matching Linux executables pass; Windows/Linux matrix passed at 7f2784a | Add regressions for audit findings |
+| Windows/Linux VST3 + Standalone build | Verified CI at 7f2784a | Package distributable formats |
+| ASan/UBSan portable tests | Verified CI at 7f2784a | Callback allocation/thread/deadline instrumentation |
+| Windows startup | Process remained alive for five seconds; artifact uploaded | Actual device/audio and clean-machine install |
+| REAPER scan/MIDI/automation/project/PDC | Not verified | Run Windows/Linux host matrix |
+| DSP musical quality/click thresholds/CPU | Fixture tests exist; no completed target-hardware acceptance | Measured and listening QA |
 
-## Exit criteria
+## Current gaps and branch work
 
-Do not begin broad feature implementation until Windows/Linux targets build, VST3 loads in REAPER on both, state/parameter behavior is verified, standalone is usable, zero-latency model is confirmed, and real-time safety has been reviewed. If a host or machine is unavailable, record the limitation and obtain an explicit fallback decision before claiming M0 complete.
+Missing original authoring contracts: editable phrase origin/subdivision and event
+lanes. Scene-button/MIDI state is not synchronized back to the host Variation
+parameter. Duplicate MIDI assignments silently use first-match lookup. Per-operation
+host automation and scene copy controls are absent. Native help screenshots remain
+outstanding; current SVG maps are diagrams, not screenshots.
+
+PR #9 has an isolated deterministic planner, no user-facing generator wiring,
+and a reproduced Linux uint64_t-reference compilation failure. Its assertion-only
+checks disappear in Release. PR #6 contains twelve draft expansion feature specs;
+its INCOMPLETE marker must be reconciled with the merged timing baseline before
+readiness can be established. Neither branch is a delivered feature.
+
+## Historical context
+
+The early M0 scaffold and missing StandaloneMain.cpp described in older notes are
+historical. Do not rebuild or merge that superseded processor over the canonical
+runtime. Earlier research citations retain their original access dates; this
+update does not imply fresh market research or new performance measurements.

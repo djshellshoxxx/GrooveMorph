@@ -31,4 +31,4 @@ Save lossless PNG files in `help/images/screenshots/` and annotate copies in `he
 
 ## Current documentation state
 
-Guides and arrowed reference diagrams are committed on a documentation-only branch. **Native screenshots remain outstanding** because no actual window capture was available to verify in this environment. Do not mark the screenshot deliverable complete until the PNG capture set exists.
+Guides and arrowed reference diagrams are merged into main (PR #8). A software-rendered editor snapshot was inspected during integration; it does not replace native host screenshots. **Native screenshots remain outstanding** because no actual window capture was available to verify in this environment. Do not mark the screenshot deliverable complete until the PNG capture set exists.

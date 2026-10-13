@@ -22,13 +22,20 @@ This table supersedes the M0-only checklist. It describes the reconciled process
 | GM-QR-005 timing | Wide signed sample math and fresh PPQ boundary calculations; scheduler re-evaluates each segment | Clock/resolver/scheduler fixtures and PPQ MIDI split regression | Target-host sample offset assertions |
 | GM-QR-006 latency | Causal look-behind operations; processor reports zero latency | Headless zero-latency assertion | Host PDC/impulse validation |
 | GM-QR-007 deterministic output | Reset clears DSP state; same scene/input yields identical output; seed persists without random generation | Core deterministic-reset test; serializer seed round trip | Offline/real-time host render comparison |
-| GM-QR-011 portability | Standard-library portable core, pinned JUCE 8.0.7 VST3/Standalone build definition | Local GCC 13.3 Release: all seven portable CTest targets passed | Linux VST3 + Standalone and 8/8 CTest pass on combined code; final Windows/Linux CI and merge-head verification pending |
+| GM-QR-011 portability | Standard-library portable core, pinned JUCE 8.0.7 VST3/Standalone build definition | Local GCC 13.3 Release: all seven portable CTest targets passed | Linux VST3 + Standalone and 8/8 CTest pass on combined code; Windows/Linux builds and processor tests, sanitizer tests and Windows startup passed at 7f2784a; see TIMING_INTEGRATION_HANDOFF.md |
 
-## Verification recorded by this audit
+## Current verification and next actions (2026-10-13)
 
-On 2026-10-12 the audit worktree configured and built the portable core in Release with GCC 13.3 and CMake. All seven targets passed: `DspRhythmEngineTests`, `PhraseClockTests`, `SceneBankTests`, `SceneSerializerTests`, `SceneUndoAuditionTests`, `SchedulerTests`, and `TransportResolverTests`. The stale-history regression failed when transport-history reset was deliberately disabled, then passed after restoring the fix.
+The combined runtime built as Linux VST3/Standalone; all eight matching Linux test
+executables (seven core plus processor/editor) passed again on 2026-10-13.
+Windows/Linux CI, ASan/UBSan and Windows startup passed at 7f2784a; exact links are
+in TIMING_INTEGRATION_HANDOFF.md. Runtime source/tests/workflows match main 61d5156.
+No new DAW/device/performance/installation results are claimed.
 
-Headless processor tests are present but were not executed by this audit worker. The integration coordinator must record their results against the final combined head. No host, audio-device, clean-machine installation, 24-hour stress, or Windows execution result is claimed here.
+Current feature gaps and reproduced scene-host/MIDI workflow defects are tracked
+in [the feature audit](feature-audit/FEATURE_AUDIT_2026-10-13.md) and [TODO](TODO.md).
+The earlier stale-history regression was observed failing with reset disabled and
+passing after restoration; that is historical regression evidence, not a new run.
 
 ## Deferred scope
 

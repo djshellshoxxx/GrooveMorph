@@ -51,36 +51,24 @@ trace actual callback threads instead of assuming all state callbacks use the UI
 
 ## 2. Verify current state before assigning work
 
-The following observations are a review baseline, not permanently current facts.
-Fetch current refs, PRs, CI, and releases before using them:
+Updated baseline, 2026-10-13: main contains canonical runtime 7f2784a merged by
+PR #7 (aaa8dae). PRs #2/#4 are reconciled/merged. Do not transplant their older
+M0 processor or alternate SceneScheduler. PR #8 adds illustrated help; PR #10
+records passing Windows/Linux/sanitizer/startup evidence; PR #11 records the
+feature audit. Rerun current refs before making changes.
 
-- Reviewed `main`: `4b8ed2e`, an early M0 scaffold.
-- `codex/m0-validation`: `a541b636e6407580317af8c77459350b81a73626`.
-- `claude/awesome-keller-jx2ck0`: `dfcabda030f7e1432f4b51baad471b26ddc91f0c`.
-- The reviewed Claude branch contains the Codex branch as an ancestor. Do not
-  cherry-pick or reimplement the same M0 work twice.
-- Its CI run https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38148457507
-  passed all four Windows/Linux core and full plugin/standalone jobs. This does
-  not establish REAPER compatibility, audio quality, or complete functionality.
-- At review there were no open PRs and no GitHub releases. Branch ownership may
-  still be active; absence of a PR does not make a branch abandoned.
+Read docs/TODO.md and docs/feature-audit/FEATURE_AUDIT_2026-10-13.md first.
+Current runtime implements DSP/scenes/MIDI/state/undo/audition and selectable
+Automatic/Host PPQ/Sample Clock timing. It is not merely a gain/timing spike.
+Editable phrase origins/subdivisions/event lanes, operation automation, native
+host acceptance and expansion remain incomplete. Fix reproduced scene/host readback
+and MIDI mapping gaps with regressions.
 
-Inspect/review the newer branch, rerun relevant checks at its exact head, and
-integrate it with the current skills-bearing `main` through a small PR. Preserve
-concurrent additions to `AGENTS.md`, README, specs, CI, and skills. Verify ancestry
-and semantic conflict resolution; do not force-push another session.
-
-The old main scaffold references absent `src/StandaloneMain.cpp`, duplicates
-`createEditor()` and editor definitions, and has no proper core/test architecture.
-The newer branch fixes this build structure; use it rather than patching the obsolete
-shell again. Inspect `.gitignore`, which contained C++ header text at review, and
-replace invalid ignore content with appropriate build/cache/artifact exclusions.
-
-The newer branch supplies `docs/SPECIFICATION.md`, `docs/SPEC_INDEX.md`,
-`docs/TRACEABILITY.md`, `src/core/PhraseClock.*`, `TransportResolver.*`,
-`OperationParams.h`, APVTS parameters, processor tests, and native CI. Keep those.
-Update stale progress notes from verified evidence. No current branch is a
-completed GrooveMorph implementation: the processor is still a gain/timing spike.
+PR #9 is an unmerged planner core with a Linux uint64_t-reference build failure
+and Release-disabled assertions; it has no editor workflow. PR #6 is the separate
+INCOMPLETE F01–F12 specification package. Verify ownership and current heads;
+repair/reconcile small units instead of replacing existing working modules.
+Preserve main skills, help, source and state IDs. Never force-push other workers.
 
 ## 3. Establish the source of truth and completion contract
 

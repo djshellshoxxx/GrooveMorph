@@ -24,7 +24,7 @@ The status line reports host, host + manual, manual, or free-run and warns about
 
 A queued request captures its transition policy **when it is requested**. Changing the Transition selector later does not rewrite that policy. Changing **Timing method** can recompute the queued request's boundary against the newly selected clock. A second variation request can replace the earlier pending request; the scheduler retains the latest pending target.
 
-**Trigger queued** can manually activate an existing pending request, regardless of the originally captured transition mode. **Cancel queued** clears it. If the status reports `waiting for trigger/transport`, confirm host transport, timing method and PPQ/bar anchor fields before assuming the switch is broken.
+**Trigger queued** activates a request originally queued in **Manual** mode. The button may remain enabled for other requests, but the scheduler does not force Beat/Bar/Phrase requests through this action. To replace a quantized request with an immediate change, select Immediate and click its variation again. **Cancel queued** clears it. If the status reports `waiting for trigger/transport`, confirm host transport, timing method and PPQ/bar anchor fields before assuming the switch is broken.
 
 ## Phrase strip and positioning
 
