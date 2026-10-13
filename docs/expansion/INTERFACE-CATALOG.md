@@ -1,6 +1,8 @@
 # Shared integration interfaces — initial proposals
 
-All names are proposed, not claims about existing source. Do not replace existing core contracts without explicit compatibility migration.
+Updated baseline: 7f2784a, merged into main. Actual core uses PhraseGrid, HostTransport, ResolvedTiming, TimingMode, Scheduler and a fixed operation-settings SceneSnapshot. Existing OperationType order is Repeat, ReverseSlice, Gate, HalfTime, TapeStop; do not remap it to the example enum below. Exact compatible headers/migration remain to be authored.
+
+All names below are proposed, not claims about existing source. Do not replace existing core contracts without explicit compatibility migration.
 
 ```cpp
 struct MusicalTime { int64_t sample; double ppq; double bpm; int numerator; int denominator; uint64_t epoch; bool ppqValid; bool running; };
