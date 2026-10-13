@@ -1,0 +1,1056 @@
+{
+  "schema_version": 1,
+  "proposal_version": "six-controls-v1",
+  "baseline_runtime": "7f2784a0571f2a6ffb93ea261c386cd89cdde6af",
+  "preserve_ids": [
+    "masterIntensity",
+    "dryWet",
+    "manualTempo",
+    "manualMeterNumerator",
+    "manualMeterDenominator",
+    "phraseBars",
+    "activeVariation",
+    "transitionMode",
+    "bypass",
+    "timingMode"
+  ],
+  "new_parameters": [
+    {
+      "feature": "C01",
+      "id": "gridOriginTicks",
+      "type": "int",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot_and_epoch",
+      "unit": "quarter_note_ticks_960",
+      "minimum": -1966080,
+      "maximum": 1966080,
+      "interval": 1
+    },
+    {
+      "feature": "C01",
+      "id": "gridSubdivision",
+      "type": "choice",
+      "default": 3,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "",
+      "choices": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "6",
+        "8",
+        "12",
+        "16"
+      ]
+    },
+    {
+      "feature": "C02",
+      "id": "genDistance",
+      "type": "float",
+      "default": 0.25,
+      "automatable": true,
+      "application": "next_generate",
+      "unit": "normalized",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 0.001
+    },
+    {
+      "feature": "C02",
+      "id": "genRhythmAmount",
+      "type": "float",
+      "default": 0.5,
+      "automatable": true,
+      "application": "next_generate",
+      "unit": "normalized",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 0.001
+    },
+    {
+      "feature": "C02",
+      "id": "genDepthAmount",
+      "type": "float",
+      "default": 0.5,
+      "automatable": true,
+      "application": "next_generate",
+      "unit": "normalized",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 0.001
+    },
+    {
+      "feature": "C02",
+      "id": "genStyle",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_generate",
+      "unit": "",
+      "choices": [
+        "Conservative",
+        "Creative",
+        "Experimental"
+      ]
+    },
+    {
+      "feature": "C01",
+      "id": "scene0.placementEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": ""
+    },
+    {
+      "feature": "C01",
+      "id": "scene0.placementWindow",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "",
+      "choices": [
+        "Full phrase",
+        "Custom",
+        "Last bar"
+      ]
+    },
+    {
+      "feature": "C01",
+      "id": "scene0.placementStart",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_phase",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 1e-06
+    },
+    {
+      "feature": "C01",
+      "id": "scene0.placementSpan",
+      "type": "float",
+      "default": 1,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_phase",
+      "minimum": 5.086263020833333e-07,
+      "maximum": 1,
+      "interval": null
+    },
+    {
+      "feature": "C01",
+      "id": "scene0.placementEvery",
+      "type": "int",
+      "default": 1,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrases",
+      "minimum": 1,
+      "maximum": 64,
+      "interval": 1
+    },
+    {
+      "feature": "C01",
+      "id": "scene0.placementOffset",
+      "type": "int",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_index",
+      "minimum": 0,
+      "maximum": 63,
+      "interval": 1
+    },
+    {
+      "feature": "C04",
+      "id": "scene0.phasePolicy",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Preserve",
+        "Restart",
+        "Align beat"
+      ]
+    },
+    {
+      "feature": "C04",
+      "id": "scene0.phaseOffset",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "meter_beats",
+      "minimum": -4,
+      "maximum": 4,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C04",
+      "id": "scene0.phaseSmoothingMs",
+      "type": "float",
+      "default": 3,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "ms",
+      "minimum": 3,
+      "maximum": 500,
+      "interval": 1
+    },
+    {
+      "feature": "C05",
+      "id": "scene0.returnEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": ""
+    },
+    {
+      "feature": "C05",
+      "id": "scene0.returnDuration",
+      "type": "float",
+      "default": 4,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "launch_meter_beats",
+      "minimum": 0.0625,
+      "maximum": 64,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C05",
+      "id": "scene0.returnTarget",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Previous",
+        "A",
+        "B",
+        "C",
+        "D",
+        "Dry"
+      ]
+    },
+    {
+      "feature": "C05",
+      "id": "scene0.returnQuantization",
+      "type": "choice",
+      "default": 2,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Immediate",
+        "Beat",
+        "Bar",
+        "Phrase"
+      ]
+    },
+    {
+      "feature": "C05",
+      "id": "scene0.returnPhase",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Preserve",
+        "Restart",
+        "Align beat"
+      ]
+    },
+    {
+      "feature": "C06",
+      "id": "scene0.activityEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": ""
+    },
+    {
+      "feature": "C06",
+      "id": "scene0.activityMaxConcurrent",
+      "type": "int",
+      "default": 5,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "scheduled_operations",
+      "minimum": 1,
+      "maximum": 5,
+      "interval": 1
+    },
+    {
+      "feature": "C06",
+      "id": "scene0.activityMinSpacing",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "meter_beats",
+      "minimum": 0,
+      "maximum": 4,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C06",
+      "id": "scene0.activityCoverage",
+      "type": "float",
+      "default": 1,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "normalized_phrase_coverage",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 0.001
+    },
+    {
+      "feature": "C06",
+      "id": "scene0.activityScope",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "",
+      "choices": [
+        "Generated only",
+        "All explicit patterns"
+      ]
+    },
+    {
+      "feature": "C01",
+      "id": "scene1.placementEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": ""
+    },
+    {
+      "feature": "C01",
+      "id": "scene1.placementWindow",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "",
+      "choices": [
+        "Full phrase",
+        "Custom",
+        "Last bar"
+      ]
+    },
+    {
+      "feature": "C01",
+      "id": "scene1.placementStart",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_phase",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 1e-06
+    },
+    {
+      "feature": "C01",
+      "id": "scene1.placementSpan",
+      "type": "float",
+      "default": 1,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_phase",
+      "minimum": 5.086263020833333e-07,
+      "maximum": 1,
+      "interval": null
+    },
+    {
+      "feature": "C01",
+      "id": "scene1.placementEvery",
+      "type": "int",
+      "default": 1,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrases",
+      "minimum": 1,
+      "maximum": 64,
+      "interval": 1
+    },
+    {
+      "feature": "C01",
+      "id": "scene1.placementOffset",
+      "type": "int",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_index",
+      "minimum": 0,
+      "maximum": 63,
+      "interval": 1
+    },
+    {
+      "feature": "C04",
+      "id": "scene1.phasePolicy",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Preserve",
+        "Restart",
+        "Align beat"
+      ]
+    },
+    {
+      "feature": "C04",
+      "id": "scene1.phaseOffset",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "meter_beats",
+      "minimum": -4,
+      "maximum": 4,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C04",
+      "id": "scene1.phaseSmoothingMs",
+      "type": "float",
+      "default": 3,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "ms",
+      "minimum": 3,
+      "maximum": 500,
+      "interval": 1
+    },
+    {
+      "feature": "C05",
+      "id": "scene1.returnEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": ""
+    },
+    {
+      "feature": "C05",
+      "id": "scene1.returnDuration",
+      "type": "float",
+      "default": 4,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "launch_meter_beats",
+      "minimum": 0.0625,
+      "maximum": 64,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C05",
+      "id": "scene1.returnTarget",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Previous",
+        "A",
+        "B",
+        "C",
+        "D",
+        "Dry"
+      ]
+    },
+    {
+      "feature": "C05",
+      "id": "scene1.returnQuantization",
+      "type": "choice",
+      "default": 2,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Immediate",
+        "Beat",
+        "Bar",
+        "Phrase"
+      ]
+    },
+    {
+      "feature": "C05",
+      "id": "scene1.returnPhase",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Preserve",
+        "Restart",
+        "Align beat"
+      ]
+    },
+    {
+      "feature": "C06",
+      "id": "scene1.activityEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": ""
+    },
+    {
+      "feature": "C06",
+      "id": "scene1.activityMaxConcurrent",
+      "type": "int",
+      "default": 5,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "scheduled_operations",
+      "minimum": 1,
+      "maximum": 5,
+      "interval": 1
+    },
+    {
+      "feature": "C06",
+      "id": "scene1.activityMinSpacing",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "meter_beats",
+      "minimum": 0,
+      "maximum": 4,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C06",
+      "id": "scene1.activityCoverage",
+      "type": "float",
+      "default": 1,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "normalized_phrase_coverage",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 0.001
+    },
+    {
+      "feature": "C06",
+      "id": "scene1.activityScope",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "",
+      "choices": [
+        "Generated only",
+        "All explicit patterns"
+      ]
+    },
+    {
+      "feature": "C01",
+      "id": "scene2.placementEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": ""
+    },
+    {
+      "feature": "C01",
+      "id": "scene2.placementWindow",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "",
+      "choices": [
+        "Full phrase",
+        "Custom",
+        "Last bar"
+      ]
+    },
+    {
+      "feature": "C01",
+      "id": "scene2.placementStart",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_phase",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 1e-06
+    },
+    {
+      "feature": "C01",
+      "id": "scene2.placementSpan",
+      "type": "float",
+      "default": 1,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_phase",
+      "minimum": 5.086263020833333e-07,
+      "maximum": 1,
+      "interval": null
+    },
+    {
+      "feature": "C01",
+      "id": "scene2.placementEvery",
+      "type": "int",
+      "default": 1,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrases",
+      "minimum": 1,
+      "maximum": 64,
+      "interval": 1
+    },
+    {
+      "feature": "C01",
+      "id": "scene2.placementOffset",
+      "type": "int",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_index",
+      "minimum": 0,
+      "maximum": 63,
+      "interval": 1
+    },
+    {
+      "feature": "C04",
+      "id": "scene2.phasePolicy",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Preserve",
+        "Restart",
+        "Align beat"
+      ]
+    },
+    {
+      "feature": "C04",
+      "id": "scene2.phaseOffset",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "meter_beats",
+      "minimum": -4,
+      "maximum": 4,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C04",
+      "id": "scene2.phaseSmoothingMs",
+      "type": "float",
+      "default": 3,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "ms",
+      "minimum": 3,
+      "maximum": 500,
+      "interval": 1
+    },
+    {
+      "feature": "C05",
+      "id": "scene2.returnEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": ""
+    },
+    {
+      "feature": "C05",
+      "id": "scene2.returnDuration",
+      "type": "float",
+      "default": 4,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "launch_meter_beats",
+      "minimum": 0.0625,
+      "maximum": 64,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C05",
+      "id": "scene2.returnTarget",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Previous",
+        "A",
+        "B",
+        "C",
+        "D",
+        "Dry"
+      ]
+    },
+    {
+      "feature": "C05",
+      "id": "scene2.returnQuantization",
+      "type": "choice",
+      "default": 2,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Immediate",
+        "Beat",
+        "Bar",
+        "Phrase"
+      ]
+    },
+    {
+      "feature": "C05",
+      "id": "scene2.returnPhase",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Preserve",
+        "Restart",
+        "Align beat"
+      ]
+    },
+    {
+      "feature": "C06",
+      "id": "scene2.activityEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": ""
+    },
+    {
+      "feature": "C06",
+      "id": "scene2.activityMaxConcurrent",
+      "type": "int",
+      "default": 5,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "scheduled_operations",
+      "minimum": 1,
+      "maximum": 5,
+      "interval": 1
+    },
+    {
+      "feature": "C06",
+      "id": "scene2.activityMinSpacing",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "meter_beats",
+      "minimum": 0,
+      "maximum": 4,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C06",
+      "id": "scene2.activityCoverage",
+      "type": "float",
+      "default": 1,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "normalized_phrase_coverage",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 0.001
+    },
+    {
+      "feature": "C06",
+      "id": "scene2.activityScope",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "",
+      "choices": [
+        "Generated only",
+        "All explicit patterns"
+      ]
+    },
+    {
+      "feature": "C01",
+      "id": "scene3.placementEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": ""
+    },
+    {
+      "feature": "C01",
+      "id": "scene3.placementWindow",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "",
+      "choices": [
+        "Full phrase",
+        "Custom",
+        "Last bar"
+      ]
+    },
+    {
+      "feature": "C01",
+      "id": "scene3.placementStart",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_phase",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 1e-06
+    },
+    {
+      "feature": "C01",
+      "id": "scene3.placementSpan",
+      "type": "float",
+      "default": 1,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_phase",
+      "minimum": 5.086263020833333e-07,
+      "maximum": 1,
+      "interval": null
+    },
+    {
+      "feature": "C01",
+      "id": "scene3.placementEvery",
+      "type": "int",
+      "default": 1,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrases",
+      "minimum": 1,
+      "maximum": 64,
+      "interval": 1
+    },
+    {
+      "feature": "C01",
+      "id": "scene3.placementOffset",
+      "type": "int",
+      "default": 0,
+      "automatable": true,
+      "application": "next_valid_snapshot",
+      "unit": "phrase_index",
+      "minimum": 0,
+      "maximum": 63,
+      "interval": 1
+    },
+    {
+      "feature": "C04",
+      "id": "scene3.phasePolicy",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Preserve",
+        "Restart",
+        "Align beat"
+      ]
+    },
+    {
+      "feature": "C04",
+      "id": "scene3.phaseOffset",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "meter_beats",
+      "minimum": -4,
+      "maximum": 4,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C04",
+      "id": "scene3.phaseSmoothingMs",
+      "type": "float",
+      "default": 3,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "ms",
+      "minimum": 3,
+      "maximum": 500,
+      "interval": 1
+    },
+    {
+      "feature": "C05",
+      "id": "scene3.returnEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": ""
+    },
+    {
+      "feature": "C05",
+      "id": "scene3.returnDuration",
+      "type": "float",
+      "default": 4,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "launch_meter_beats",
+      "minimum": 0.0625,
+      "maximum": 64,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C05",
+      "id": "scene3.returnTarget",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Previous",
+        "A",
+        "B",
+        "C",
+        "D",
+        "Dry"
+      ]
+    },
+    {
+      "feature": "C05",
+      "id": "scene3.returnQuantization",
+      "type": "choice",
+      "default": 2,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Immediate",
+        "Beat",
+        "Bar",
+        "Phrase"
+      ]
+    },
+    {
+      "feature": "C05",
+      "id": "scene3.returnPhase",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_launch",
+      "unit": "",
+      "choices": [
+        "Preserve",
+        "Restart",
+        "Align beat"
+      ]
+    },
+    {
+      "feature": "C06",
+      "id": "scene3.activityEnabled",
+      "type": "bool",
+      "default": false,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": ""
+    },
+    {
+      "feature": "C06",
+      "id": "scene3.activityMaxConcurrent",
+      "type": "int",
+      "default": 5,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "scheduled_operations",
+      "minimum": 1,
+      "maximum": 5,
+      "interval": 1
+    },
+    {
+      "feature": "C06",
+      "id": "scene3.activityMinSpacing",
+      "type": "float",
+      "default": 0,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "meter_beats",
+      "minimum": 0,
+      "maximum": 4,
+      "interval": 0.0625
+    },
+    {
+      "feature": "C06",
+      "id": "scene3.activityCoverage",
+      "type": "float",
+      "default": 1,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "normalized_phrase_coverage",
+      "minimum": 0,
+      "maximum": 1,
+      "interval": 0.001
+    },
+    {
+      "feature": "C06",
+      "id": "scene3.activityScope",
+      "type": "choice",
+      "default": 0,
+      "automatable": true,
+      "application": "next_generate_or_prepared_phrase_boundary",
+      "unit": "",
+      "choices": [
+        "Generated only",
+        "All explicit patterns"
+      ]
+    }
+  ],
+  "scene_state_only": [
+    "event patterns/IDs/priority",
+    "permission masks/regions",
+    "uint64 seed",
+    "uint32 candidateIndex",
+    "plannerAlgorithmVersion"
+  ],
+  "transient_commands": [
+    "Generate",
+    "Preview",
+    "Apply",
+    "Revert",
+    "Restart current",
+    "Hold return",
+    "Cancel return",
+    "Return now"
+  ],
+  "normalization": "linear (x-min)/(max-min); discrete choices index/(N-1); bool 0/1; round integer/discrete at ingestion",
+  "parameter_version_hint": 1,
+  "missing_parameter_policy": "documented defaults, including restore into previously used instance"
+}

@@ -55,3 +55,15 @@ contains exact passing CI/artifact links and limits. [Traceability](TRACEABILITY
 records requirement coverage. Close tasks only with relevant current tests and
 user-facing wiring; update this ledger and help when behavior changes. No numeric
 project completion percentage is asserted.
+
+## Six-control specification package (2026-10-13)
+
+- [x] Author [six detailed specs and shared integration plan](control-specs/README.md).
+- [ ] Implement shared v2 scene/parameter/model prerequisites with legacy fixtures.
+- [ ] Implement C01 placement/event authoring, then C03 permissions and C06 activity limits.
+- [ ] Reconcile PR #9 into C02 distance/candidate workflow after Linux/Release-test repair.
+- [ ] Extend canonical Scheduler for C04 phase and C05 automatic return.
+- [ ] Wire six contextual inspector tabs and validate host/state/DSP/UI/RT acceptance.
+
+Existing A01–A08 tasks remain; these specs elaborate them and do not mark the
+separate F01–F12 package or features implemented.

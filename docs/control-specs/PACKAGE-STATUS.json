@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "status": "SPECIFIED_NOT_IMPLEMENTED",
+  "authored_date": "2026-10-13",
+  "baseline_main": "015658dc4471be9816d0e2cbcccd8f5d72ed9223",
+  "baseline_runtime": "7f2784a0571f2a6ffb93ea261c386cd89cdde6af",
+  "features": ["C01", "C02", "C03", "C04", "C05", "C06"],
+  "author_checks": ["six feature specs", "shared integration and GUI/state/RT contracts", "unique parameter IDs and valid defaults", "relative document links", "dependency order"],
+  "independent_review": "not performed; review during implementation before interface changes",
+  "runtime_code_changes": false,
+  "separate_expansion_F01_F12_readiness_changed": false
+}
