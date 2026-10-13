@@ -299,10 +299,28 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
     // The scheduler captures the request policy; changing the selector does not
     // rewrite it. Keep manual triggering available for any armed request.
     triggerButton.setEnabled(queued >= 0);
-    midiLabel.setText(audioProcessor.getMidiNoteEventCount() == 0
-        ? "MIDI: no notes received; route host MIDI to GrooveMorph"
-        : "MIDI: " + juce::String(audioProcessor.getMidiNoteEventCount()) + " note events received",
-        juce::dontSendNotification);
+    if (const auto duplicateNote = bank.midiNoteMap().firstConflictingNote())
+    {
+        // Keep existing project maps intact, but make first-match priority visible.
+        juce::String text("MIDI conflict: note ");
+        text << *duplicateNote << " maps to multiple variations";
+        midiLabel.setText(text, juce::dontSendNotification);
+        juce::String tooltip("Note ");
+        tooltip << *duplicateNote
+                << " is assigned to multiple variations. The first mapped variation wins. "
+                   "Edit one variation's MIDI note to restore independent triggering. "
+                   "Received note events: "
+                << audioProcessor.getMidiNoteEventCount();
+        midiLabel.setTooltip(tooltip);
+    }
+    else
+    {
+        midiLabel.setText(audioProcessor.getMidiNoteEventCount() == 0
+            ? "MIDI: no notes received; route host MIDI to GrooveMorph"
+            : "MIDI: " + juce::String(audioProcessor.getMidiNoteEventCount()) + " note events received",
+            juce::dontSendNotification);
+        midiLabel.setTooltip("Incoming MIDI note events from the host");
+    }
     repaint();
 }
 

@@ -16,6 +16,7 @@ check existing PRs. Unassigned tasks below have no claimed implementation owner.
 - [x] Run eight matching local Linux test executables successfully (2026-10-13).
 - [x] Merge help pages and annotated source-derived SVG maps (PR #8).
 - [x] Publish and merge feature audit (PR #11); record exact build evidence (PR #10).
+- [x] Merge six musical control specs (PR #14) and portable deterministic variation-planning core (PR #9).
 
 ## Active work, dependencies and acceptance
 
@@ -24,8 +25,8 @@ check existing PRs. Unassigned tasks below have no claimed implementation owner.
 | A01 / P0 feature contract | Missing; unassigned | Specify and implement editable phrase origin, subdivision and bounded event lanes; then migrate scene schema/UI | Chosen interval alone is processed; visual/audio boundaries agree; independent scenes; legacy recall; loop/tempo/block fixtures |
 | A02 / P0 release QA | Unverified; unassigned | REAPER Windows/Linux scan/load, MIDI, automation, project recall, PDC, device audio, listening, CPU/memory/deadline/allocation instrumentation | Record actual host/hardware/settings and thresholds; no inference from compilation/startup |
 | A03 / P1 workflow bug | Reproduced; unassigned | Define requested versus active Variation semantics and safe host feedback | UI/MIDI/automation/cancel/reopen stay coherent without callback host notification |
-| A04 / P1 MIDI conflict | Reproduced; unassigned | Reject/swap/warn on duplicate note assignments; define older-state recovery | No silently unreachable scene; state and undo preserve documented policy |
-| A05 / P1 generator | Unmerged PR #9; confirm existing owner | Fix Linux PRNG type; replace assertion-only Release checks; verify core before UI preview/apply integration | Linux/Windows/sanitizers pass; tests remain effective under NDEBUG; seed/protection determinism and isolated preview |
+| A04 / P1 MIDI conflict | Diagnostic warning implemented (PR #15); mapping policy still first-match | Decide whether to add auto-swap/reject; validate the warning in a native host | Duplicate assignments are visible, prior saved maps remain valid; first match keeps existing behavior |
+| A05 / P1 generator | Portable planner merged (PR #9); UI absent | Design non-destructive preview/apply integration, seed and candidate controls | Existing planner Linux/Windows/sanitizer CI passed; seed/protection determinism and isolated preview remain required end-to-end |
 | A06 / P1 authoring | Missing; unassigned | Define stable operation automation IDs, scene copy/duplicate controls and fade policy | Host automation/state/undo contract tested; copied scenes independent |
 | A07 / P2 documentation/UX | Partial; unassigned | Native host screenshots + checked arrows/manifest, help entrypoint, effective slice-limit feedback, keyboard/scaling QA | Accurate clickable bounds and tested platforms; limitations visible |
 | A08 / P2 expansion | Draft PR #6; confirm existing owner | Pin canonical baseline; complete/review F01–F12 interfaces, tasks, schemas, numerical fixtures | Package becomes READY only when measurable contracts and review evidence are complete |
@@ -41,8 +42,9 @@ must not erase unmet original requirements or be treated as already delivered.
 - PRs #2/#4/#7: merged/reconciled. Do not reinstall the superseded M0 processor.
 - PR #6: spec/groovemorph-expansion-v1; INCOMPLETE, twelve draft features. Timing
   integration is resolved; specification depth/interface/state/test review remains.
-- PR #9: feature/deterministic-variation-planner; core only, no user generator.
-  Linux uint64_t-reference build failure reproduced; Windows green does not waive it.
+- PR #9: merged deterministic planner core with regression tests after Linux/Release
+  test repair; the end-user generator and C02 controls remain unimplemented.
+- PR #14: six-control specification package merged; contract does not equal runtime.
 - Seed storage, undo history and four-second audio history are not full F01, F08
   or F09 implementations. Morphing, groove protection, performance mode, evolution,
   polyrhythm, audio triggers, import/capture, multiband, gestures and CLAP are absent.
@@ -61,7 +63,7 @@ project completion percentage is asserted.
 - [x] Author [six detailed specs and shared integration plan](control-specs/README.md).
 - [ ] Implement shared v2 scene/parameter/model prerequisites with legacy fixtures.
 - [ ] Implement C01 placement/event authoring, then C03 permissions and C06 activity limits.
-- [ ] Reconcile PR #9 into C02 distance/candidate workflow after Linux/Release-test repair.
+- [ ] Integrate the merged PR #9 planner into C02 distance/candidate workflow with safe preview/apply and host/state tests.
 - [ ] Extend canonical Scheduler for C04 phase and C05 automatic return.
 - [ ] Wire six contextual inspector tabs and validate host/state/DSP/UI/RT acceptance.
 
