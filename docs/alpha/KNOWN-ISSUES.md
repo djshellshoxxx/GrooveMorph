@@ -16,3 +16,22 @@ Ranked by severity.
 12. **Screenshots:** Linux-rendered via the project's snapshot tool (software rendering of the real editor); the only Windows capture is the CI startup screenshot.
 13. **Help pages** under `help/` predate the new controls.
 14. Remaining unimplemented items (C04, protected temporal regions, per-event locks, steeper crossover, CLAP) are listed in ALPHA-FEATURE-STATUS.md.
+
+## Audit 2 (2026-10-14): fixed vs. still open
+
+Fixed in PR #26 (core, verified by new regression tests and CI): scene files dropped TapeStop (operation 4)
+permission/activity/lane keys; history operations replayed silence after a transport reset; NaN/Inf input could
+poison the history ring; bypass was not bit-exact for tiny values; planner seed and candidate index aliased; audition
+commit kept a stale original; a `const_cast` on an atomic CAS expected value (UB); parameters missing from restored
+state kept the previous session's values.
+
+Still open (not fixed, not hidden):
+- A seek or reset produces one step from the effect output to the dry signal (inherent without a crossfade).
+- Drag-created event lanes: an audit claim that created events keep a default length could not be reproduced by code
+  reading; needs a hands-on GUI check.
+- Band-split NaN / wet-0 handling, change gestures, lazy timer start, capture abort on seek, grid clamp 32.
+- GUI polish items from the audit, compact-layout scale factor, 384 kHz sample-rate limit.
+- C04 transition phase, protected regions / per-event locks, 12 dB crossover slope, persistence of gesture/evolution
+  state, scale-events command.
+- No software licence is declared; the owner must choose one.
+- No DAW, audio-device or listening tests have been performed.
