@@ -203,7 +203,7 @@ void RhythmEngine::process(float* const* channels,
             const std::size_t g = opIndex(OperationType::Gate);
             if (amounts[g] > 0.0f && timingOk)
             {
-                const double pos = positionInCell(beat, sliceBeats[g], spb, sliceSamples[g]);
+                const double pos = positionInCell(beat - timing.phaseOffsetBeats[g], sliceBeats[g], spb, sliceSamples[g]);
                 const float target = pos < 0.5 * sliceSamples[g] ? 1.0f : 0.0f;
                 gateGain = slew(gateGain, target, gateStep);
             }
@@ -234,7 +234,8 @@ void RhythmEngine::process(float* const* channels,
                 case OperationType::Repeat:
                 {
                     const double cyclePos = positionInCell(
-                        beat, sliceBeats[op] * repeatCycleSlices, spb, len * repeatCycleSlices);
+                        beat - timing.phaseOffsetBeats[op], sliceBeats[op] * repeatCycleSlices, spb,
+                        len * repeatCycleSlices);
                     const double j = std::min(static_cast<double>(repeatCycleSlices - 1),
                                               std::floor(cyclePos / len));
                     r = t - j * len;
@@ -243,21 +244,21 @@ void RhythmEngine::process(float* const* channels,
                 }
                 case OperationType::ReverseSlice:
                 {
-                    const double p = positionInCell(beat, sliceBeats[op], spb, len);
+                    const double p = positionInCell(beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
                     r = t - 2.0 * p - 1.0;
                     rate = -1.0;
                     break;
                 }
                 case OperationType::HalfTime:
                 {
-                    const double p = positionInCell(beat, sliceBeats[op], spb, len);
+                    const double p = positionInCell(beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
                     r = t - 0.5 * p;
                     rate = 0.5;
                     break;
                 }
                 case OperationType::TapeStop:
                 {
-                    const double p = positionInCell(beat, sliceBeats[op], spb, len);
+                    const double p = positionInCell(beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
                     r = t - p * p / (2.0 * len);
                     rate = 1.0 - p / len;
                     break;

@@ -75,7 +75,8 @@ VariationSettings morph(const VariationSettings& a, const VariationSettings& b, 
     return out;
 }
 
-std::uint32_t enforcePermissions(const VariationSettings& source, VariationSettings& candidate) noexcept
+std::uint32_t enforcePermissions(const VariationSettings& source, VariationSettings& candidate,
+                                 bool keepCandidatePermissions) noexcept
 {
     std::uint32_t restored = 0;
     const auto& perms = source.control.permissions;
@@ -117,7 +118,8 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
         candidate.control.placement = source.control.placement;
         ++restored;
     }
-    candidate.control.permissions = source.control.permissions;
+    if (!keepCandidatePermissions)
+        candidate.control.permissions = source.control.permissions;
     return restored;
 }
 } // namespace groovemorph::core::control

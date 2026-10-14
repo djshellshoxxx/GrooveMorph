@@ -741,6 +741,154 @@ int main()
         plugin.setPlayHead(nullptr);
     }
 
+
+    // ---- Alpha 2: auto-return in phrase units (C05) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        setParameter(processor, "transitionMode", 0.0f);
+        setParameter(processor, "autoReturnBars", 1.0f);
+        setParameter(processor, "autoReturnUnit", 1.0f); // phrases (4 bars)
+        std::int64_t sample = 0;
+        const auto block = [&] {
+            setTransport(playHead, sample);
+            processSilence(processor, 256);
+            sample += 256;
+        };
+        block();
+        processor.requestVariation(1);
+        block();
+        while (sample < 384000 + 512)
+            block();
+        expect("phrase-unit return lands on the phrase boundary", processor.getActiveVariation() == 0
+               && processor.getLastSwitchSample() == 384000);
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha 2: band split keeps one part of the spectrum out of the effects (F03/F10) ----
+    {
+        const auto measure = [](float mode, double& lowRms, double& highRms) {
+            GrooveMorphAudioProcessor processor;
+            FakePlayHead playHead;
+            processor.setPlayHead(&playHead);
+            processor.prepareToPlay(48000.0, 480);
+            setParameter(processor, "masterIntensity", 1.0f);
+            setParameter(processor, "bandMode", mode);
+            setParameter(processor, "bandCrossover", 400.0f);
+            groovemorph::core::VariationSettings settings;
+            settings[groovemorph::core::OperationType::Gate] = {true, 1.0f, 1.0f}; // closed 2nd half of each beat
+            processor.setVariationSettings(0, settings);
+            double lowSum = 0.0, highSum = 0.0;
+            std::int64_t counted = 0;
+            for (std::int64_t sample = 0; sample < 48000 * 3; sample += 480)
+            {
+                juce::AudioBuffer<float> buffer(2, 480);
+                for (int i = 0; i < 480; ++i)
+                {
+                    const double t = static_cast<double>(sample + i) / 48000.0;
+                    const float low = 0.3f * static_cast<float>(std::sin(6.283185307179586 * 50.0 * t));
+                    const float high = 0.3f * static_cast<float>(std::sin(6.283185307179586 * 5000.0 * t));
+                    buffer.setSample(0, i, low + high);
+                    buffer.setSample(1, i, low + high);
+                }
+                setTransport(playHead, sample);
+                juce::MidiBuffer midi;
+                processor.processBlock(buffer, midi);
+                // Closed part of the gate: beat fraction 0.6 .. 0.95, well after the ramp.
+                const double beatFraction = std::fmod(static_cast<double>(sample) / 24000.0, 1.0);
+                if (sample > 48000 && beatFraction > 0.6 && beatFraction < 0.95)
+                    for (int i = 0; i < 480; ++i)
+                    {
+                        const double t = static_cast<double>(sample + i) / 48000.0;
+                        const double sLow = std::sin(6.283185307179586 * 50.0 * t);
+                        const double sHigh = std::sin(6.283185307179586 * 5000.0 * t);
+                        const double y = buffer.getSample(0, i);
+                        lowSum += y * sLow;   // projection on each tone (blocks hold whole cycles)
+                        highSum += y * sHigh;
+                        ++counted;
+                    }
+            }
+            lowRms = 2.0 * lowSum / static_cast<double>(counted);   // amplitude of the 50 Hz component
+            highRms = 2.0 * highSum / static_cast<double>(counted); // amplitude of the 5 kHz component
+            processor.setPlayHead(nullptr);
+        };
+        double low = 0, high = 0;
+        measure(0.0f, low, high);
+        expect("full band: gate silences both tones", std::abs(low) < 0.03 && std::abs(high) < 0.03);
+        measure(1.0f, low, high);
+        expect("protect lows: bass survives the closed gate, highs are gated", low > 0.2 && std::abs(high) < 0.03);
+        measure(2.0f, low, high);
+        expect("lows only: highs bypass the closed gate, bass is gated", high > 0.25 && std::abs(low) < 0.1);
+    }
+
+    // ---- Alpha 2: audio trigger changes scene on input transients (F07) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 480);
+        setParameter(processor, "transitionMode", 0.0f);
+        setParameter(processor, "audioTrigger", 1.0f); // next scene
+        std::int64_t sample = 0;
+        bool changed = false;
+        for (int b = 0; b < 48000 * 3 / 480; ++b)
+        {
+            juce::AudioBuffer<float> buffer(2, 480);
+            for (int i = 0; i < 480; ++i)
+            {
+                const std::int64_t since = (sample + i) % 24000;
+                const float click = since < 1200 ? 0.8f * std::exp(-static_cast<float>(since) / 300.0f) : 0.0f;
+                const float v = 0.005f * std::sin(0.05f * static_cast<float>(sample + i)) + click;
+                buffer.setSample(0, i, v);
+                buffer.setSample(1, i, v);
+            }
+            setTransport(playHead, sample);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            changed = changed || processor.getActiveVariation() != 0;
+            sample += 480;
+        }
+        expect("onsets detected", processor.getOnsetCount() >= 4);
+        expect("audio trigger advanced the scene", changed);
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha 2: MIDI macros (F12) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        setParameter(processor, "transitionMode", 0.0f);
+        setParameter(processor, "masterIntensity", 0.2f);
+        const auto send = [&](std::initializer_list<juce::uint8> bytes) {
+            juce::MidiBuffer midi;
+            midi.addEvent(bytes.begin(), static_cast<int>(bytes.size()), 0);
+            setTransport(playHead, 0);
+            juce::AudioBuffer<float> buffer(2, 256);
+            buffer.clear();
+            processor.processBlock(buffer, midi);
+        };
+        send({0xB0, 20, 127});
+        send({0xC0, 2});
+        processor.applyMidiMacros();
+        expect("macros off by default: CC and program change ignored",
+               std::abs(processor.parameters.getRawParameterValue("masterIntensity")->load() - 0.2f) < 1e-4f
+               && processor.getActiveVariation() == 0);
+        processor.setMidiMacrosEnabled(true);
+        send({0xB0, 20, 127});
+        send({0xB0, 22, 64});
+        send({0xC0, 2});
+        send({0xC0, 9}); // out of range: ignored
+        processor.applyMidiMacros();
+        expect("CC 20 sets intensity", std::abs(processor.parameters.getRawParameterValue("masterIntensity")->load() - 1.0f) < 1e-3f);
+        expect("CC 22 sets morph amount", std::abs(processor.parameters.getRawParameterValue("morphAmount")->load() - 64.0f / 127.0f) < 1e-3f);
+        expect("program change selects a scene", processor.getActiveVariation() == 2);
+        processor.setPlayHead(nullptr);
+    }
+
     if (failures == 0)
         std::cout << "PluginProcessorTests: all checks passed\n";
     return failures == 0 ? 0 : 1;

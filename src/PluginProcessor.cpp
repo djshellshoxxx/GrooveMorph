@@ -48,6 +48,11 @@ GrooveMorphAudioProcessor::GrooveMorphAudioProcessor()
     cached.morphAmount = parameters.getRawParameterValue(morphAmountId);
     cached.autoReturnBars = parameters.getRawParameterValue(autoReturnBarsId);
     cached.autoReturnTarget = parameters.getRawParameterValue(autoReturnTargetId);
+    cached.autoReturnUnit = parameters.getRawParameterValue(autoReturnUnitId);
+    cached.bandMode = parameters.getRawParameterValue(bandModeId);
+    cached.bandCrossover = parameters.getRawParameterValue(bandCrossoverId);
+    cached.audioTrigger = parameters.getRawParameterValue(audioTriggerId);
+    cached.audioTriggerSens = parameters.getRawParameterValue(audioTriggerSensId);
     bypassParameter = dynamic_cast<juce::AudioParameterBool*>(parameters.getParameter(bypassId));
     lastSeenVariationParam = loadIndex(cached.activeVariation, static_cast<int>(core::variationCount) - 1);
     {
@@ -117,6 +122,23 @@ GrooveMorphAudioProcessor::createParameterLayout()
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{autoReturnTargetId, 1}, "Auto Return Target",
         juce::StringArray{"Previous", "A", "B", "C", "D"}, 0));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{autoReturnUnitId, 1}, "Auto Return Unit",
+        juce::StringArray{"Bars", "Phrases"}, 0));
+    // F03/F10: restrict the effects to part of the spectrum (first-order crossover, 6 dB/oct).
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{bandModeId, 1}, "Band Mode",
+        juce::StringArray{"Full band", "Protect lows", "Lows only"}, 0));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{bandCrossoverId, 1}, "Crossover",
+        juce::NormalisableRange<float>{40.0f, 400.0f, 1.0f, 0.5f}, 120.0f));
+    // F07: detected input transients request a scene change.
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{audioTriggerId, 1}, "Audio Trigger",
+        juce::StringArray{"Off", "Next scene", "Trigger queued"}, 0));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{audioTriggerSensId, 1}, "Trigger Sensitivity",
+        juce::NormalisableRange<float>{0.0f, 1.0f}, 0.5f));
     return layout;
 }
 
@@ -135,6 +157,10 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     maxBlock = juce::jmax(1, samplesPerBlock);
     engine.prepare(currentSampleRate, maxBlock, maxProcessedChannels);
     dryBuffer.setSize(maxProcessedChannels, maxBlock, false, true, false);
+    bandBypass.setSize(maxProcessedChannels, maxBlock, false, true, false);
+    bandLowState.fill(0.0f);
+    for (auto& d : onsetDetectors)
+        d.prepare(currentSampleRate);
     freeRunSample = 0;
     previousHostSamplePosition.reset();
     previousHostPpqPosition.reset();
@@ -237,9 +263,28 @@ void GrooveMorphAudioProcessor::pullScene() noexcept
 void GrooveMorphAudioProcessor::handleMidi(const juce::uint8* data, int numBytes,
                                            core::TransitionMode mode) noexcept
 {
-    if (data == nullptr || numBytes < 3)
+    if (data == nullptr || numBytes < 2)
         return;
     const int status = data[0] & 0xf0;
+    if (midiMacros.load(std::memory_order_relaxed))
+    {
+        if (status == 0xC0 && data[1] < core::variationCount) // program change -> scene
+        {
+            scheduler.request(data[1], mode);
+            autoReturn.disarm();
+            midiNoteEvents.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        if (status == 0xB0 && numBytes >= 3 && data[1] >= 20 && data[1] <= 22)
+        {
+            const auto slot = static_cast<std::size_t>(data[1] - 20);
+            ccValue[slot].store(static_cast<float>(data[2] & 0x7f) / 127.0f, std::memory_order_relaxed);
+            ccDirty.fetch_or(1u << slot, std::memory_order_release);
+            return;
+        }
+    }
+    if (numBytes < 3)
+        return;
     const int note = data[1] & 0x7f;
     const int velocity = data[2] & 0x7f;
     std::optional<std::size_t> target;
@@ -252,6 +297,16 @@ void GrooveMorphAudioProcessor::handleMidi(const juce::uint8* data, int numBytes
     midiNoteEvents.fetch_add(1, std::memory_order_relaxed);
     if (target)
         scheduler.request(*target, mode);
+}
+
+void GrooveMorphAudioProcessor::applyMidiMacros()
+{
+    const auto dirty = ccDirty.exchange(0, std::memory_order_acq_rel);
+    static constexpr const char* ids[] = {masterIntensityId, dryWetId, morphAmountId};
+    for (std::size_t slot = 0; slot < 3; ++slot)
+        if ((dirty & (1u << slot)) != 0)
+            if (auto* parameter = parameters.getParameter(ids[slot]))
+                parameter->setValueNotifyingHost(ccValue[slot].load(std::memory_order_relaxed));
 }
 
 core::VariationSettings GrooveMorphAudioProcessor::effectiveSettings(std::size_t variation) const noexcept
@@ -325,7 +380,12 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
                     if (!targets.active[i])
                         gated.operations[i].enabled = false;
                     else
+                    {
                         gated.operations[i].depth *= targets.depthScale[i];
+                        if (targets.sliceBeats[i] > 0.0f)
+                            gated.operations[i].sliceBeats = targets.sliceBeats[i];
+                        rhythm.phaseOffsetBeats[i] = targets.phaseOffsetBeats[i];
+                    }
                 }
                 render = &gated;
                 const double samples = targets.ticksUntilChange / core::control::ticksPerBeat
@@ -335,12 +395,52 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
             }
         }
 
+        if (audioTriggerSel != 0)
+        {
+            int found = 0;
+            for (int c = 0; c < numChannels; ++c)
+                found += onsetDetectors[static_cast<std::size_t>(c)].process(
+                    channels[static_cast<std::size_t>(c)], n, audioTriggerSensitivity);
+            if (found > 0)
+                onsetThisBlock = true;
+        }
+
         const bool needDry = bypassGain > 0.0f || bypassTarget > 0.0f;
         if (needDry)
             for (int c = 0; c < numChannels; ++c)
                 dryBuffer.copyFrom(c, 0, buffer, c, offset, n);
 
+        // F03/F10: split into complementary low/high parts (x = low + (x - low)); only one part
+        // goes through the effects, the other bypasses and is added back afterwards.
+        if (bandModeSel != 0)
+        {
+            for (int c = 0; c < numChannels; ++c)
+            {
+                float* x = channels[static_cast<std::size_t>(c)];
+                float* bypass = bandBypass.getWritePointer(c);
+                float state = bandLowState[static_cast<std::size_t>(c)];
+                for (int i = 0; i < n; ++i)
+                {
+                    state += bandCoefficient * (x[i] - state);
+                    const float low = state;
+                    const float high = x[i] - low;
+                    if (bandModeSel == 1) { bypass[i] = low; x[i] = high; }
+                    else { bypass[i] = high; x[i] = low; }
+                }
+                bandLowState[static_cast<std::size_t>(c)] = state;
+            }
+        }
+
         engine.process(channels.data(), numChannels, n, *render, wetAmount, rhythm);
+
+        if (bandModeSel != 0)
+            for (int c = 0; c < numChannels; ++c)
+            {
+                float* x = channels[static_cast<std::size_t>(c)];
+                const float* bypass = bandBypass.getReadPointer(c);
+                for (int i = 0; i < n; ++i)
+                    x[i] += bypass[i];
+            }
 
         if (needDry)
         {
@@ -420,6 +520,24 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     }
     paramSeenByAudio.store(variationParam, std::memory_order_release);
     {
+        bandModeSel = loadIndex(cached.bandMode, 2);
+        const float crossover = juce::jlimit(20.0f, 1000.0f, loadParameter(cached.bandCrossover, 120.0f));
+        bandCoefficient = static_cast<float>(1.0 - std::exp(-2.0 * juce::MathConstants<double>::pi
+                                                            * static_cast<double>(crossover) / currentSampleRate));
+        audioTriggerSel = loadIndex(cached.audioTrigger, 2);
+        audioTriggerSensitivity = juce::jlimit(0.0f, 1.0f, loadParameter(cached.audioTriggerSens, 0.5f));
+        if (onsetThisBlock)
+        {
+            onsetThisBlock = false;
+            onsetCount.fetch_add(1, std::memory_order_relaxed);
+            if (audioTriggerSel == 1)
+            {
+                scheduler.request((scheduler.activeVariation() + 1) % core::variationCount, currentTransitionMode());
+                autoReturn.disarm();
+            }
+            else if (audioTriggerSel == 2)
+                scheduler.trigger();
+        }
         const int morphIdx = loadIndex(cached.morphTarget, 4) - 1;
         morphTargetIndex = morphIdx;
         morphWeight = juce::jlimit(0.0f, 1.0f, loadParameter(cached.morphAmount, 0.0f));
@@ -506,8 +624,10 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
 
     // C05: drop a pending return whose request was cancelled/replaced; otherwise ask the
     // Scheduler (NextBar) during the bar before the return boundary so it lands exactly on it.
-    const int autoReturnBars = loadIndex(cached.autoReturnBars, 32);
-    if (autoReturnBars == 0)
+    const int autoReturnCount = loadIndex(cached.autoReturnBars, 32);
+    const int autoReturnBars = autoReturnCount
+        * (loadIndex(cached.autoReturnUnit, 1) == 1 && timing ? std::max(1, timing->grid.phraseBars) : 1);
+    if (autoReturnCount == 0)
         autoReturn.disarm();
     if (autoReturn.requestPending())
     {

@@ -8,6 +8,7 @@
 #include "core/control/VariationBlend.h"
 #include "core/TransportResolver.h"
 #include "core/dsp/DemoSource.h"
+#include "core/dsp/OnsetDetector.h"
 #include "core/dsp/RhythmEngine.h"
 #include "core/scene/AuditionSession.h"
 #include "core/scene/MidiNoteMap.h"
@@ -55,6 +56,11 @@ public:
     static constexpr const char* morphAmountId = "morphAmount";
     static constexpr const char* autoReturnBarsId = "autoReturnBars";
     static constexpr const char* autoReturnTargetId = "autoReturnTarget";
+    static constexpr const char* autoReturnUnitId = "autoReturnUnit";
+    static constexpr const char* bandModeId = "bandMode";
+    static constexpr const char* bandCrossoverId = "bandCrossover";
+    static constexpr const char* audioTriggerId = "audioTrigger";
+    static constexpr const char* audioTriggerSensId = "audioTriggerSens";
 
     static constexpr double bypassFadeSeconds = 0.010;
 
@@ -136,6 +142,14 @@ public:
     // Grid used by the phrase editor: the audio thread's resolved meter/phrase when available,
     // otherwise the manual parameters.
     groovemorph::core::control::GridContext getGridContext() const noexcept;
+    // MIDI macros (F12): when enabled, CC 20/21/22 drive Intensity / Dry-Wet / Morph amount and
+    // program change 0-3 requests scenes. CC values are applied to the host parameters on the
+    // message thread (applyMidiMacros), never from the audio thread. Not saved in project state.
+    void setMidiMacrosEnabled(bool enabled) noexcept { midiMacros.store(enabled, std::memory_order_relaxed); }
+    bool areMidiMacrosEnabled() const noexcept { return midiMacros.load(std::memory_order_relaxed); }
+    void applyMidiMacros();
+    // Number of audio-trigger onsets detected (F07), for the UI meter.
+    std::uint32_t getOnsetCount() const noexcept { return onsetCount.load(std::memory_order_relaxed); }
     // Automatic-return status for the UI: scene index the pending return will switch to, or -1.
     int getAutoReturnTarget() const noexcept { return autoReturnTargetStatus.load(std::memory_order_relaxed); }
     // Queues a switch using the current transitionMode parameter.
@@ -184,7 +198,7 @@ private:
         bool auditioning = false;
     };
 
-    void timerCallback() override { syncHostVariationParameter(); }
+    void timerCallback() override { syncHostVariationParameter(); applyMidiMacros(); }
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     groovemorph::core::HostTransport readHostTransport() const;
     groovemorph::core::TransitionMode currentTransitionMode() const noexcept;
@@ -219,6 +233,11 @@ private:
         std::atomic<float>* morphAmount = nullptr;
         std::atomic<float>* autoReturnBars = nullptr;
         std::atomic<float>* autoReturnTarget = nullptr;
+        std::atomic<float>* autoReturnUnit = nullptr;
+        std::atomic<float>* bandMode = nullptr;
+        std::atomic<float>* bandCrossover = nullptr;
+        std::atomic<float>* audioTrigger = nullptr;
+        std::atomic<float>* audioTriggerSens = nullptr;
     } cached;
     juce::AudioParameterBool* bypassParameter = nullptr;
 
@@ -254,6 +273,15 @@ private:
     groovemorph::core::control::AutoReturn autoReturn;
     int morphTargetIndex = -1;   // -1 = off; scene whose settings are blended in
     float morphWeight = 0.0f;
+    // F03/F10 band split (first-order complementary crossover) and F07 audio trigger.
+    int bandModeSel = 0;          // 0 full band, 1 protect lows, 2 lows only
+    float bandCoefficient = 0.0f;
+    std::array<float, 2> bandLowState{};
+    juce::AudioBuffer<float> bandBypass;
+    std::array<groovemorph::core::OnsetDetector, 2> onsetDetectors;
+    int audioTriggerSel = 0;      // 0 off, 1 next scene, 2 trigger queued
+    float audioTriggerSensitivity = 0.5f;
+    bool onsetThisBlock = false;
 
     // UI -> audio.
     std::atomic<int> uiRequest{-1};
@@ -279,6 +307,10 @@ private:
     std::atomic<int> paramSeenByAudio{-1};  // variation parameter value the audio thread last read
     std::atomic<int> autoReturnTargetStatus{-1};
     std::atomic<bool> demoEnabled{false};
+    std::atomic<bool> midiMacros{false};
+    std::array<std::atomic<float>, 3> ccValue{};
+    std::atomic<unsigned> ccDirty{0};
+    std::atomic<std::uint32_t> onsetCount{0};
     std::atomic<int> resolvedBeatsPerBar{0};
     std::atomic<int> resolvedPhraseBars{0};
 

@@ -184,7 +184,8 @@ int main()
         r.arm(5.4, 2, 0); // switch in bar 5; return at bar 7 boundary
         expect("armed", r.armed());
         expect("no request bar 5", !r.poll(5.9));
-        expect("request during bar 6", r.poll(6.0) == std::optional<std::size_t>(0));
+        expect("no request exactly on the bar line", !r.poll(6.0));
+        expect("request during bar 6", r.poll(6.001) == std::optional<std::size_t>(0));
         expect("only once", !r.poll(6.5));
         AutoReturn s;
         s.arm(10.0, 1, 3);
@@ -235,6 +236,126 @@ int main()
         expect("duplicate self rejected", !b2.duplicateVariation(1, 1));
         b2.resetVariation(0);
         expect("reset scene", b2.variation(0) == SceneBank::defaultVariation(0));
+    }
+
+
+    // C01: event-local slice, priority, cycle restart.
+    {
+        SceneControl c;
+        c.lane.explicitEvents = true;
+        LaneEvent e;
+        e.operation = 2;
+        e.onsetTicks = 5 * ticksPerBeat + 480; // beat 5.5
+        e.durationTicks = 2 * ticksPerBeat;
+        e.sliceBeats = 0.125f;
+        e.restartCycle = true;
+        expect("add restart event", addEvent(c.lane, e, grid.phraseTicks()) == EditStatus::Ok);
+        const auto t = evaluate(c, grid, 6.0);
+        expect("event slice override", t.active[2] && t.sliceBeats[2] == 0.125f);
+        expect("cycle anchored at onset", std::abs(t.phaseOffsetBeats[2] - 5.5) < 1e-9);
+        const auto t2 = evaluate(c, grid, 16.0 + 6.75); // next phrase, same event
+        expect("anchor follows phrase repeat", std::abs(t2.phaseOffsetBeats[2] - (16.0 + 5.5)) < 1e-9);
+        expect("no override outside", evaluate(c, grid, 9.0).phaseOffsetBeats[2] == 0.0);
+        LaneEvent legacy;
+        legacy.operation = 3;
+        legacy.onsetTicks = 0;
+        legacy.durationTicks = 4 * ticksPerBeat;
+        expect("add legacy-phase event", addEvent(c.lane, legacy, grid.phraseTicks()) == EditStatus::Ok);
+        expect("shared phase without restart", evaluate(c, grid, 1.0).phaseOffsetBeats[3] == 0.0);
+        // wrapped restart event measures from the previous phrase's onset
+        SceneControl w;
+        w.lane.explicitEvents = true;
+        LaneEvent we;
+        we.operation = 0;
+        we.onsetTicks = 14 * ticksPerBeat;
+        we.durationTicks = 4 * ticksPerBeat;
+        we.restartCycle = true;
+        expect("add wrapped restart", addEvent(w.lane, we, grid.phraseTicks()) == EditStatus::Ok);
+        expect("wrapped anchor", std::abs(evaluate(w, grid, 17.0).phaseOffsetBeats[0] - 14.0) < 1e-9);
+        // event priority decides the activity limit
+        SceneControl a;
+        a.lane.explicitEvents = true;
+        a.activity.enabled = true;
+        a.activity.maxConcurrent = 1;
+        a.activity.priority = {90, 10, 10, 10, 10};
+        LaneEvent hi, lo;
+        hi.operation = 1; hi.priority = 95; hi.durationTicks = 4 * ticksPerBeat;
+        lo.operation = 0; lo.priority = 5; lo.durationTicks = 4 * ticksPerBeat;
+        (void)addEvent(a.lane, hi, grid.phraseTicks());
+        (void)addEvent(a.lane, lo, grid.phraseTicks());
+        const auto pa = evaluate(a, grid, 1.0);
+        expect("event priority wins over lane priority", pa.active[1] && !pa.active[0]);
+    }
+    // F06: independent per-lane loop lengths.
+    {
+        SceneControl c;
+        c.lane.explicitEvents = true;
+        c.lane.loopBeats[2] = 3; // gate lane loops every 3 beats
+        LaneEvent e;
+        e.operation = 2;
+        e.onsetTicks = 0;
+        e.durationTicks = ticksPerBeat;
+        expect("add looped event", addEvent(c.lane, e, grid.phraseTicks()) == EditStatus::Ok);
+        for (int beat : {0, 3, 6, 9, 12, 15})
+            expect("loop fires every 3 beats", evaluate(c, grid, beat + 0.5).active[2]);
+        for (int beat : {1, 2, 4, 5, 7, 8})
+            expect("loop silent between", !evaluate(c, grid, beat + 0.5).active[2]);
+        expect("loop boundary distance", std::abs(evaluate(c, grid, 2.5).ticksUntilChange - 0.5 * ticksPerBeat) < 1e-6);
+    }
+    // C06 reduce: spacing and coverage, locked events mandatory, deterministic.
+    {
+        EventLane lane;
+        auto add = [&](std::uint8_t op, int onsetBeats, int durBeats, std::uint8_t prio) {
+            LaneEvent e;
+            e.operation = op;
+            e.onsetTicks = onsetBeats * ticksPerBeat;
+            e.durationTicks = durBeats * ticksPerBeat;
+            e.priority = prio;
+            return addEvent(lane, e, grid.phraseTicks()) == EditStatus::Ok;
+        };
+        expect("setup events", add(0, 0, 2, 50) && add(1, 1, 2, 80) && add(2, 8, 4, 20) && add(3, 8, 1, 90));
+        ActivityConfig cfg;
+        cfg.minSpacingBeats = 2.0f;
+        PermissionConfig perms;
+        const auto report = reduceEvents(lane, cfg, perms, grid.phraseTicks(), false);
+        expect("spacing drops the closer low-priority events", report.kept == 2 && report.dropped == 2);
+        const auto before = lane;
+        (void)reduceEvents(lane, cfg, perms, grid.phraseTicks(), true);
+        expect("apply keeps priority winners", lane.count == 2 && lane.events[0].operation == 1 && lane.events[1].operation == 3);
+        expect("deterministic", reduceEvents(const_cast<EventLane&>(before), cfg, perms, grid.phraseTicks(), false).kept == 2);
+        ActivityConfig cov;
+        cov.maxCoverage = 0.25f; // 4 of 16 beats
+        EventLane l2 = before;
+        const auto r2 = reduceEvents(l2, cov, perms, grid.phraseTicks(), true);
+        expect("coverage bound respected", r2.coverage <= 0.25f + 1e-6f);
+        PermissionConfig locked;
+        locked.operationLocks[0] = lock::events;
+        locked.operationLocks[1] = lock::events; // overlapping mandatory events, spacing 2 -> conflict
+        EventLane l3 = before;
+        expect("locked conflict reported, lane untouched",
+               reduceEvents(l3, cfg, locked, grid.phraseTicks(), true).status == ReduceStatus::ConflictLocked
+                   && l3.count == before.count);
+    }
+    // Serializer: new event/loop/limit fields round-trip.
+    {
+        using namespace groovemorph::core::scene;
+        SceneBank bank;
+        auto v = bank.variation(2);
+        v.settings.control.lane.explicitEvents = true;
+        v.settings.control.lane.loopBeats[1] = 5;
+        v.settings.control.activity.minSpacingBeats = 1.5f;
+        v.settings.control.activity.maxCoverage = 0.5f;
+        LaneEvent e;
+        e.operation = 3;
+        e.onsetTicks = 960;
+        e.durationTicks = 960;
+        e.sliceBeats = 0.5f;
+        e.priority = 77;
+        e.restartCycle = true;
+        (void)addEvent(v.settings.control.lane, e, 15360);
+        bank.setVariation(2, v);
+        const auto loaded = SceneSerializer::deserialize(SceneSerializer::serialize(bank));
+        expect("v1.1 fields round-trip", loaded.report.status == LoadStatus::Ok && loaded.bank == bank);
     }
 
     if (failures == 0)
