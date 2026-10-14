@@ -71,6 +71,18 @@ int main()
 
     // MIDI map
     MidiNoteMap map;
+    expect("default map has no MIDI collisions", !map.firstConflictingNote());
+    MidiNoteMap conflicting = map;
+    conflicting.notes = {60, 60, 62, 63};
+    expect("detect colliding MIDI note", conflicting.firstConflictingNote() == 60);
+    conflicting.notes = {60, 61, 62, 60};
+    expect("detect nonadjacent collision", conflicting.firstConflictingNote() == 60);
+    conflicting.notes = {60, 60, 62, 62};
+    expect("report first collision deterministically", conflicting.firstConflictingNote() == 60);
+    conflicting.notes = {-1, -1, 62, 63};
+    expect("ignore out-of-range note collisions", !conflicting.firstConflictingNote());
+    conflicting.notes = {60, 61, 62, 63};
+    expect("clearing collision removes warning", !conflicting.firstConflictingNote());
     expect("default map", map.variationForNote(60) == 0u && map.variationForNote(63) == 3u);
     expect("unmapped", !map.variationForNote(64) && !map.variationForNote(-1)
                            && !map.variationForNote(200));

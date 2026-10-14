@@ -25,6 +25,9 @@ struct MidiNoteMap
 
     // First variation mapped to the note, or nullopt when unmapped/out of range.
     [[nodiscard]] std::optional<std::size_t> variationForNote(int note) const noexcept;
+    // First valid MIDI note assigned to more than one variation, or nullopt.
+    // Diagnostics only: preserves the existing first-mapped-variation behavior.
+    [[nodiscard]] std::optional<int> firstConflictingNote() const noexcept;
 
     friend bool operator==(const MidiNoteMap&, const MidiNoteMap&) = default;
 };

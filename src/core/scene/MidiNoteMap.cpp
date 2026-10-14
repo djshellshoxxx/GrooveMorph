@@ -12,6 +12,22 @@ std::optional<std::size_t> MidiNoteMap::variationForNote(int note) const noexcep
     return std::nullopt;
 }
 
+std::optional<int> MidiNoteMap::firstConflictingNote() const noexcept
+{
+    // This tiny model-only diagnostic is independent of JUCE, host automation,
+    // and the audio-thread dispatch policy. Ignore invalid MIDI note numbers.
+    for (std::size_t i = 0; i < notes.size(); ++i)
+    {
+        const auto note = notes[i];
+        if (note < midiNoteMin || note > midiNoteMax)
+            continue;
+        for (std::size_t j = i + 1; j < notes.size(); ++j)
+            if (notes[j] == note)
+                return note;
+    }
+    return std::nullopt;
+}
+
 std::optional<std::size_t> MidiTriggerState::noteOn(
     const MidiNoteMap& map, int note, std::size_t currentActive) noexcept
 {

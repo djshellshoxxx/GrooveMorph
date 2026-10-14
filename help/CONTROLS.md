@@ -23,7 +23,7 @@
 | 15 | Preview/compare/apply/revert | Compare edited versus stored variation without committing until Apply. |
 | 16 | Undo / Redo | Undo or redo stored scene edits when history exists; disabled during audition. |
 | 17 | MIDI note and note-off policy | Choose a note number for the **edited** variation; optionally return on note-off. |
-| 18 | MIDI status | Count of incoming MIDI note events, or “no notes received.” |
+| 18 | MIDI status | Count of incoming MIDI note events, “no notes received,” or a visible duplicate-note conflict warning. |
 
 ## Processing rows
 
@@ -49,5 +49,7 @@ For modes, fallback, and quantized scheduling, see [Timing](TIMING.md). For inte
 
 Trigger queued acts on Manual requests only; its enabled state does not make it a
 universal override. Scene buttons do not currently synchronize the host Variation
-parameter. Avoid duplicate MIDI notes because the first mapped scene wins. Undo is
+parameter. Duplicate MIDI notes trigger a warning in the MIDI status line and tooltip.
+The first mapped scene still wins; reassign a note to restore independent triggering.
+Existing projects and mappings are not silently changed. Undo is
 scene-bank history, not global-parameter history. See [current TODO](../docs/TODO.md).
