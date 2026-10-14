@@ -2,7 +2,7 @@
 
 ![Editor control map](images/editor-overview.svg)
 
-**Image status:** source-derived map matching the default 820 × 720 JUCE editor layout. It is not a captured screenshot. Numbered arrows and highlights link exact regions to the reference below. The window is resizable (minimum 760 × 690; maximum 1400 × 1000); actual positions scale or shift with window width.
+**Image status:** source-derived map of the ORIGINAL 820 × 720 MVP layout (the alpha editor is 1290 × 740 by default and now has inspector tabs, so arrows no longer match its bounds). It is not a captured screenshot. Numbered arrows and highlights link exact regions to the reference below. The alpha window is resizable (minimum 1230 × 700; maximum 1900 × 1100; it shrinks to fit small displays); actual positions scale or shift with window width.
 
 | Map | Control | What it does |
 | --- | --- | --- |
@@ -48,8 +48,7 @@ For modes, fallback, and quantized scheduling, see [Timing](TIMING.md). For inte
 ## Known control limits
 
 Trigger queued acts on Manual requests only; its enabled state does not make it a
-universal override. Scene buttons do not currently synchronize the host Variation
-parameter. Duplicate MIDI notes trigger a warning in the MIDI status line and tooltip.
+universal override. Duplicate MIDI notes trigger a warning in the MIDI status line and tooltip.
 The first mapped scene still wins; reassign a note to restore independent triggering.
 Existing projects and mappings are not silently changed. Undo is
 scene-bank history, not global-parameter history. See [current TODO](../docs/TODO.md).

@@ -30,7 +30,7 @@ The engine invalidates short-window history at detected seeks/loop wraps. A natu
 
 ## Where are audio import, visual step sequencing, morphing, and CLAP?
 
-These are not available in this MVP editor. The current phrase strip is read-only. Expansion concepts exist as draft specifications on a separate branch and must not be described as shipped features.
+Audio import and capture are on the Input tab, event lanes on the Place tab and scene morphing on the Morph tab (alpha). CLAP is not available. The F01–F12 specifications are drafts (PR #6).
 
 ## What to include with a bug report
 

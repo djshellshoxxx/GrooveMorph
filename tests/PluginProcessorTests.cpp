@@ -1154,7 +1154,7 @@ int main()
         processor.getStateInformation(state);
         GrooveMorphAudioProcessor restored;
         restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
-        expect("evolution is not saved into project state", restored.getSceneBank() == stored);
+        expect("evolution does not modify the saved scene bank", restored.getSceneBank() == stored);
         processor.setEvolution(false, 0, 1, 1.0f, 2, 1234);
         expect("evolution off", !processor.isEvolving());
         processor.setPlayHead(nullptr);

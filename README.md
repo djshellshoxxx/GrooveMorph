@@ -36,13 +36,13 @@ The full VST3 and Standalone targets fetch JUCE 8.0.7 on first configuration. Se
 
 ## Current status
 
-Updated 2026-10-13. Review the [prioritized TODO list](docs/TODO.md),
+Updated 2026-10-14. Alpha status: [feature status](docs/alpha/ALPHA-FEATURE-STATUS.md), [known issues](docs/alpha/KNOWN-ISSUES.md), [user test guide](docs/alpha/USER-TEST-GUIDE.md). Review the [prioritized TODO list](docs/TODO.md),
 [release readiness and DAW acceptance matrix](docs/qa/DAW_AUDIO_RELEASE_READINESS.md),
 and [feature audit](docs/feature-audit/FEATURE_AUDIT_2026-10-13.md).
 The integrated runtime and modular improvements are on main. PR #9's portable
 deterministic variation planner is merged, but its generator/GUI workflow is not
-implemented. PR #14's six musical-control specifications are merged, but the
-controls are not implemented. PRs #15–#18 added MIDI collision diagnostics,
+implemented. PR #14's six musical-control specifications are merged and the
+controls are partly implemented in the alpha (see docs/alpha/ALPHA-FEATURE-STATUS.md). PRs #15–#18 added MIDI collision diagnostics,
 undoable Copy FX, bounded host effect-tail reporting and cross-platform pluginval
 plus numerical audio regressions. PR #6 remains an incomplete draft specification
 workspace and is intentionally unmerged.

@@ -30,7 +30,7 @@ Outside audition, edits are written to the bank directly and **Undo / Redo** can
 
 ## 5. Try a quantized scene switch
 
-Set **Transition: Next Bar**, play the track, and click another variation. The status line should show it as queued, with a sample countdown when a boundary can be resolved. **Cancel queued** cancels the request; **Trigger queued** activates an armed request manually, even when the original transition was not Manual. See the scheduler behavior in [Timing](TIMING.md).
+Set **Transition: Next Bar**, play the track, and click another variation. The status line should show it as queued, with a sample countdown when a boundary can be resolved. **Cancel queued** cancels the request; **Trigger queued** only releases requests made with Transition = Manual. See the scheduler behavior in [Timing](TIMING.md).
 
 ## 6. Optional MIDI control
 

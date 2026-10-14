@@ -39,7 +39,7 @@ preview is running, and respect locks. Links are saved with the project and clea
 
 ## Tooltips
 
-Hover any control, effect, tab or Visual-window panel for a plain-language explanation. An automated test fails if any control lacks one.
+Hover any control, effect, tab or Visual-window panel for a plain-language explanation. An automated test fails if any control in the main window (including every inspector tab) lacks one; the Visual window has its own tooltips, which that test does not cover.
 
 ## Limits
 

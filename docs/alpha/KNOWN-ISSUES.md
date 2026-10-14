@@ -38,3 +38,18 @@ Three read-only audits plus ASan/UBSan/TSan core runs and clang-tidy found and I
 Known and not fixed: C04 reads the phase configuration at switch time, not request time (editing the scene between request and launch changes the launch); the editor fit uses the primary display only and a host-applied scale factor overrides it; the crossover coefficient is not smoothed against fast automation; a non-finite input sample can still reach the output through the dry path; morph ignores the target scene's phase, regions and locks.
 
 15. See [AUDIT-2026-10-14.md](../AUDIT-2026-10-14.md) for the full list of fixed and still-open findings from the first 2026-10-14 code audit.
+
+## Full code and feature audit of the merged line (2026-10-14)
+
+Four independent read-only audits (processor/audio thread, core/state, UI/Visual window, features vs docs) plus ASan/UBSan and TSan core runs. Fixed: the Visual planner and rings ignored the C04 phase shift; trace beats were non-monotonic across a shift or a transport stop (epochs now start on those); Stop/rewind kept the phase shift; meters of 17-32 beats per bar were clamped to 16 on the UI side; planner windows could be skipped by a 1e-12-beat rounding error (positions snap to ticks); locks could be bypassed through loop lengths and the explicit-events switch; Reduce let disabled events block audible ones; the serializer flagged valid protected regions as "recovered"; an oversized loop load silently truncated; the importer's resampler read past its buffer; Visual-window tooltips never showed; the "Enter exact value" dialog could outlive its editor; disabled controls offered the right-click menu; non-current inspector tabs were unnamed and untested for tooltips; typed numbers did not accept 1e-3 or 1/8; MIDI learn stayed armed after the editor closed; host-parameter exact values skipped the automation gesture; the Evolve toggle stayed ticked after Reset; the seed field reset the candidate number; right-clicking the lane canvas created events; stale text in the Info tab, user test guide and help pages.
+
+Known and not fixed:
+- Undo can revert the sounding scene or live (MIDI-driven) edits made since the last committed edit; wheel/keyboard slider steps are one undo entry each (64 deep).
+- MIDI learn links the lowest-numbered CC that moved in a 50 ms tick, fails silently when the 64-link table is full, and CC pulses faster than the 20 Hz poll can be missed; `s:` links are dropped while previewing.
+- Evolution steps land up to ~50 ms after the phrase boundary.
+- Sample rates outside 8 kHz-384 kHz disable the processor silently; buffers at 384 kHz are about 235 MB; the trace ring covers under 3 s at 384 kHz so the Visual window shows little heard history there.
+- LaneCanvas: events narrower than ~12 px can only be moved with the arrow keys; a double-click on an empty lane can create then delete; the Visual window's Weave/Ledger views are cramped at the 900x560 minimum; the Scenes tab claims success even when a lock reverted the change.
+- Accessibility: editor sliders/combos have no accessible names beyond tooltips; the Visual views update descriptions at 30 Hz.
+- `morph()` takes lane events from scene A only; a held MIDI note can stay stuck after a panic until `reset()`.
+- The release job also runs when a pushed commit message contains `[publish-alpha]`; the binary reports version 0.1.0 while tags carry the run number; no LICENSE or third-party (JUCE) notice ships with the ZIP.
+

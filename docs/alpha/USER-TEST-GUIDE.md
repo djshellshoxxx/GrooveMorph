@@ -1,13 +1,13 @@
 # User test guide (Windows x64 Standalone alpha)
 
-**Unsupported or incomplete (read first):** transition phase (C04), protected temporal regions and per-event locks, time stretching,
-loop/gesture/evolution persistence, higher-order crossovers, CLAP. See ALPHA-FEATURE-STATUS.md (the Info tab in the app lists them too).
+**Unsupported or incomplete (read first):** per-scene transition smoothing time, time stretching, loop-audio persistence (gesture curve,
+evolution settings and MIDI links are saved), Linkwitz-Riley / steeper crossovers, loop-aware Reduce, CLAP. See ALPHA-FEATURE-STATUS.md (the Info tab in the app lists them too).
 
 ## Launch and audio setup
 1. Unzip; run `GrooveMorph.exe` (no installer). Windows SmartScreen may warn: the build is unsigned.
 2. In the Standalone window use **Options > Audio/MIDI Settings**: choose your output device. Pick an input only if you want live input (beware feedback; mute the monitor or use headphones).
 3. Tick **Demo loop** (top bar) to replace the input with a built-in drum loop. In Standalone, *Timing method: Automatic* behaves as a free-running clock at the Manual tempo (default 120 BPM, 4/4, 4-bar phrase).
-4. JUCE Standalone shows a yellow banner that audio input is muted to avoid a feedback loop. That is expected; the Demo loop replaces the input anyway. Use a display of at least about 1280x800: the window is 1240x740 by default.
+4. JUCE Standalone shows a yellow banner that audio input is muted to avoid a feedback loop. That is expected; the Demo loop replaces the input anyway. The window is 1290x740 by default (minimum 1230x700) and scales itself down to fit smaller displays.
 5. Raise **Intensity** (default 0.5; 1.0 = full effect, 0 = dry). Keep the volume low at first.
 
 ## Try the main effects
@@ -35,3 +35,13 @@ loop/gesture/evolution persistence, higher-order crossovers, CLAP. See ALPHA-FEA
 8. Change phrase bars / beats per bar and check the lanes rescale.
 9. Close and reopen the window; confirm no crash.
 10. Note anything that sounds wrong (clicks, silence, wrong timing). Expect rough edges: this is untested by ear.
+
+## Newest features to try (merged alpha)
+- **Scene start phase (Perform tab):** give scene B "Restart at launch", launch it on a bar and watch "Pattern is shifted by ..." change; "Restart scene now" restarts the active scene; stopping and playing, or seeking, returns to the scene's own phase.
+- **Band slope (Input tab):** switch the crossover between 6 and 12 dB/oct with "Protect lows"; with Intensity at 0 the sound must stay unchanged.
+- **Protected regions (Limit tab):** add a region, move its start/length, and check no effect sounds inside it; the lane view shows it as a red band.
+- **Lock event (Place tab):** lock one event; it can no longer be moved or deleted, and generation/Reduce keep it.
+- **Events x2 / /2 (Limit tab):** after changing the phrase length, rescale events; locked events keep their place.
+- **Saving:** set a gesture curve, evolution and a MIDI link, save the project, reload, and confirm they come back (loop audio does not).
+- **Right-click** any control: exact value, copy/paste, reset, MIDI learn; **Visual** opens the live picture window.
+
