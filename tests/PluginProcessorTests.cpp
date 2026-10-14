@@ -557,6 +557,167 @@ int main()
         processor.setPlayHead(nullptr);
     }
 
+
+    // ---- Alpha: host Variation parameter semantics (A02) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        setParameter(processor, "transitionMode", 4.0f); // Manual: requests stay pending
+        std::int64_t sample = 0;
+        const auto block = [&] {
+            setTransport(playHead, sample);
+            processSilence(processor, 256);
+            sample += 256;
+        };
+        const auto shown = [&processor] {
+            return static_cast<int>(std::lround(processor.parameters.getRawParameterValue("activeVariation")->load()));
+        };
+        block();
+        setParameter(processor, "activeVariation", 1.0f);
+        block();
+        expect("automation request pending", processor.getQueuedVariation() == 1 && processor.getActiveVariation() == 0);
+        processor.syncHostVariationParameter();
+        expect("pending request keeps requested value visible", shown() == 1);
+        processor.cancelQueuedSwitch();
+        block();
+        expect("cancel clears queue", processor.getQueuedVariation() == -1);
+        processor.syncHostVariationParameter();
+        expect("cancel realigns host parameter to sounding variation", shown() == 0);
+        block();
+        expect("realignment is not a new request", processor.getQueuedVariation() == -1 && processor.getActiveVariation() == 0);
+        setParameter(processor, "transitionMode", 0.0f); // Immediate
+        processor.requestVariation(3); // GUI/MIDI path
+        block();
+        expect("GUI request switches", processor.getActiveVariation() == 3);
+        expect("param still stale before sync", shown() == 0);
+        processor.syncHostVariationParameter();
+        expect("GUI switch reflected in host parameter", shown() == 3);
+        block();
+        block();
+        expect("sync does not re-request", processor.getActiveVariation() == 3 && processor.getQueuedVariation() == -1);
+        // A value the audio thread has not read yet must never be overwritten.
+        setParameter(processor, "activeVariation", 2.0f);
+        processor.syncHostVariationParameter();
+        expect("unread automation value preserved", shown() == 2);
+        block();
+        expect("automation applies after sync attempt", processor.getActiveVariation() == 2);
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha: phrase placement gates the chain at the exact boundary (C01) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        const int blockSize = 300; // deliberately misaligned with the 288000-sample boundary
+        processor.prepareToPlay(48000.0, blockSize);
+        setParameter(processor, "masterIntensity", 1.0f);
+        auto settings = processor.getSceneBank().variation(0).settings;
+        settings.control.placement.enabled = true;
+        settings.control.placement.window = groovemorph::core::control::WindowMode::LastBar;
+        processor.setVariationSettings(0, settings);
+        juce::Random random(7);
+        std::int64_t sample = 0;
+        bool dryBeforeWindow = true, wetInWindow = false;
+        std::int64_t firstDiff = -1;
+        while (sample < 288000 + 30000)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize), reference(2, blockSize);
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < blockSize; ++i)
+                    reference.setSample(c, i, buffer.getWritePointer(c)[i] = random.nextFloat() * 0.5f - 0.25f);
+            setTransport(playHead, sample);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const bool differs = buffer.getSample(0, i) != reference.getSample(0, i);
+                if (sample + i < 288000 && differs)
+                    dryBeforeWindow = false;
+                if (sample + i >= 288000 && differs)
+                {
+                    wetInWindow = true;
+                    if (firstDiff < 0)
+                        firstDiff = sample + i;
+                }
+            }
+            sample += blockSize;
+        }
+        expect("output is exactly dry before the placement window", dryBeforeWindow);
+        expect("effect engages inside the placement window", wetInWindow);
+        expect("effect does not engage before the window start", firstDiff >= 288000);
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha: automatic return lands on the bar boundary (C05) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        setParameter(processor, "transitionMode", 0.0f); // Immediate switch to B
+        setParameter(processor, "autoReturnBars", 1.0f);
+        setParameter(processor, "autoReturnTarget", 0.0f); // Previous
+        std::int64_t sample = 0;
+        const auto block = [&] {
+            setTransport(playHead, sample);
+            processSilence(processor, 256);
+            sample += 256;
+        };
+        block();
+        processor.requestVariation(1);
+        block();
+        expect("switched to B", processor.getActiveVariation() == 1);
+        expect("return armed", processor.getAutoReturnTarget() == 0);
+        bool earlyReturn = false;
+        while (sample < 96000 - 256)
+        {
+            block();
+            earlyReturn = earlyReturn || processor.getActiveVariation() != 1;
+        }
+        expect("stays on B until the bar boundary", !earlyReturn);
+        while (sample < 96000 + 512)
+            block();
+        expect("returned to previous", processor.getActiveVariation() == 0);
+        expect("return is sample-accurate at the bar line", processor.getLastSwitchSample() == 96000);
+        expect("return disarmed", processor.getAutoReturnTarget() == -1);
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha: scene management and state (A04) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        const auto original = processor.getSceneBank();
+        expect("duplicate scene", processor.duplicateVariation(1, 0) && processor.getSceneBank().variation(0) == original.variation(1));
+        expect("duplicate undo", processor.undoSceneEdit() && processor.getSceneBank().variation(0) == original.variation(0));
+        processor.resetVariation(2);
+        expect("reset of default scene is a no-op edit", processor.getSceneBank().variation(2) == original.variation(2));
+        auto settings = processor.getSceneBank().variation(3).settings;
+        settings.control.lane.explicitEvents = true;
+        groovemorph::core::control::LaneEvent event;
+        event.operation = 4;
+        event.onsetTicks = 960;
+        event.durationTicks = 1920;
+        settings.control.lane.events[0] = event;
+        settings.control.lane.count = 1;
+        settings.control.activity.enabled = true;
+        settings.control.activity.maxConcurrent = 2;
+        processor.setVariationSettings(3, settings);
+        juce::MemoryBlock state;
+        processor.getStateInformation(state);
+        GrooveMorphAudioProcessor restored;
+        restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        expect("placement/lane/limits survive host state", restored.getSceneBank().variation(3) == processor.getSceneBank().variation(3));
+        processor.resetVariation(3);
+        expect("reset restores factory scene", processor.getSceneBank().variation(3) == original.variation(3));
+        expect("new parameters exist", processor.parameters.getParameter("morphTarget") != nullptr
+               && processor.parameters.getParameter("morphAmount") != nullptr
+               && processor.parameters.getParameter("autoReturnBars") != nullptr
+               && processor.parameters.getParameter("autoReturnTarget") != nullptr);
+    }
+
     if (failures == 0)
         std::cout << "PluginProcessorTests: all checks passed\n";
     return failures == 0 ? 0 : 1;
