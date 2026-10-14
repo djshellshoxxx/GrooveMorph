@@ -12,43 +12,11 @@ constexpr std::size_t opIndex(OperationType type) noexcept
     return static_cast<std::size_t>(type);
 }
 
-// History-ring slot of an operation, or -1 when it reads no history.
-constexpr int historySlot(std::size_t op) noexcept
-{
-    switch (static_cast<OperationType>(op))
-    {
-        case OperationType::Repeat: return 0;
-        case OperationType::ReverseSlice: return 1;
-        case OperationType::HalfTime: return 2;
-        case OperationType::TapeStop: return 3;
-        default: return -1;
-    }
-}
-
-// Maximum read delay of an operation as a multiple of its slice length.
-constexpr double delayMultiple(OperationType type) noexcept
-{
-    switch (type)
-    {
-        case OperationType::Repeat: return static_cast<double>(RhythmEngine::repeatCycleSlices - 1);
-        case OperationType::ReverseSlice: return 2.0;
-        default: return 1.0;
-    }
-}
-
-float sanitiseUnit(float v, float fallback) noexcept
-{
-    if (!std::isfinite(v))
-        return fallback;
-    return std::clamp(v, 0.0f, 1.0f);
-}
-
-double sanitiseSliceBeats(float v) noexcept
-{
-    if (!std::isfinite(v))
-        return 0.25;
-    return std::clamp(static_cast<double>(v), 1.0 / 16.0, 4.0);
-}
+using stage::delayMultiple;
+using stage::historySlot;
+using stage::positionInCell;
+using stage::sanitiseSliceBeats;
+using stage::sanitiseUnit;
 
 float slew(float current, float target, float step) noexcept
 {
@@ -57,19 +25,6 @@ float slew(float current, float target, float step) noexcept
     if (current > target)
         return std::max(target, current - step);
     return target;
-}
-
-// Samples elapsed since the start of the grid cell of length cellBeats containing beat.
-double positionInCell(double beat, double cellBeats, double samplesPerBeat, double cellSamples) noexcept
-{
-    const double index = std::floor(beat / cellBeats);
-    double pos = (beat - index * cellBeats) * samplesPerBeat;
-    const double rounded = std::nearbyint(pos);
-    if (std::abs(pos - rounded) < 1.0e-6)
-        pos = rounded;
-    if (pos >= cellSamples)
-        pos = 0.0;
-    return std::max(0.0, pos);
 }
 } // namespace
 
@@ -203,8 +158,8 @@ void RhythmEngine::process(float* const* channels,
             const std::size_t g = opIndex(OperationType::Gate);
             if (amounts[g] > 0.0f && timingOk)
             {
-                const double pos = positionInCell(beat - timing.phaseOffsetBeats[g], sliceBeats[g], spb, sliceSamples[g]);
-                const float target = pos < 0.5 * sliceSamples[g] ? 1.0f : 0.0f;
+                const float target =
+                    stage::gateOpen(beat - timing.phaseOffsetBeats[g], sliceBeats[g], spb, sliceSamples[g]) ? 1.0f : 0.0f;
                 gateGain = slew(gateGain, target, gateStep);
             }
             else
@@ -227,44 +182,11 @@ void RhythmEngine::process(float* const* channels,
                 continue;
             }
             const double len = sliceSamples[op];
-            double r = t;
-            double rate = 1.0;
-            switch (timingOk ? static_cast<OperationType>(op) : OperationType::Count)
-            {
-                case OperationType::Repeat:
-                {
-                    const double cyclePos = positionInCell(
-                        beat - timing.phaseOffsetBeats[op], sliceBeats[op] * repeatCycleSlices, spb,
-                        len * repeatCycleSlices);
-                    const double j = std::min(static_cast<double>(repeatCycleSlices - 1),
-                                              std::floor(cyclePos / len));
-                    r = t - j * len;
-                    rate = 1.0;
-                    break;
-                }
-                case OperationType::ReverseSlice:
-                {
-                    const double p = positionInCell(beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
-                    r = t - 2.0 * p - 1.0;
-                    rate = -1.0;
-                    break;
-                }
-                case OperationType::HalfTime:
-                {
-                    const double p = positionInCell(beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
-                    r = t - 0.5 * p;
-                    rate = 0.5;
-                    break;
-                }
-                case OperationType::TapeStop:
-                {
-                    const double p = positionInCell(beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
-                    r = t - p * p / (2.0 * len);
-                    rate = 1.0 - p / len;
-                    break;
-                }
-                default: break;
-            }
+            const stage::ReadState read =
+                stage::readPosition(timingOk ? static_cast<OperationType>(op) : OperationType::Count, t,
+                                    beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
+            const double r = read.r;
+            const double rate = read.rate;
             if (v.valid)
             {
                 const double predicted = v.prevR + v.prevRate;

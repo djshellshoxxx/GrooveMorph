@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/OperationParams.h"
+#include "core/dsp/StageGeometry.h"
 
 #include <array>
 #include <cstddef>
@@ -53,7 +54,7 @@ public:
     static constexpr double maxHistorySeconds = 4.0;
     static constexpr double crossfadeSeconds = 0.003;
     static constexpr double gateRampSeconds = 0.002;
-    static constexpr int repeatCycleSlices = 4;
+    static constexpr int repeatCycleSlices = stage::repeatCycleSlices;
 
     // Allocates all state. Not real-time safe. Resets the engine.
     void prepare(double sampleRate, int maxBlockSize, int maxChannels);
