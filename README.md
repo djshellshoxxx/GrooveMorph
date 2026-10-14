@@ -36,12 +36,20 @@ The full VST3 and Standalone targets fetch JUCE 8.0.7 on first configuration. Se
 
 ## Current status
 
-Updated 2026-10-13. Start with the [prioritized TODO list](docs/TODO.md),
-[current feature audit](docs/feature-audit/FEATURE_AUDIT_2026-10-13.md), and
-[verified integration/build evidence](docs/TIMING_INTEGRATION_HANDOFF.md).
-The integrated runtime is on main; PRs #2, #4 and #7 are merged. Expansion PR #6
-is a draft specification workspace. Generator PR #9 is unmerged and fails Linux
-compilation; it is not a usable plugin feature.
+Updated 2026-10-13. Review the [prioritized TODO list](docs/TODO.md),
+[release readiness and DAW acceptance matrix](docs/qa/DAW_AUDIO_RELEASE_READINESS.md),
+and [feature audit](docs/feature-audit/FEATURE_AUDIT_2026-10-13.md).
+The integrated runtime and modular improvements are on main. PR #9's portable
+deterministic variation planner is merged, but its generator/GUI workflow is not
+implemented. PR #14's six musical-control specifications are merged, but the
+controls are not implemented. PRs #15–#18 added MIDI collision diagnostics,
+undoable Copy FX, bounded host effect-tail reporting and cross-platform pluginval
+plus numerical audio regressions. PR #6 remains an incomplete draft specification
+workspace and is intentionally unmerged.
 
-
-The code includes portable timing, scheduling, bounded-history DSP, scene state and MIDI modules. The editor exposes variation editing, audition/compare, undo/redo and Automatic / Host PPQ / Sample Clock selection. CI results and DAW validation are recorded in pull requests and release notes when available. A passing core test does not establish plugin-host compatibility.
+Both Windows and Linux VST3 pass headless pluginval strictness level 5 in GitHub
+Actions. The CI checks omit GUI tests and the standalone Steinberg SDK validator.
+Native REAPER/project recall, audio-device playback, listening/alias analysis,
+CPU/deadline/heap instrumentation, product licensing and deployment QA remain
+unverified. **Passing CI does not mean production or DAW certification.**
+Track these gates in [issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19).

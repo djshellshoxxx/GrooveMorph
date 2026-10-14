@@ -1,9 +1,9 @@
 # GrooveMorph TODO and implementation ledger
 
-Updated 2026-10-13. This ledger reflects the implemented runtime, not every feature
-mentioned in a proposal. Source baseline: runtime 7f2784a, merged main aaa8dae;
-feature audit examined main 61d5156. Before claiming ownership, fetch refs and
-check existing PRs. Unassigned tasks below have no claimed implementation owner.
+Updated 2026-10-13. Current integrated reference: main `055d0fd8` (PR #16).
+This ledger reflects runtime behavior, not every proposed feature. The historical
+feature audit examined earlier main `61d5156`; use the new QA ledger for current
+release validation evidence. Check active PRs before claiming ownership.
 
 ## Completed
 
@@ -17,21 +17,25 @@ check existing PRs. Unassigned tasks below have no claimed implementation owner.
 - [x] Merge help pages and annotated source-derived SVG maps (PR #8).
 - [x] Publish and merge feature audit (PR #11); record exact build evidence (PR #10).
 - [x] Merge six musical control specs (PR #14) and portable deterministic variation-planning core (PR #9).
-- [ ] Complete review/merge of A06 settings-only Copy FX workflow (PR #17): isolated core model, one undo transaction and editor action.
+- [x] Add MIDI assignment collision diagnostic and tooltip (PR #15).
+- [x] Integrate settings-only Copy FX with single-transaction undo (PR #17).
+- [x] Correct reported host effect tail and demonstrate repeat-after-silence (PR #18).
+- [x] Add Linux/Windows strictness-5 headless pluginval CI and portable 4-rate/3-block numerical quality fixtures (PR #16).
+- [ ] Complete native host/device, GUI, objective audio/listening, RT deadline/allocations, deployment and licensing gates ([issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19)).
 
 ## Active work, dependencies and acceptance
 
 | ID / priority | Status / owner | Next action | Required acceptance |
 |---|---|---|---|
 | A01 / P0 feature contract | Missing; unassigned | Specify and implement editable phrase origin, subdivision and bounded event lanes; then migrate scene schema/UI | Chosen interval alone is processed; visual/audio boundaries agree; independent scenes; legacy recall; loop/tempo/block fixtures |
-| A02 / P0 release QA | Unverified; unassigned | REAPER Windows/Linux scan/load, MIDI, automation, project recall, PDC, device audio, listening, CPU/memory/deadline/allocation instrumentation | Record actual host/hardware/settings and thresholds; no inference from compilation/startup |
+| A02 / P0 release QA | Automated pluginval Win/Linux and numerical core matrix pass PR #16; host/device QA open | Complete native REAPER Win/Linux, MIDI, automation, PDC, audio/listening, memory/deadline/alloc instrumentation in issue #19 | Archive host/hardware and thresholds; CI does not replace DAW compatibility evidence |
 | A03 / P1 workflow bug | Reproduced; unassigned | Define requested versus active Variation semantics and safe host feedback | UI/MIDI/automation/cancel/reopen stay coherent without callback host notification |
 | A04 / P1 MIDI conflict | Diagnostic warning implemented (PR #15); mapping policy still first-match | Decide whether to add auto-swap/reject; validate the warning in a native host | Duplicate assignments are visible, prior saved maps remain valid; first match keeps existing behavior |
 | A05 / P1 generator | Portable planner merged (PR #9); UI absent | Design non-destructive preview/apply integration, seed and candidate controls | Existing planner Linux/Windows/sanitizer CI passed; seed/protection determinism and isolated preview remain required end-to-end |
-| A06 / P1 authoring | Settings-only copy proposed in PR #17; other work missing | Native host validate Copy FX and undo; define stable operation automation IDs, full scene duplicate and fade policy | Settings copies are independent, undoable and leave host parameter IDs and state schema unchanged |
+| A06 / P1 authoring | Copy FX implemented/merged PR #17; full scene copy and automation still missing | Native host validate Copy FX/undo, define stable operation automation IDs, full-scene duplicate and fade policy | Settings copy independent and undoable; host parameter IDs unchanged |
 | A07 / P2 documentation/UX | Partial; unassigned | Native host screenshots + checked arrows/manifest, help entrypoint, effective slice-limit feedback, keyboard/scaling QA | Accurate clickable bounds and tested platforms; limitations visible |
 | A08 / P2 expansion | Draft PR #6; confirm existing owner | Pin canonical baseline; complete/review F01–F12 interfaces, tasks, schemas, numerical fixtures | Package becomes READY only when measurable contracts and review evidence are complete |
-| Distribution / P0 beta gate | Partial; unassigned | Publish verified VST3/Standalone bundles, installation guide, dependency/product license inventory, clean-machine check | Artifact/version/source match; install/remove paths work; no production claim from CI executable alone |
+| Distribution / P0 beta gate | Engineering CI artifacts only; unassigned | Complete issue #19: versioned Win/Linux VST3/Standalone packages, install guide, product/third-party license review, clean-machine check | Artifact/source match; install/remove paths and licensing verified; no production claim from CI startup alone |
 
 P0 feature contract means mandatory in the original target specification; it does
 not mean the existing short-history engine fails to run. P0 QA is missing evidence,
@@ -52,9 +56,10 @@ must not erase unmet original requirements or be treated as already delivered.
 
 ## Evidence and task closure
 
-[Feature audit](feature-audit/FEATURE_AUDIT_2026-10-13.md) contains source locations,
-reproduction outputs and next-action criteria. [Timing handoff](TIMING_INTEGRATION_HANDOFF.md)
-contains exact passing CI/artifact links and limits. [Traceability](TRACEABILITY.md)
+[Feature audit](feature-audit/FEATURE_AUDIT_2026-10-13.md) contains historical source locations,
+reproduction outputs and next-action criteria. [Current QA ledger](qa/DAW_AUDIO_RELEASE_READINESS.md)
+records validation gates and evidence. [Timing handoff](TIMING_INTEGRATION_HANDOFF.md)
+contains original integration CI evidence and limits. [Traceability](TRACEABILITY.md)
 records requirement coverage. Close tasks only with relevant current tests and
 user-facing wiring; update this ledger and help when behavior changes. No numeric
 project completion percentage is asserted.

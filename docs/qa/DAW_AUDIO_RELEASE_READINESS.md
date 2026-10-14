@@ -5,6 +5,40 @@ Scope: source-level review of JUCE host adapter, portable DSP, state, UI, CMake,
 existing tests and Github Actions. This is a verification ledger, NOT a certification.
 Update the baseline and attach run links when closing a gate.
 
+## Post-baseline verification update (2026-10-13/14 UTC)
+
+Current integrated main includes #17 Copy FX, #18 tail reporting, and #16
+cross-platform VST3 validation/numerical DSP regression gates. The original
+audit below deliberately describes baseline `5e9a99f0` and is preserved as
+a historical snapshot. Do not read its "zero tail" or "pluginval pending" rows
+as claims about current main.
+
+- PR #17, merge `6e98dd05`: settings-only Copy FX, one undo transaction,
+  preserved name/MIDI mapping; Win/Linux builds/tests, sanitizer and Windows
+  Standalone smoke green.
+- PR #18, merge `bcb6ee76`: tail reports 4.003 seconds to the host while
+  algorithmic latency remains zero, repeat-after-silence and seek regression;
+  Win/Linux builds/tests, sanitizer, Windows Standalone smoke green.
+- PR #16, merge `055d0fd8`: `pluginval` v1.0.4 headless at strictness 5
+  passed on both Windows and Linux on PR head `46e7f776`, including VST3
+  scan, processing, automation, state and bus checks. GUI tests were skipped
+  and independent Steinberg SDK validator was **not** configured.
+  The numerical quality matrix passed on 44.1/48/96/192 kHz and buffer
+  sizes 16, 127 and 1024; those are signal-regression results, not
+  independent audio listening/alias/distortion certifications.
+- Production/DAW acceptance still blocked on native REAPER Win/Linux
+  workflows, device-backed audio listening/metrics, real-time
+  callback/deadline instrumentation, licensing and clean-machine
+  packaging. Track in [release gate issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19).
+
+Automated validation provenance:
+- Linux + Windows validator matrix (PR #16 final): https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38491357470
+- Full plugin and portable test matrix: https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38491357419
+- Sanitizers: https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38491357420
+- Windows Standalone smoke: https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38491357422
+
+---
+
 ## Current decision
 
 **Engineering build: YES. DAW-qualified public beta / production use: NOT YET.**
