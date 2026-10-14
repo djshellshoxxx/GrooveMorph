@@ -139,7 +139,7 @@ public:
         if (selectedIndex < 0)
             return false;
         auto next = access.settings().control;
-        if (isLocked(next.lane.events[static_cast<std::size_t>(selectedIndex)].operation))
+        if (isEventLocked(next.lane.events[static_cast<std::size_t>(selectedIndex)]))
             return false;
         ctl::removeEvent(next.lane, static_cast<std::size_t>(selectedIndex));
         selectedIndex = -1;
@@ -245,7 +245,23 @@ public:
                     g.setColour(static_cast<int>(i) == selectedIndex ? juce::Colours::white
                                                                      : operationColours[e.operation % 5]);
                     g.drawRoundedRectangle(rect, 3.0f, static_cast<int>(i) == selectedIndex ? 2.0f : 1.0f);
+                    if (e.locked)
+                    {
+                        g.setColour(juce::Colours::white);
+                        g.fillRect(rect.getX() + 3.0f, rect.getY() + 3.0f, 5.0f, 5.0f); // per-event lock mark
+                    }
                 }
+            }
+        }
+
+        // Protected regions (C03): no effect sounds inside them.
+        for (std::size_t i = 0; i < control.placement.regionCount && i < ctl::maxProtectedRegions; ++i)
+        {
+            const auto& region = control.placement.regions[i];
+            for (const auto& r : regionRanges(region, P, width))
+            {
+                g.setColour(juce::Colour(0x40ff5252));
+                g.fillRect(left + r.first, laneTop, std::max(2, r.second - r.first), laneCount * laneHeight);
             }
         }
 
@@ -306,7 +322,7 @@ public:
         if (selectedIndex >= 0)
         {
             const auto& e = control.lane.events[static_cast<std::size_t>(selectedIndex)];
-            if (isLocked(e.operation))
+            if (isEventLocked(e))
             {
                 dragging = false;
                 if (onMessage)
@@ -441,7 +457,7 @@ public:
         auto control = access.settings().control;
         const auto grid = processor.getGridContext();
         auto e = control.lane.events[static_cast<std::size_t>(selectedIndex)];
-        if (isLocked(e.operation))
+        if (isEventLocked(e))
             return true;
         const std::int64_t step = key.getModifiers().isShiftDown() ? ctl::ticksPerBeat : std::max<std::int64_t>(1, unit(control));
         auto onset = static_cast<std::int64_t>(e.onsetTicks) + (right ? step : -step);
@@ -491,6 +507,7 @@ private:
                 return static_cast<int>(i);
         return -1;
     }
+    bool isEventLocked(const ctl::LaneEvent& e) const { return e.locked || isLocked(e.operation); }
     bool isLocked(std::uint8_t op) const
     {
         return op < ctl::laneCount && (access.settings().control.permissions.operationLocks[op] & ctl::lock::events) != 0;
@@ -540,6 +557,13 @@ private:
             ranges.emplace_back(0, static_cast<int>((b - P) / P * width));
         }
         return ranges;
+    }
+    static std::vector<std::pair<int, int>> regionRanges(const ctl::ProtectedRegion& region, double P, int width)
+    {
+        ctl::LaneEvent asEvent;
+        asEvent.onsetTicks = region.startTicks;
+        asEvent.durationTicks = region.lengthTicks;
+        return eventRanges(asEvent, P, width);
     }
     void commit(const ctl::SceneControl& next)
     {
@@ -639,7 +663,18 @@ public:
                     s.control.lane.events[static_cast<std::size_t>(i)].priority = static_cast<std::uint8_t>(eventPriority.slider.getValue());
             });
         };
-        eventRestart.setButtonText("Restart effect cycle at event start");
+        eventLocked.setButtonText("Lock event");
+        eventLocked.setTooltip("A locked event cannot be moved, resized or deleted, and survives generation, morphing and Reduce unchanged.");
+        eventLocked.onClick = [this] {
+            const int i = canvas.selected();
+            if (i < 0 || refreshing)
+                return;
+            edit([this, i](auto& s) {
+                if (static_cast<std::size_t>(i) < s.control.lane.count)
+                    s.control.lane.events[static_cast<std::size_t>(i)].locked = eventLocked.getToggleState();
+            });
+        };
+        eventRestart.setButtonText("Restart cycle at start");
         eventRestart.setTooltip("On: the effect's repeat/gate/rate grid restarts at the event onset, so the event always begins at the start of a cycle. Off: the effect keeps the shared beat grid.");
         eventRestart.onClick = [this] {
             const int i = canvas.selected();
@@ -676,7 +711,7 @@ public:
         setupLabel(message, "");
         message.setColour(juce::Label::textColourId, juce::Colours::orange);
         for (auto* c : std::initializer_list<juce::Component*>{&enable, &window, &snap, &snapLabel, &modeButton, &convert,
-                                                               &removeSelected, &eventEnabled, &message, &canvas, &eventRestart, &loopLane})
+                                                               &removeSelected, &eventEnabled, &message, &canvas, &eventRestart, &eventLocked, &loopLane})
             addAndMakeVisible(*c);
     }
 
@@ -718,6 +753,7 @@ public:
         eventPriority.slider.setEnabled(haveSel);
         eventRestart.setEnabled(haveSel);
         eventEnabled.setEnabled(haveSel);
+        eventLocked.setEnabled(haveSel);
         loopLane.setEnabled(s.control.lane.explicitEvents);
         loopBeats.slider.setEnabled(s.control.lane.explicitEvents);
         loopBeats.set(s.control.lane.loopBeats[static_cast<std::size_t>(juce::jmax(0, loopLane.getSelectedId() - 1))]);
@@ -729,6 +765,7 @@ public:
             eventRestart.setToggleState(e.restartCycle, juce::dontSendNotification);
             eventDepth.set(e.depth);
             eventEnabled.setToggleState(e.enabled, juce::dontSendNotification);
+            eventLocked.setToggleState(e.locked, juce::dontSendNotification);
         }
         else if (sel >= 0)
             canvas.select(-1);
@@ -759,7 +796,8 @@ public:
         eventSlice.layout(nextRow(area), 150);
         eventPriority.layout(nextRow(area), 150);
         auto flags = nextRow(area);
-        eventEnabled.setBounds(flags.removeFromLeft(130));
+        eventEnabled.setBounds(flags.removeFromLeft(120));
+        eventLocked.setBounds(flags.removeFromLeft(100));
         eventRestart.setBounds(flags);
         auto loop = nextRow(area);
         loopLane.setBounds(loop.removeFromLeft(150));
@@ -772,7 +810,7 @@ private:
     juce::ComboBox window, snap;
     juce::Label snapLabel, message;
     SliderRow start, span, every, offset, origin, protect, eventDepth, eventSlice, eventPriority, loopBeats;
-    juce::ToggleButton eventRestart;
+    juce::ToggleButton eventRestart, eventLocked;
     juce::ComboBox loopLane;
     juce::TextButton convert, removeSelected;
     LaneCanvas canvas;
@@ -1215,10 +1253,51 @@ public:
         reduce.setButtonText("Reduce events");
         reduce.setTooltip("Drops lower-priority events until the spacing and coverage limits hold. Events of lanes with a locked Events bit are kept. One undo step.");
         reduce.onClick = [this] { run(true); };
+        regionSelect.addItemList({"Region 1", "Region 2", "Region 3", "Region 4"}, 1);
+        regionSelect.setSelectedId(1, juce::dontSendNotification);
+        regionSelect.setTooltip("Protected regions: no effect sounds inside them (placed on the phrase, in beats).");
+        regionSelect.onChange = [this] { refresh(access.settings()); };
+        regionAdd.setButtonText("Add region");
+        regionAdd.setTooltip("Adds a protected region (first free slot; starts at the phrase start, one beat long).");
+        regionAdd.onClick = [this] {
+            edit([this](auto& s) {
+                auto& pl = s.control.placement;
+                if (pl.regionCount < ctl::maxProtectedRegions)
+                    pl.regions[pl.regionCount++] = ctl::ProtectedRegion{0, ctl::ticksPerBeat};
+            });
+            if (const auto count = access.settings().control.placement.regionCount; count > 0)
+                regionSelect.setSelectedId(static_cast<int>(count), juce::dontSendNotification); // select the new region
+        };
+        regionRemove.setButtonText("Remove region");
+        regionRemove.setTooltip("Removes the selected protected region.");
+        regionRemove.onClick = [this] {
+            const auto idx = static_cast<std::size_t>(juce::jmax(0, regionSelect.getSelectedId() - 1));
+            edit([idx](auto& s) {
+                auto& pl = s.control.placement;
+                if (idx >= pl.regionCount)
+                    return;
+                for (std::size_t i = idx; i + 1 < pl.regionCount; ++i)
+                    pl.regions[i] = pl.regions[i + 1];
+                pl.regions[--pl.regionCount] = ctl::ProtectedRegion{};
+            });
+        };
+        regionStart.setup(*this, "Region start (beats)", "Start of the selected protected region, in meter beats from the phrase start.", 0, 64, 1.0 / 16.0, 3);
+        regionStart.commit = [this] { editRegion(true); };
+        regionLength.setup(*this, "Region length (beats)", "Length of the selected protected region, in meter beats.", 1.0 / 16.0, 64, 1.0 / 16.0, 3);
+        regionLength.commit = [this] { editRegion(false); };
+        scaleDouble.setButtonText("Events x2");
+        scaleDouble.setTooltip("Doubles the position and length of every unlocked event (e.g. after doubling the phrase). Events that would fall past the phrase end are dropped. One undo step.");
+        scaleDouble.onClick = [this] { scale(2, 1); };
+        scaleHalf.setButtonText("Events /2");
+        scaleHalf.setTooltip("Halves the position and length of every unlocked event. One undo step.");
+        scaleHalf.onClick = [this] { scale(1, 2); };
+        scaleResult.setColour(juce::Label::textColourId, juce::Colours::orange);
         setupLabel(note, "'Effects at once' is applied live. Spacing and coverage are explicit actions: they edit the event list only when you press Reduce (Undo restores).");
         note.setJustificationType(juce::Justification::topLeft);
         result.setColour(juce::Label::textColourId, juce::Colours::orange);
         result.setJustificationType(juce::Justification::topLeft);
+        for (auto* c : std::initializer_list<juce::Component*>{&regionSelect, &regionAdd, &regionRemove, &scaleDouble, &scaleHalf, &scaleResult})
+            addAndMakeVisible(*c);
         addAndMakeVisible(enable);
         addAndMakeVisible(note);
         addAndMakeVisible(analyze);
@@ -1239,6 +1318,21 @@ public:
         coverage.set(s.control.activity.maxCoverage);
         reduce.setEnabled(s.control.lane.explicitEvents && s.control.lane.count > 0);
         analyze.setEnabled(reduce.isEnabled());
+        const auto& pl = s.control.placement;
+        const bool placementFree = !s.control.permissions.placementLocked;
+        const auto idx = static_cast<std::size_t>(juce::jmax(0, regionSelect.getSelectedId() - 1));
+        const bool haveRegion = idx < pl.regionCount;
+        regionAdd.setEnabled(placementFree && pl.regionCount < ctl::maxProtectedRegions);
+        regionRemove.setEnabled(placementFree && haveRegion);
+        regionStart.slider.setEnabled(placementFree && haveRegion);
+        regionLength.slider.setEnabled(placementFree && haveRegion);
+        if (haveRegion)
+        {
+            regionStart.set(static_cast<double>(pl.regions[idx].startTicks) / ctl::ticksPerBeat);
+            regionLength.set(static_cast<double>(pl.regions[idx].lengthTicks) / ctl::ticksPerBeat);
+        }
+        scaleDouble.setEnabled(s.control.lane.explicitEvents && s.control.lane.count > 0);
+        scaleHalf.setEnabled(scaleDouble.isEnabled());
     }
     void resized() override
     {
@@ -1252,10 +1346,44 @@ public:
         auto buttons = nextRow(area, 28);
         analyze.setBounds(buttons.removeFromLeft(100));
         reduce.setBounds(buttons.removeFromLeft(130).reduced(4, 0));
-        result.setBounds(nextRow(area, 44));
-        note.setBounds(nextRow(area, 60));
+        scaleDouble.setBounds(buttons.removeFromLeft(100).reduced(4, 0));
+        scaleHalf.setBounds(buttons.removeFromLeft(100).reduced(4, 0));
+        result.setBounds(nextRow(area, 36));
+        auto regionRow = nextRow(area, 28);
+        regionSelect.setBounds(regionRow.removeFromLeft(110));
+        regionAdd.setBounds(regionRow.removeFromLeft(110).reduced(4, 0));
+        regionRemove.setBounds(regionRow.removeFromLeft(120).reduced(4, 0));
+        regionStart.layout(nextRow(area), 190);
+        regionLength.layout(nextRow(area), 190);
+        scaleResult.setBounds(nextRow(area));
+        note.setBounds(nextRow(area, 52));
     }
 private:
+    void editRegion(bool isStart)
+    {
+        if (refreshing)
+            return;
+        const auto idx = static_cast<std::size_t>(juce::jmax(0, regionSelect.getSelectedId() - 1));
+        edit([this, idx, isStart](auto& s) {
+            auto& pl = s.control.placement;
+            if (idx >= pl.regionCount)
+                return;
+            if (isStart)
+                pl.regions[idx].startTicks = static_cast<std::int32_t>(std::lround(regionStart.slider.getValue() * ctl::ticksPerBeat));
+            else
+                pl.regions[idx].lengthTicks = static_cast<std::int32_t>(std::lround(regionLength.slider.getValue() * ctl::ticksPerBeat));
+        });
+    }
+    void scale(int numerator, int denominator)
+    {
+        auto settings = access.settings();
+        const auto report = ctl::scaleEvents(settings.control.lane, numerator, denominator,
+                                             processor.getGridContext().phraseTicks(), settings.control.permissions);
+        scaleResult.setText("Scaled " + juce::String(report.scaled) + ", dropped " + juce::String(report.dropped)
+                                + ", locked kept " + juce::String(report.skippedLocked),
+                            juce::dontSendNotification);
+        access.setSettings(settings);
+    }
     void run(bool apply)
     {
         auto settings = access.settings();
@@ -1278,8 +1406,10 @@ private:
         }
     }
     juce::ToggleButton enable;
-    juce::Label note, result;
-    juce::TextButton analyze, reduce;
+    juce::Label note, result, scaleResult;
+    juce::TextButton analyze, reduce, regionAdd, regionRemove, scaleDouble, scaleHalf;
+    juce::ComboBox regionSelect;
+    SliderRow regionStart, regionLength;
     SliderRow spacing, coverage;
     SliderRow maxSlider;
     std::array<SliderRow, gm::operationCount> prio;
@@ -1341,7 +1471,11 @@ public:
         setupLabel(bandTitle, "Band split (effects on part of the spectrum)");
         setupLabel(bandModeLabel, "Process");
         bandMode.addItemList({"Full band", "Protect lows", "Lows only"}, 1);
-        bandMode.setTooltip("Full band: unchanged. Protect lows: bass below the crossover bypasses the effects (keeps the low end solid). Lows only: only the bass goes through the effects. First-order crossover (6 dB/oct), so the split is gentle.");
+        bandMode.setTooltip("Full band: unchanged. Protect lows: bass below the crossover bypasses the effects (keeps the low end solid). Lows only: only the bass goes through the effects. The slope is selectable: 6 dB/oct is gentle, 12 dB/oct is steeper.");
+        bandSlope.addItemList({"6 dB/oct", "12 dB/oct"}, 1);
+        bandSlope.setTooltip("Slope of the crossover filter around the effected band. 12 dB/oct rejects the other band more strongly; "
+                             "the bypassed band is always the exact complement, so nothing is lost when the effects are off.");
+        addAndMakeVisible(bandSlope);
         setupLabel(crossoverLabel, "Crossover");
         crossover.setSliderStyle(juce::Slider::LinearHorizontal);
         crossover.setTextBoxStyle(juce::Slider::TextBoxRight, false, 62, 22);
@@ -1369,6 +1503,7 @@ public:
             addAndMakeVisible(*c);
         auto& apvts = processor.parameters;
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandModeId, bandMode));
+        combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandSlopeId, bandSlope));
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::bandCrossoverId, crossover));
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerId, trigger));
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerSensId, sens));
@@ -1418,6 +1553,7 @@ public:
         r = nextRow(area);
         bandModeLabel.setBounds(r.removeFromLeft(100));
         bandMode.setBounds(r.removeFromLeft(160));
+        bandSlope.setBounds(r.removeFromLeft(110).reduced(6, 0));
         r = nextRow(area);
         crossoverLabel.setBounds(r.removeFromLeft(100));
         crossover.setBounds(r);
@@ -1436,7 +1572,7 @@ public:
 private:
     int barChoice() const { constexpr int values[] = {1, 2, 4, 8}; return values[juce::jlimit(0, 3, bars.getSelectedId() - 1)]; }
     juce::Label sourceTitle, loopInfo, message, bandTitle, bandModeLabel, crossoverLabel, triggerTitle, triggerLabel, sensLabel, onsets;
-    juce::ComboBox source, bars, bandMode, trigger;
+    juce::ComboBox source, bars, bandMode, bandSlope, trigger;
     juce::TextButton capture, importButton, clearLoop;
     juce::Slider crossover, sens;
     juce::ToggleButton midiMacros;
@@ -1520,6 +1656,25 @@ public:
         distance.commit = [this] { applyEvolution(); };
         setupLabel(evolveInfo, "");
 
+        setupLabel(phaseTitle, "Scene start phase (edited scene): where its pattern starts when it launches");
+        phasePolicy.addItemList({"Follow the phrase", "Restart at launch", "Snap to next beat"}, 1);
+        phasePolicy.setTooltip("Preserve: the pattern keeps running with the phrase. Restart: the pattern starts from its "
+                               "beginning at launch. Snap: the pattern jumps forward to the next meter beat. The launch "
+                               "time still follows the Transition setting.");
+        phasePolicy.onChange = [this] {
+            edit([this](auto& s) { s.control.phase.policy = static_cast<gm::control::PhasePolicy>(juce::jmax(0, phasePolicy.getSelectedId() - 1)); });
+        };
+        phaseOffset.setup(*this, "Phase offset (beats)", "Added to the pattern start, -4 to +4 meter beats (step 1/16).", -4.0, 4.0, 1.0 / 16.0, 3);
+        phaseOffset.commit = [this] {
+            edit([this](auto& s) { s.control.phase.offsetBeats = static_cast<float>(phaseOffset.slider.getValue()); });
+        };
+        restartScene.setButtonText("Restart scene now");
+        restartScene.setTooltip("Restarts the active scene's pattern now. The transport and the active scene do not change.");
+        restartScene.onClick = [this] { processor.restartActiveScene(); };
+        setupLabel(phaseInfo, "");
+        for (auto* c : std::initializer_list<juce::Component*>{&phaseTitle, &phasePolicy, &restartScene, &phaseInfo})
+            addAndMakeVisible(*c);
+
         for (auto* c : std::initializer_list<juce::Component*>{&transitionLabel, &transition, &trigger, &cancel, &morphLabel, &morphTarget,
                                                                &gestureTitle, &gestureTarget, &record, &play, &clearGesture, &gestureInfo,
                                                                &evolveTitle, &evolveOn, &evolveScene, &evolveStyle, &evolveInfo})
@@ -1533,11 +1688,18 @@ public:
         for (auto& m : macros)
             m.setNumDecimalPlacesToDisplay(2);
     }
-    void refresh(const gm::VariationSettings&) override
+    void refresh(const gm::VariationSettings& settings) override
     {
         const juce::ScopedValueSetter<bool> guard(refreshing, true);
         const auto active = processor.getActiveVariation();
         const auto queued = processor.getQueuedVariation();
+        if (!phasePolicy.isPopupActive())
+            phasePolicy.setSelectedId(static_cast<int>(settings.control.phase.policy) + 1, juce::dontSendNotification);
+        phaseOffset.set(settings.control.phase.offsetBeats);
+        const double shift = processor.getPhaseShiftBeats();
+        phaseInfo.setText(shift == 0.0 ? "Pattern follows the transport."
+                                       : "Pattern is shifted by " + juce::String(shift, 3) + " beats from the transport.",
+                          juce::dontSendNotification);
         for (std::size_t i = 0; i < sceneButtons.size(); ++i)
             sceneButtons[i].setColour(juce::TextButton::buttonColourId,
                                       i == active ? juce::Colour(0xff2e7d32)
@@ -1608,6 +1770,13 @@ public:
         every.layout(nextRow(area), 120);
         distance.layout(nextRow(area), 120);
         evolveInfo.setBounds(nextRow(area));
+        area.removeFromTop(8);
+        phaseTitle.setBounds(nextRow(area));
+        r = nextRow(area);
+        phasePolicy.setBounds(r.removeFromLeft(170));
+        restartScene.setBounds(r.removeFromLeft(150).reduced(4, 0));
+        phaseOffset.layout(nextRow(area), 150);
+        phaseInfo.setBounds(nextRow(area));
     }
 private:
     void applyEvolution()
@@ -1620,7 +1789,10 @@ private:
     }
     bool evolveSynced = false;
     std::array<juce::TextButton, 4> sceneButtons;
-    juce::Label transitionLabel, morphLabel, gestureTitle, gestureInfo, evolveTitle, evolveInfo;
+    juce::Label transitionLabel, morphLabel, gestureTitle, gestureInfo, evolveTitle, evolveInfo, phaseTitle, phaseInfo;
+    juce::ComboBox phasePolicy;
+    juce::TextButton restartScene;
+    SliderRow phaseOffset;
     std::array<juce::Label, 3> macroLabels;
     std::array<juce::Slider, 3> macros;
     juce::ComboBox transition, morphTarget, gestureTarget, evolveScene, evolveStyle;

@@ -76,7 +76,7 @@ VariationSettings morph(const VariationSettings& a, const VariationSettings& b, 
 }
 
 std::uint32_t enforcePermissions(const VariationSettings& source, VariationSettings& candidate,
-                                 bool keepCandidatePermissions) noexcept
+                                 bool keepCandidatePermissions, std::int64_t phraseTicks) noexcept
 {
     std::uint32_t restored = 0;
     const auto& perms = source.control.permissions;
@@ -89,60 +89,100 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
         if ((locks & lock::depth) != 0 && c.depth != s.depth) { c.depth = s.depth; ++restored; }
         if ((locks & lock::slice) != 0 && c.sliceBeats != s.sliceBeats) { c.sliceBeats = s.sliceBeats; ++restored; }
     }
-    // Events lock: lane events of a locked operation are restored from the source.
-    bool eventsLocked = false;
-    for (auto l : perms.operationLocks)
-        eventsLocked = eventsLocked || (l & lock::events) != 0;
-    // Only touch the lane when a locked operation's events actually differ (order-insensitive), so
-    // unrelated edits neither reorder events nor report a restore.
-    bool lockedEventsDiffer = false;
-    if (eventsLocked)
+    // Events lock (per operation) and per-event locks. A source event is protected when its own
+    // `locked` flag or its operation's Events lock is set. A candidate event "is" a protected source
+    // event when every field except `locked` matches: the flag itself is lock configuration, so it
+    // follows keepCandidatePermissions like the operation lock bits do (toggling it never loses the event).
+    const auto& srcLane = source.control.lane;
+    auto& candLane = candidate.control.lane;
+    const auto opEventsLocked = [&perms](std::uint8_t op) {
+        return (perms.operationLocks[op % laneCount] & lock::events) != 0;
+    };
+    const auto isProtected = [&opEventsLocked](const LaneEvent& e) { return e.locked || opEventsLocked(e.operation); };
+    const auto sameIgnoringLock = [](const LaneEvent& a, const LaneEvent& b) {
+        return a.operation == b.operation && a.onsetTicks == b.onsetTicks && a.durationTicks == b.durationTicks
+               && a.depth == b.depth && a.sliceBeats == b.sliceBeats && a.priority == b.priority
+               && a.enabled == b.enabled && a.restartCycle == b.restartCycle;
+    };
+    const auto overlaps = [phraseTicks](const LaneEvent& a, const LaneEvent& b) {
+        if (a.operation != b.operation)
+            return false;
+        if (phraseTicks > 0)
+            return eventsOverlap(a, b, phraseTicks);
+        return a.onsetTicks < static_cast<std::int64_t>(b.onsetTicks) + b.durationTicks
+               && b.onsetTicks < static_cast<std::int64_t>(a.onsetTicks) + a.durationTicks;
+    };
+    bool anyProtected = false;
+    for (std::size_t k = 0; k < srcLane.count && k < maxLaneEvents && !anyProtected; ++k)
+        anyProtected = isProtected(srcLane.events[k]);
+    for (std::uint8_t op = 0; op < laneCount && !anyProtected; ++op)
+        anyProtected = opEventsLocked(op);
+    if (anyProtected)
     {
-        const auto collect = [&perms](const EventLane& lane, std::array<LaneEvent, maxLaneEvents>& out) {
-            std::size_t n = 0;
-            for (std::size_t k = 0; k < lane.count && k < maxLaneEvents; ++k)
-                if ((perms.operationLocks[lane.events[k].operation % laneCount] & lock::events) != 0)
-                    out[n++] = lane.events[k];
-            return n;
-        };
-        std::array<LaneEvent, maxLaneEvents> a{}, b{};
-        const std::size_t na = collect(source.control.lane, a), nb = collect(candidate.control.lane, b);
-        lockedEventsDiffer = na != nb;
-        for (std::size_t i = 0; i < na && !lockedEventsDiffer; ++i)
+        const std::size_t srcCount = std::min<std::size_t>(srcLane.count, maxLaneEvents);
+        const std::size_t candCount = std::min<std::size_t>(candLane.count, maxLaneEvents);
+        // Match every protected source event to a distinct candidate event.
+        std::array<int, maxLaneEvents> matchOf{}; // candidate index for each source event, -1 none
+        matchOf.fill(-1);
+        std::array<bool, maxLaneEvents> candMatched{};
+        bool differ = false;
+        for (std::size_t i = 0; i < srcCount; ++i)
         {
-            bool found = false;
-            for (std::size_t j = 0; j < nb && !found; ++j)
-                found = a[i].operation == b[j].operation && a[i].onsetTicks == b[j].onsetTicks
-                        && a[i].durationTicks == b[j].durationTicks && a[i].depth == b[j].depth
-                        && a[i].sliceBeats == b[j].sliceBeats && a[i].priority == b[j].priority
-                        && a[i].enabled == b[j].enabled && a[i].restartCycle == b[j].restartCycle;
-            lockedEventsDiffer = !found;
+            if (!isProtected(srcLane.events[i]))
+                continue;
+            for (std::size_t j = 0; j < candCount; ++j)
+                if (!candMatched[j] && sameIgnoringLock(srcLane.events[i], candLane.events[j])
+                    && (keepCandidatePermissions || srcLane.events[i].locked == candLane.events[j].locked))
+                {
+                    candMatched[j] = true;
+                    matchOf[i] = static_cast<int>(j);
+                    break;
+                }
+            differ = differ || matchOf[i] < 0;
         }
-    }
-    if (eventsLocked && lockedEventsDiffer)
-    {
-        EventLane merged;
-        merged.loopBeats = candidate.control.lane.loopBeats;
-        merged.explicitEvents = source.control.lane.explicitEvents || candidate.control.lane.explicitEvents;
-        const auto locked = [&perms](const LaneEvent& e) {
-            return (perms.operationLocks[e.operation % laneCount] & lock::events) != 0;
-        };
-        const auto push = [&merged](const LaneEvent& e) {
-            if (merged.count < maxLaneEvents)
-                merged.events[merged.count++] = e;
-        };
-        // Locked events are mandatory, so they are placed first and can never be crowded out.
-        for (std::size_t k = 0; k < source.control.lane.count && k < maxLaneEvents; ++k)
-            if (locked(source.control.lane.events[k]))
-                push(source.control.lane.events[k]);
-        for (std::size_t k = 0; k < candidate.control.lane.count && k < maxLaneEvents; ++k)
-            if (!locked(candidate.control.lane.events[k]))
-                push(candidate.control.lane.events[k]);
-        for (std::size_t op = 0; op < laneCount; ++op)
-            if ((perms.operationLocks[op] & lock::events) != 0)
-                merged.loopBeats[op] = source.control.lane.loopBeats[op];
-        ++restored;
-        candidate.control.lane = merged;
+        // Anything else a candidate adds to a locked operation, or places over a protected event, differs.
+        for (std::size_t j = 0; j < candCount && !differ; ++j)
+        {
+            if (candMatched[j])
+                continue;
+            differ = opEventsLocked(candLane.events[j].operation);
+            for (std::size_t i = 0; i < srcCount && !differ; ++i)
+                differ = isProtected(srcLane.events[i]) && overlaps(srcLane.events[i], candLane.events[j]);
+        }
+        if (differ)
+        {
+            EventLane merged;
+            merged.loopBeats = candLane.loopBeats;
+            merged.explicitEvents = srcLane.explicitEvents || candLane.explicitEvents;
+            const auto push = [&merged](const LaneEvent& e) {
+                if (merged.count < maxLaneEvents)
+                    merged.events[merged.count++] = e;
+            };
+            // Protected events are mandatory, so they are placed first and can never be crowded out.
+            for (std::size_t i = 0; i < srcCount; ++i)
+                if (isProtected(srcLane.events[i]))
+                {
+                    LaneEvent e = srcLane.events[i];
+                    if (keepCandidatePermissions && matchOf[i] >= 0)
+                        e.locked = candLane.events[static_cast<std::size_t>(matchOf[i])].locked;
+                    push(e);
+                }
+            for (std::size_t j = 0; j < candCount; ++j)
+            {
+                if (candMatched[j] || opEventsLocked(candLane.events[j].operation))
+                    continue;
+                bool blocked = false;
+                for (std::size_t i = 0; i < srcCount && !blocked; ++i)
+                    blocked = isProtected(srcLane.events[i]) && overlaps(srcLane.events[i], candLane.events[j]);
+                if (!blocked)
+                    push(candLane.events[j]);
+            }
+            for (std::size_t op = 0; op < laneCount; ++op)
+                if (opEventsLocked(static_cast<std::uint8_t>(op)))
+                    merged.loopBeats[op] = srcLane.loopBeats[op];
+            ++restored;
+            candLane = merged;
+        }
     }
     auto placementWithoutGrid = [](PlacementConfig p) { p.subdivision = 4; return p; };
     if (perms.placementLocked && !sameControl(SceneControl{placementWithoutGrid(source.control.placement), {}, {}, {}},

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 
 namespace groovemorph::core::control
 {
@@ -43,6 +44,10 @@ struct Targets
 // `maxConcurrent` highest-priority gated-on operations (ties: lower operation index).
 // enabledMask: bit i set when operation i is enabled in the scene; only those count toward
 // the activity limit.
+// globalBeats (optional, finite): the un-shifted transport position. When a C04 phase shift moves
+// the pattern (positionBeats = pattern position), the phrase cadence (Every/Offset) and bar-start
+// protection follow this global position; NaN (default) means positionBeats is the global position.
 [[nodiscard]] Targets evaluate(const SceneControl& control, const GridContext& grid,
-                               double positionBeats, std::uint32_t enabledMask = 0x1fu) noexcept;
+                               double positionBeats, std::uint32_t enabledMask = 0x1fu,
+                               double globalBeats = std::numeric_limits<double>::quiet_NaN()) noexcept;
 } // namespace groovemorph::core::control

@@ -4,6 +4,7 @@
 
 #include "core/Scheduler.h"
 #include "core/control/AutoReturn.h"
+#include "core/control/PhaseResolver.h"
 #include "core/control/PlacementEvaluator.h"
 #include "core/control/VariationBlend.h"
 #include "core/TransportResolver.h"
@@ -62,6 +63,7 @@ public:
     static constexpr const char* autoReturnUnitId = "autoReturnUnit";
     static constexpr const char* bandModeId = "bandMode";
     static constexpr const char* bandCrossoverId = "bandCrossover";
+    static constexpr const char* bandSlopeId = "bandSlope";
     static constexpr const char* audioTriggerId = "audioTrigger";
     static constexpr const char* audioTriggerSensId = "audioTriggerSens";
 
@@ -196,6 +198,10 @@ public:
     void requestVariation(std::size_t index) noexcept;
     void triggerManualSwitch() noexcept { uiTrigger.store(true, std::memory_order_release); }
     void cancelQueuedSwitch() noexcept { uiCancel.store(true, std::memory_order_release); }
+    // C04: restart the active scene's pattern now (transport and variation are unchanged).
+    void restartActiveScene() noexcept { uiRestart.store(true, std::memory_order_release); }
+    // Pattern-phase shift (meter beats) applied since the last switch/restart; 0 = following the transport.
+    double getPhaseShiftBeats() const noexcept { return phaseShiftStatus.load(std::memory_order_relaxed); }
 
     // ---- Scene bank editing (message thread) ----
     groovemorph::core::scene::SceneBank getSceneBank() const;
@@ -257,6 +263,8 @@ private:
     // Audio thread.
     void pullScene() noexcept;
     void handleMidi(const juce::uint8* data, int numBytes, groovemorph::core::TransitionMode mode) noexcept;
+    void applyScenePhase(const std::optional<groovemorph::core::ResolvedTiming>& blockTiming, int sampleInBlock,
+                         const groovemorph::core::control::PhaseConfig& config) noexcept;
     void renderSegment(juce::AudioBuffer<float>& buffer, int numChannels, int start, int length,
                        const std::optional<groovemorph::core::ResolvedTiming>& blockTiming,
                        std::size_t variation, float wetAmount, float bypassTarget) noexcept;
@@ -283,6 +291,7 @@ private:
         std::atomic<float>* autoReturnUnit = nullptr;
         std::atomic<float>* bandMode = nullptr;
         std::atomic<float>* bandCrossover = nullptr;
+        std::atomic<float>* bandSlope = nullptr;
         std::atomic<float>* audioTrigger = nullptr;
         std::atomic<float>* audioTriggerSens = nullptr;
     } cached;
@@ -324,7 +333,13 @@ private:
     int bandModeSel = 0;          // 0 full band, 1 protect lows, 2 lows only
     float bandCoefficient = 0.0f;
     std::array<float, 2> bandLowState{};
+    // 12 dB/oct option: the band sent to the effects is a 2nd-order Butterworth (TPT state variable
+    // filter); the bypassed band is its exact complement, so the two always sum back to the input.
+    int bandSlopeSel = 0; // 0: 6 dB/oct, 1: 12 dB/oct
+    float svfA1 = 0.0f, svfA2 = 0.0f, svfA3 = 0.0f;
+    std::array<float, 2> svfIc1{}, svfIc2{};
     juce::AudioBuffer<float> bandBypass;
+    juce::AudioBuffer<float> bandPart; // the band handed to the engine, to detect an unchanged signal
     std::array<groovemorph::core::OnsetDetector, 2> onsetDetectors;
     int audioTriggerSel = 0;      // 0 off, 1 next scene, 2 trigger queued
     float audioTriggerSensitivity = 0.5f;
@@ -337,6 +352,12 @@ private:
     std::atomic<int> expectedParamEcho{-1}; // value the message thread wrote to the host param
     std::atomic<bool> uiTrigger{false};
     std::atomic<bool> uiCancel{false};
+    std::atomic<bool> uiRestart{false};
+    std::atomic<double> phaseShiftStatus{0.0};
+    double phaseShiftBeats = 0.0; // audio thread: pattern position = transport position + shift
+    bool phaseNeedsReset = true;  // audio thread: re-resolve the shift for the active scene (Preserve policy)
+    double lastPhaseGridBeats = 0.0;
+    int previousBandModeSel = 0, previousBandSlopeSel = 0;
 
     // Audio -> UI.
     std::atomic<bool> prepared{false};
@@ -361,6 +382,7 @@ private:
     mutable std::mutex loopServiceMutex; // message-thread loop services vs prepareToPlay; never taken by the audio thread
     std::atomic<double> phraseFractionStatus{0.0};
     std::atomic<std::int64_t> phraseIndexStatus{0};
+    mutable std::mutex gestureMutex; // gesture lane state: message thread and host state calls, never the audio thread
     groovemorph::core::control::GestureLane gesture;
     int gestureTarget = 0;
     bool gestureRecording = false, gesturePlaying = false;

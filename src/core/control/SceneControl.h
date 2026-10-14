@@ -20,6 +20,14 @@ inline constexpr std::uint8_t maxEvery = 64;
 
 enum class WindowMode : std::uint8_t { FullPhrase = 0, Custom = 1, LastBar = 2 };
 
+// Time span (circular on the phrase, in pattern-local ticks) in which every effect is muted.
+struct ProtectedRegion
+{
+    std::int32_t startTicks = 0;
+    std::int32_t lengthTicks = 0; // [1, phraseTicks]
+};
+inline constexpr std::size_t maxProtectedRegions = 4;
+
 struct PlacementConfig
 {
     bool enabled = false;
@@ -31,6 +39,9 @@ struct PlacementConfig
     std::int32_t originTicks = 0; // shifts the placement timeline (phrase origin)
     std::uint8_t subdivision = 4; // editor snap grid per meter beat
     float downbeatProtectBeats = 0.0f; // 0 = off; silences all effects at each bar start
+    // C03 protected temporal regions: no effect sounds inside them. Covered by the placement lock.
+    std::uint8_t regionCount = 0;
+    std::array<ProtectedRegion, maxProtectedRegions> regions{};
 };
 
 struct LaneEvent
@@ -43,6 +54,7 @@ struct LaneEvent
     float sliceBeats = 0.0f;          // 0 = use the operation's slice; else [1/16,4] meter beats
     std::uint8_t priority = 50;       // 0..100, higher survives the activity limit
     bool restartCycle = false;        // true: the effect's beat grid restarts at the event onset
+    bool locked = false;              // C03 per-event lock: survives generation and edits unchanged
 };
 
 struct EventLane
@@ -80,12 +92,22 @@ struct ActivityConfig
     float maxCoverage = 1.0f;     // 0..1: maximum union of event durations as a phrase fraction
 };
 
+// C04: where the pattern starts when this scene becomes active (see PhaseResolver.h).
+enum class PhasePolicy : std::uint8_t { Preserve = 0, Restart = 1, AlignBeat = 2 };
+
+struct PhaseConfig
+{
+    PhasePolicy policy = PhasePolicy::Preserve;
+    float offsetBeats = 0.0f; // -4..4 meter beats, added after the policy, step 1/16
+};
+
 struct SceneControl
 {
     PlacementConfig placement{};
     EventLane lane{};
     PermissionConfig permissions{};
     ActivityConfig activity{};
+    PhaseConfig phase{}; // not frozen by C03 locks (it is not scene content)
 };
 
 // Clamp to the documented domains. Returns true when anything changed.
@@ -122,6 +144,19 @@ struct ReduceReport
 ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
                           const PermissionConfig& permissions, std::int64_t phraseTicks,
                           bool apply) noexcept;
+
+// Explicit command (e.g. after a meter or phrase-length change): multiplies every unlocked event's
+// onset and duration by numerator/denominator (both 1..64, rounded to the nearest tick). Events that
+// would start past the phrase end, or overlap an already placed event of the same operation, are
+// dropped and counted. Locked events (per-event or Events lock) keep their exact position.
+struct ScaleReport
+{
+    std::uint8_t scaled = 0;
+    std::uint8_t dropped = 0;
+    std::uint8_t skippedLocked = 0;
+};
+ScaleReport scaleEvents(EventLane& lane, std::int64_t numerator, std::int64_t denominator,
+                        std::int64_t phraseTicks, const PermissionConfig& permissions) noexcept;
 
 // Explicit command: one full-phrase event per operation in `enabledMask`. Returns events added.
 std::size_t convertLegacyToEvents(EventLane& lane, std::uint32_t enabledMask,

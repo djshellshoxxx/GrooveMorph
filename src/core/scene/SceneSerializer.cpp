@@ -181,6 +181,24 @@ private:
         else if (rest == "placement.origin") { if (asInt(n)) c.placement.originTicks = static_cast<std::int32_t>(std::clamp<long long>(n, -1966080, 1966080)); }
         else if (rest == "placement.subdiv") { if (asInt(n)) c.placement.subdivision = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 255)); }
         else if (rest == "placement.protect") asFloat(c.placement.downbeatProtectBeats);
+        else if (rest == "placement.regions") { if (asInt(n)) c.placement.regionCount = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, static_cast<long long>(control::maxProtectedRegions))); }
+        else if (rest.starts_with("region."))
+        {
+            // region.K.start / region.K.length (K < maxProtectedRegions)
+            std::size_t k = 0;
+            if (rest.size() < 9 || !parseIndex(rest.substr(7, 1), k, control::maxProtectedRegions) || rest[8] != '.')
+                return;
+            const auto field = rest.substr(9);
+            if (field == "start") { if (asInt(n)) c.placement.regions[k].startTicks = static_cast<std::int32_t>(std::clamp<long long>(n, 0, 1966080)); }
+            else if (field == "length") { if (asInt(n)) c.placement.regions[k].lengthTicks = static_cast<std::int32_t>(std::clamp<long long>(n, 1, 1966080)); }
+            else known = false;
+        }
+        else if (rest == "phase.policy")
+        {
+            if (parseNumber(value, n) && n >= 0 && n <= 2) c.phase.policy = static_cast<control::PhasePolicy>(n);
+            else bad();
+        }
+        else if (rest == "phase.offset") asFloat(c.phase.offsetBeats);
         else if (rest == "lane.explicit") asBool(c.lane.explicitEvents);
         else if (rest.starts_with("lane.loop."))
         {
@@ -212,6 +230,7 @@ private:
             else if (field == "slice") asFloat(e.sliceBeats);
             else if (field == "priority") { if (asInt(n)) e.priority = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 100)); }
             else if (field == "restart") { bool v = false; if (asBool(v)) e.restartCycle = v; }
+            else if (field == "locked") { bool v = false; if (asBool(v)) e.locked = v; }
             return; // committed in finish()
         }
         else if (rest.starts_with("perm.op."))
@@ -340,6 +359,14 @@ std::string SceneSerializer::serialize(const SceneBank& bank)
         line(prefix + "placement.origin", std::to_string(p.originTicks));
         line(prefix + "placement.subdiv", std::to_string(p.subdivision));
         line(prefix + "placement.protect", formatFloat(p.downbeatProtectBeats));
+        line(prefix + "placement.regions", std::to_string(p.regionCount));
+        for (std::size_t r = 0; r < p.regionCount && r < control::maxProtectedRegions; ++r)
+        {
+            line(prefix + "region." + std::to_string(r) + ".start", std::to_string(p.regions[r].startTicks));
+            line(prefix + "region." + std::to_string(r) + ".length", std::to_string(p.regions[r].lengthTicks));
+        }
+        line(prefix + "phase.policy", std::to_string(static_cast<int>(c.phase.policy)));
+        line(prefix + "phase.offset", formatFloat(c.phase.offsetBeats));
         line(prefix + "lane.explicit", c.lane.explicitEvents ? "1" : "0");
         for (std::size_t k = 0; k < c.lane.count; ++k)
         {
@@ -353,6 +380,7 @@ std::string SceneSerializer::serialize(const SceneBank& bank)
             line(ep + "slice", formatFloat(e.sliceBeats));
             line(ep + "priority", std::to_string(e.priority));
             line(ep + "restart", e.restartCycle ? "1" : "0");
+            line(ep + "locked", e.locked ? "1" : "0");
         }
         for (std::size_t op = 0; op < operationCount; ++op)
         {

@@ -1,6 +1,7 @@
 #include "core/control/GestureLane.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 
 namespace groovemorph::core::control
@@ -32,6 +33,59 @@ void GestureLane::record(double phraseFraction, float value) noexcept
         ++filled;
     }
     values[static_cast<std::size_t>(bin)] = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
+}
+
+std::string GestureLane::serialize() const
+{
+    std::string out;
+    char buffer[48];
+    for (int bin = 0; bin < binCount; ++bin)
+    {
+        if (!has[static_cast<std::size_t>(bin)])
+            continue;
+        // to_chars is locale independent (printf/strtod follow the process locale).
+        auto r = std::to_chars(buffer, buffer + sizeof(buffer), bin);
+        *r.ptr++ = ':';
+        r = std::to_chars(r.ptr, buffer + sizeof(buffer), static_cast<double>(values[static_cast<std::size_t>(bin)]),
+                          std::chars_format::fixed, 5);
+        if (r.ec != std::errc{})
+            continue;
+        if (!out.empty())
+            out += ' ';
+        out.append(buffer, static_cast<std::size_t>(r.ptr - buffer));
+    }
+    return out;
+}
+
+std::size_t GestureLane::deserialize(std::string_view text) noexcept
+{
+    clear();
+    if (text.size() > 16384)
+        return 0;
+    std::size_t pos = 0;
+    while (pos < text.size())
+    {
+        while (pos < text.size() && text[pos] == ' ')
+            ++pos;
+        const auto end = std::min(text.find(' ', pos), text.size());
+        const auto item = text.substr(pos, end - pos);
+        pos = end;
+        const auto colon = item.find(':');
+        if (colon == std::string_view::npos || colon == 0)
+            continue;
+        int bin = -1;
+        const auto binResult = std::from_chars(item.data(), item.data() + colon, bin);
+        if (binResult.ec != std::errc{} || binResult.ptr != item.data() + colon || bin < 0 || bin >= binCount)
+            continue;
+        const auto valueText = item.substr(colon + 1);
+        double value = 0.0;
+        const auto valueResult = std::from_chars(valueText.data(), valueText.data() + valueText.size(), value);
+        if (valueText.empty() || valueResult.ec != std::errc{} || valueResult.ptr != valueText.data() + valueText.size()
+            || !std::isfinite(value))
+            continue;
+        record((static_cast<double>(bin) + 0.5) / binCount, static_cast<float>(value));
+    }
+    return static_cast<std::size_t>(filled);
 }
 
 float GestureLane::sample(double phraseFraction) const noexcept

@@ -25,6 +25,7 @@ namespace groovemorph::core::control
 // randomness is never perturbed by locks). Returns the number of fields restored.
 // keepCandidatePermissions = true is for manual edits: the lock configuration being edited is kept
 // while every other locked field is restored (the lock state used is the source's).
+// phraseTicks (optional): when > 0, protected-event overlap is judged on the circular phrase, else linearly.
 std::uint32_t enforcePermissions(const VariationSettings& source, VariationSettings& candidate,
-                                 bool keepCandidatePermissions = false) noexcept;
+                                 bool keepCandidatePermissions = false, std::int64_t phraseTicks = 0) noexcept;
 } // namespace groovemorph::core::control

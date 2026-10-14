@@ -198,6 +198,44 @@ int main()
         }
         expect("intensity 0 null test", identical);
 
+        // Audit regression: the same null holds with the band split active, including after a NaN block.
+        for (const float mode : {1.0f, 2.0f, 11.0f, 12.0f}) // 1x/2x: 6 dB slope, 11/12: protect/lows at 12 dB
+        {
+            GrooveMorphAudioProcessor split;
+            setParameter(split, "masterIntensity", 0.0f);
+            setParameter(split, "bandMode", mode > 10.0f ? mode - 10.0f : mode);
+            setParameter(split, "bandSlope", mode > 10.0f ? 1.0f : 0.0f);
+            split.prepareToPlay(48000.0, 256);
+            FakePlayHead splitHead;
+            split.setPlayHead(&splitHead);
+            juce::Random rng(99);
+            bool exact = true, finite = true;
+            for (int block = 0; block < 30; ++block)
+            {
+                setTransport(splitHead, block * 256);
+                juce::AudioBuffer<float> buffer(2, 256);
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 256; ++i)
+                        buffer.setSample(c, i, rng.nextFloat() * 2.0f - 1.0f);
+                if (block == 3)
+                    buffer.setSample(0, 5, std::nanf(""));
+                juce::AudioBuffer<float> input(buffer);
+                juce::MidiBuffer midi;
+                split.processBlock(buffer, midi);
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 256; ++i)
+                    {
+                        const float in = input.getSample(c, i);
+                        const float out = buffer.getSample(c, i);
+                        if (block > 3)
+                            finite = finite && std::isfinite(out);
+                        if (block != 3 && std::isfinite(in))
+                            exact = exact && std::memcmp(&in, &out, sizeof(float)) == 0;
+                    }
+            }
+            expect("band split at wet 0 is bit-exact and survives NaN", exact && finite);
+        }
+
         // Nonzero intensity actually transforms (sanity check that the null test is meaningful).
         setParameter(processor, "masterIntensity", 1.0f);
         float maxDiff = 0.0f;
@@ -296,6 +334,80 @@ int main()
         processSilence(processor, 512);
         expect("manual trigger", processor.getActiveVariation() == 3 && processor.getLastSwitchSample() == sample);
         processor.setPlayHead(nullptr);
+    }
+
+    // C04: the destination scene's phase policy sets the pattern shift at the switch frame.
+    {
+        GrooveMorphAudioProcessor processor;
+        setParameter(processor, "phraseBars", 4.0f);
+        processor.prepareToPlay(48000.0, 512);
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        setParameter(processor, "transitionMode", 0.0f); // Immediate
+        auto restartScene = processor.getSceneBank().variation(1).settings;
+        restartScene.control.phase.policy = groovemorph::core::control::PhasePolicy::Restart;
+        processor.setVariationSettings(1, restartScene);
+        std::int64_t sample = 30000; // global meter-beat position 1.25
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        expect("preserve scene keeps the transport phase", processor.getPhaseShiftBeats() == 0.0);
+        processor.requestVariation(1);
+        sample += 512;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        const double beat = static_cast<double>(sample) / 24000.0;
+        const double local = std::fmod(beat + processor.getPhaseShiftBeats(), 16.0);
+        expect("restart scene starts its pattern at phrase beat 0", processor.getActiveVariation() == 1
+                                                                       && (local < 1e-6 || 16.0 - local < 1e-6));
+        processor.requestVariation(0);
+        sample += 512;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        expect("switching back to a preserve scene returns to the transport phase", processor.getPhaseShiftBeats() == 0.0);
+        processor.restartActiveScene();
+        sample += 512;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        const double beat2 = static_cast<double>(sample) / 24000.0;
+        const double local2 = std::fmod(beat2 + processor.getPhaseShiftBeats(), 16.0);
+        expect("restart command restarts the active scene", processor.getActiveVariation() == 0
+                                                                && (local2 < 1e-6 || 16.0 - local2 < 1e-6));
+        // A scene with a +1 beat offset keeps its offset after a seek (Preserve policy re-resolved).
+        auto offsetScene = processor.getSceneBank().variation(0).settings;
+        offsetScene.control.phase.offsetBeats = 1.0f;
+        processor.setVariationSettings(0, offsetScene);
+        processor.restartActiveScene();
+        sample += 512;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        sample += 90000;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        expect("a seek keeps the active scene's own offset", std::abs(processor.getPhaseShiftBeats() - 1.0) < 1e-9);
+        offsetScene.control.phase.offsetBeats = 0.0f;
+        processor.setVariationSettings(0, offsetScene);
+        sample += 100000; // a seek returns to the transport's own phase
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        expect("a seek cancels the phase shift", processor.getPhaseShiftBeats() == 0.0);
+        processor.setPlayHead(nullptr);
+    }
+
+    // Gesture target and evolution settings travel with the project state; garbage restores safely.
+    {
+        GrooveMorphAudioProcessor source;
+        source.setGestureTarget(2);
+        source.setEvolution(true, 3, 4, 0.6f, 2, 7);
+        juce::MemoryBlock block;
+        source.getStateInformation(block);
+        GrooveMorphAudioProcessor restored;
+        restored.setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+        const auto evolution = restored.getEvolutionSettings();
+        expect("gesture target restored", restored.getGestureTarget() == 2);
+        expect("evolution restored", evolution.enabled && evolution.scene == 3 && evolution.everyPhrases == 4
+                                         && std::abs(evolution.distance - 0.6f) < 1e-5f && evolution.style == 2);
+        GrooveMorphAudioProcessor fresh;
+        expect("a fresh processor has no evolution", !fresh.getEvolutionSettings().enabled && fresh.getGestureTarget() == 0);
     }
 
     // GM-FR-008: MIDI note-ons switch at their sample position or queue.

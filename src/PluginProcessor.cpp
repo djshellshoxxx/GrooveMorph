@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 
+#include <limits>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -13,6 +14,8 @@ namespace
 constexpr auto stateType = "GrooveMorphState";
 constexpr auto sceneTreeType = "SceneBank";
 constexpr auto sceneDataProperty = "data";
+constexpr auto gestureTreeType = "Gesture";
+constexpr auto evolutionTreeType = "Evolution";
 constexpr int meterDenominators[] = {1, 2, 4, 8, 16};
 constexpr int maxProcessedChannels = 2;
 
@@ -20,6 +23,15 @@ float loadParameter(const std::atomic<float>* parameter, float fallback) noexcep
 {
     const auto value = parameter != nullptr ? parameter->load(std::memory_order_relaxed) : fallback;
     return std::isfinite(value) ? value : fallback;
+}
+
+// MIDI CC macros stand in for a user moving a control, so they are bracketed as a change gesture
+// (host automation touch/write modes). Realignment echoes and gesture playback are not.
+void writeParameterAsGesture(juce::RangedAudioParameter& parameter, float normalised)
+{
+    parameter.beginChangeGesture();
+    parameter.setValueNotifyingHost(normalised);
+    parameter.endChangeGesture();
 }
 
 int loadIndex(const std::atomic<float>* parameter, int maxIndex) noexcept
@@ -53,6 +65,7 @@ GrooveMorphAudioProcessor::GrooveMorphAudioProcessor()
     cached.autoReturnUnit = parameters.getRawParameterValue(autoReturnUnitId);
     cached.bandMode = parameters.getRawParameterValue(bandModeId);
     cached.bandCrossover = parameters.getRawParameterValue(bandCrossoverId);
+    cached.bandSlope = parameters.getRawParameterValue(bandSlopeId);
     cached.audioTrigger = parameters.getRawParameterValue(audioTriggerId);
     cached.audioTriggerSens = parameters.getRawParameterValue(audioTriggerSensId);
     bypassParameter = dynamic_cast<juce::AudioParameterBool*>(parameters.getParameter(bypassId));
@@ -134,6 +147,10 @@ GrooveMorphAudioProcessor::createParameterLayout()
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{bandCrossoverId, 1}, "Crossover",
         juce::NormalisableRange<float>{40.0f, 400.0f, 1.0f, 0.5f}, 120.0f));
+    // Steeper crossover for the band sent to the effects (the bypassed band stays its exact complement).
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{bandSlopeId, 1}, "Band Slope",
+        juce::StringArray{"6 dB/oct", "12 dB/oct"}, 0));
     // F07: detected input transients request a scene change.
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{audioTriggerId, 1}, "Audio Trigger",
@@ -160,6 +177,7 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     engine.prepare(currentSampleRate, maxBlock, maxProcessedChannels);
     dryBuffer.setSize(maxProcessedChannels, maxBlock, false, true, false);
     bandBypass.setSize(maxProcessedChannels, maxBlock, false, true, false);
+    bandPart.setSize(maxProcessedChannels, maxBlock, false, true, false);
     {
         const std::lock_guard<std::mutex> lock(loopServiceMutex);
         loopSource.prepare(currentSampleRate);
@@ -168,6 +186,11 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     }
     loopSeconds.store(0.0, std::memory_order_relaxed);
     bandLowState.fill(0.0f);
+    svfIc1.fill(0.0f);
+    svfIc2.fill(0.0f);
+    phaseShiftBeats = 0.0;
+    phaseNeedsReset = true;
+    lastPhaseGridBeats = 0.0;
     for (auto& d : onsetDetectors)
         d.prepare(currentSampleRate);
     freeRunSample = 0;
@@ -315,7 +338,7 @@ void GrooveMorphAudioProcessor::applyMidiMacros()
     for (std::size_t slot = 0; slot < 3; ++slot)
         if ((dirty & (1u << slot)) != 0)
             if (auto* parameter = parameters.getParameter(ids[slot]))
-                parameter->setValueNotifyingHost(ccValue[slot].load(std::memory_order_relaxed));
+                writeParameterAsGesture(*parameter, ccValue[slot].load(std::memory_order_relaxed));
 }
 
 core::VariationSettings GrooveMorphAudioProcessor::effectiveSettings(std::size_t variation) const noexcept
@@ -327,6 +350,23 @@ core::VariationSettings GrooveMorphAudioProcessor::effectiveSettings(std::size_t
         return base;
     return core::control::morph(base, audioScene.snapshot.variations[static_cast<std::size_t>(morphTargetIndex)],
                                 morphWeight);
+}
+
+void GrooveMorphAudioProcessor::applyScenePhase(const std::optional<core::ResolvedTiming>& blockTiming,
+                                                int sampleInBlock,
+                                                const core::control::PhaseConfig& config) noexcept
+{
+    if (!blockTiming)
+        return;
+    auto t = *blockTiming;
+    t.currentSample += sampleInBlock;
+    if (t.ppqPosition)
+        *t.ppqPosition += static_cast<double>(sampleInBlock) * t.grid.tempoBpm / (60.0 * t.sampleRate);
+    core::control::GridContext grid;
+    grid.beatsPerBar = t.grid.meterNumerator;
+    grid.phraseBars = t.grid.phraseBars;
+    const double position = t.positionInBeats();
+    phaseShiftBeats = std::isfinite(position) ? core::control::resolvePhaseShift(config, position, grid) : 0.0;
 }
 
 void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, int numChannels,
@@ -352,6 +392,7 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
 
         core::RhythmTiming rhythm;
         core::control::GridContext gridContext;
+        double globalBeat = std::numeric_limits<double>::quiet_NaN();
         if (blockTiming)
         {
             auto t = *blockTiming;
@@ -360,7 +401,8 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
                 *t.ppqPosition += static_cast<double>(offset)
                     * t.grid.tempoBpm / (60.0 * t.sampleRate);
             rhythm.samplesPerBeat = t.samplesPerBeat();
-            rhythm.beatAtBlockStart = t.positionInBeats();
+            globalBeat = t.positionInBeats();
+            rhythm.beatAtBlockStart = globalBeat + phaseShiftBeats; // C04 pattern phase
             rhythm.isPlaying = t.isPlaying
                 && (t.mode != core::TimingMode::HostPpq || t.ppqPosition.has_value());
             gridContext.beatsPerBar = t.grid.meterNumerator;
@@ -376,7 +418,7 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
             && std::isfinite(rhythm.beatAtBlockStart))
         {
             const auto targets = core::control::evaluate(settings.control, gridContext,
-                                                         rhythm.beatAtBlockStart, enabledMask);
+                                                         rhythm.beatAtBlockStart, enabledMask, globalBeat);
             if (targets.gated)
             {
                 gated = settings;
@@ -404,17 +446,17 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
         {
             const int source = sourceMode.load(std::memory_order_relaxed);
             if (source == 1)
-                core::DemoSource::render(channels.data(), numChannels, n, rhythm.beatAtBlockStart,
+                core::DemoSource::render(channels.data(), numChannels, n, globalBeat,
                                          rhythm.samplesPerBeat, currentSampleRate);
             else if (source == 2)
-                loopSource.render(channels.data(), numChannels, n, rhythm.beatAtBlockStart, rhythm.samplesPerBeat);
+                loopSource.render(channels.data(), numChannels, n, globalBeat, rhythm.samplesPerBeat);
             const auto captureState = loopCapture.state();
             if (captureState == core::LoopCapture::State::Armed || captureState == core::LoopCapture::State::Recording)
             {
                 std::array<const float*, maxProcessedChannels> readOnly{};
                 for (int c = 0; c < numChannels; ++c)
                     readOnly[static_cast<std::size_t>(c)] = channels[static_cast<std::size_t>(c)];
-                loopCapture.process(readOnly.data(), numChannels, n, rhythm.beatAtBlockStart, rhythm.samplesPerBeat, true);
+                loopCapture.process(readOnly.data(), numChannels, n, globalBeat, rhythm.samplesPerBeat, true);
             }
         }
         else if (loopCapture.state() == core::LoopCapture::State::Recording)
@@ -431,7 +473,7 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
         }
 
         const bool needDry = bypassGain > 0.0f || bypassTarget > 0.0f;
-        if (needDry)
+        if (needDry || bandModeSel != 0) // dryBuffer also keeps the unsplit input for band-split exactness
             for (int c = 0; c < numChannels; ++c)
                 dryBuffer.copyFrom(c, 0, buffer, c, offset, n);
 
@@ -443,14 +485,45 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
             {
                 float* x = channels[static_cast<std::size_t>(c)];
                 float* bypass = bandBypass.getWritePointer(c);
+                float* part = bandPart.getWritePointer(c);
+                if (bandSlopeSel == 1)
+                {
+                    float ic1 = svfIc1[static_cast<std::size_t>(c)], ic2 = svfIc2[static_cast<std::size_t>(c)];
+                    if (!std::isfinite(ic1) || !std::isfinite(ic2))
+                        ic1 = ic2 = 0.0f;
+                    constexpr float k = 1.41421356f;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float in = std::isfinite(x[i]) ? x[i] : 0.0f;
+                        const float v3 = in - ic2;
+                        const float v1 = svfA1 * ic1 + svfA2 * v3;
+                        const float v2 = ic2 + svfA2 * ic1 + svfA3 * v3;
+                        ic1 = 2.0f * v1 - ic1;
+                        ic2 = 2.0f * v2 - ic2;
+                        const float low = v2;
+                        const float high = in - k * v1 - v2;
+                        const float effected = bandModeSel == 1 ? high : low;
+                        x[i] = effected;
+                        bypass[i] = in - effected; // exact complement
+                        part[i] = effected;
+                    }
+                    svfIc1[static_cast<std::size_t>(c)] = ic1;
+                    svfIc2[static_cast<std::size_t>(c)] = ic2;
+                    continue;
+                }
                 float state = bandLowState[static_cast<std::size_t>(c)];
+                if (!std::isfinite(state))
+                    state = 0.0f;
                 for (int i = 0; i < n; ++i)
                 {
-                    state += bandCoefficient * (x[i] - state);
+                    // A non-finite sample must not poison the filter state for every later block.
+                    const float in = std::isfinite(x[i]) ? x[i] : 0.0f;
+                    state += bandCoefficient * (in - state);
                     const float low = state;
-                    const float high = x[i] - low;
+                    const float high = in - low;
                     if (bandModeSel == 1) { bypass[i] = low; x[i] = high; }
                     else { bypass[i] = high; x[i] = low; }
+                    part[i] = x[i];
                 }
                 bandLowState[static_cast<std::size_t>(c)] = state;
             }
@@ -463,8 +536,10 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
             {
                 float* x = channels[static_cast<std::size_t>(c)];
                 const float* bypass = bandBypass.getReadPointer(c);
+                const float* part = bandPart.getReadPointer(c);
+                const float* original = dryBuffer.getReadPointer(c);
                 for (int i = 0; i < n; ++i)
-                    x[i] += bypass[i];
+                    x[i] = x[i] == part[i] ? original[i] : x[i] + bypass[i]; // untouched band: exact dry
             }
 
         if (needDry)
@@ -522,6 +597,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     {
         scheduler.reset(static_cast<std::size_t>(reset));
         midiTrigger.reset();
+        phaseNeedsReset = true;
     }
     const int variationParam = loadIndex(cached.activeVariation, static_cast<int>(core::variationCount) - 1);
     if (uiResyncParam.exchange(false, std::memory_order_acq_rel))
@@ -549,6 +625,26 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         const float crossover = juce::jlimit(20.0f, 1000.0f, loadParameter(cached.bandCrossover, 120.0f));
         bandCoefficient = static_cast<float>(1.0 - std::exp(-2.0 * juce::MathConstants<double>::pi
                                                             * static_cast<double>(crossover) / currentSampleRate));
+        bandSlopeSel = loadIndex(cached.bandSlope, 1);
+        if (bandModeSel != previousBandModeSel || bandSlopeSel != previousBandSlopeSel)
+        {
+            // Filter states only advance while their own mode/slope is active; stale ones would click.
+            previousBandModeSel = bandModeSel;
+            previousBandSlopeSel = bandSlopeSel;
+            bandLowState.fill(0.0f);
+            svfIc1.fill(0.0f);
+            svfIc2.fill(0.0f);
+        }
+        {
+            // Zavalishin/Cytomic TPT state variable filter, Butterworth (k = sqrt 2).
+            const double g = std::tan(juce::MathConstants<double>::pi * static_cast<double>(crossover)
+                                      / currentSampleRate);
+            const double k = std::sqrt(2.0);
+            const double a1 = 1.0 / (1.0 + g * (g + k));
+            svfA1 = static_cast<float>(a1);
+            svfA2 = static_cast<float>(g * a1);
+            svfA3 = static_cast<float>(g * g * a1);
+        }
         audioTriggerSel = loadIndex(cached.audioTrigger, 2);
         audioTriggerSensitivity = juce::jlimit(0.0f, 1.0f, loadParameter(cached.audioTriggerSens, 0.5f));
         if (onsetThisBlock)
@@ -618,7 +714,10 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     if (hostDiscontinuity)
     {
         engine.resetHistory();
+        phaseNeedsReset = true; // C04: a seek/loop returns to the active scene's own (Preserve) phase
         autoReturn.disarm(); // a seek/loop cancels a transient automatic return
+        if (loopCapture.state() == core::LoopCapture::State::Recording)
+            loopCapture.abort(); // a recording spanning a seek would not be contiguous audio
     }
     previousHostSamplePosition = hostTransport.timeInSamples;
     previousHostPpqPosition = timing ? timing->ppqPosition : std::nullopt;
@@ -668,6 +767,32 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     {
         if (const auto back = autoReturn.poll(timing->positionInBars()))
             scheduler.request(*back, core::TransitionMode::NextBar);
+    }
+
+    // A meter or phrase-length change invalidates the shift (it was computed for the old phrase length).
+    if (timing)
+    {
+        const double phraseBeats = static_cast<double>(timing->grid.meterNumerator) * timing->grid.phraseBars;
+        if (phraseBeats != lastPhaseGridBeats)
+        {
+            lastPhaseGridBeats = phraseBeats;
+            phaseNeedsReset = true;
+        }
+    }
+    if (phaseNeedsReset && timing)
+    {
+        phaseNeedsReset = false;
+        // Reset to the active scene's own offset with the Preserve policy at this position.
+        auto preserve = effectiveSettings(scheduler.activeVariation()).control.phase;
+        preserve.policy = core::control::PhasePolicy::Preserve;
+        applyScenePhase(timing, 0, preserve);
+    }
+    if (timing && uiRestart.exchange(false, std::memory_order_acq_rel) && !audioScene.auditioning)
+    {
+        auto restart = effectiveSettings(scheduler.activeVariation()).control.phase;
+        restart.policy = core::control::PhasePolicy::Restart;
+        applyScenePhase(timing, 0, restart);
+        engine.resetHistory(); // a restarted pattern must not replay audio from before the restart
     }
 
     // Split the block at MIDI events and at the scheduled switch offset.
@@ -720,6 +845,8 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
                     std::clamp<std::int64_t>(switchEvent.sampleOffset, 0, length - 1));
                 if (offset > 0)
                     renderSegment(buffer, numChannels, position, offset, timing, before, wetAmount, bypassTarget);
+                // C04: the old scene finishes at its own phase; the destination chooses where its pattern starts.
+                applyScenePhase(timing, position + offset, effectiveSettings(switchEvent.variation).control.phase);
                 lastSwitchSample.store(segmentTiming.currentSample + offset, std::memory_order_relaxed);
                 renderSegment(buffer, numChannels, position + offset, length - offset, timing, playing(),
                               wetAmount, bypassTarget);
@@ -742,6 +869,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
 
     autoReturnTargetStatus.store(autoReturn.armed() ? static_cast<int>(*autoReturn.target()) : -1,
                                  std::memory_order_relaxed);
+    phaseShiftStatus.store(phaseShiftBeats, std::memory_order_relaxed);
     activeVariation.store(scheduler.activeVariation(), std::memory_order_relaxed);
     const auto queued = scheduler.queuedVariation();
     queuedVariation.store(queued ? static_cast<int>(*queued) : -1, std::memory_order_relaxed);
@@ -1034,6 +1162,27 @@ void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
                           nullptr);
     state.removeChild(state.getChildWithName(sceneTreeType), nullptr);
     state.appendChild(sceneTree, nullptr);
+
+    // Gesture lane (F11) and phrase evolution (F05) settings travel with the project.
+    juce::ValueTree gestureTree(gestureTreeType);
+    {
+        const std::lock_guard<std::mutex> lock(gestureMutex);
+        gestureTree.setProperty("target", gestureTarget, nullptr);
+        gestureTree.setProperty("bins", juce::String(gesture.serialize()), nullptr);
+    }
+    juce::ValueTree evolutionTree(evolutionTreeType);
+    {
+        const std::lock_guard<std::mutex> lock(modelMutex);
+        evolutionTree.setProperty("enabled", evolutionOn, nullptr);
+        evolutionTree.setProperty("scene", static_cast<int>(evolutionScene), nullptr);
+        evolutionTree.setProperty("every", evolutionEvery, nullptr);
+        evolutionTree.setProperty("distance", static_cast<double>(evolutionSettings.distance), nullptr);
+        evolutionTree.setProperty("style", static_cast<int>(evolutionSettings.style), nullptr);
+    }
+    for (const char* type : {gestureTreeType, evolutionTreeType})
+        state.removeChild(state.getChildWithName(type), nullptr);
+    state.appendChild(gestureTree, nullptr);
+    state.appendChild(evolutionTree, nullptr);
     if (const auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -1061,6 +1210,20 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
         sceneText = sceneTree.getProperty(sceneDataProperty).toString().toStdString();
         restoredState.removeChild(sceneTree, nullptr);
     }
+    // Gesture and evolution are optional (absent in older projects) and parsed defensively.
+    const auto gestureTree = restoredState.getChildWithName(gestureTreeType);
+    const auto evolutionTree = restoredState.getChildWithName(evolutionTreeType);
+    const juce::String gestureBins = gestureTree.isValid() ? gestureTree.getProperty("bins").toString() : juce::String();
+    const int gestureTargetRestored = gestureTree.isValid() ? static_cast<int>(gestureTree.getProperty("target", 0)) : 0;
+    const bool evolutionRestored = evolutionTree.isValid();
+    const bool evolutionEnabled = evolutionRestored && static_cast<bool>(evolutionTree.getProperty("enabled", false));
+    const int evolutionSceneRestored = evolutionRestored ? static_cast<int>(evolutionTree.getProperty("scene", 0)) : 0;
+    const int evolutionEveryRestored = evolutionRestored ? static_cast<int>(evolutionTree.getProperty("every", 1)) : 1;
+    const double evolutionDistance = evolutionRestored ? static_cast<double>(evolutionTree.getProperty("distance", 0.3)) : 0.3;
+    const int evolutionStyle = evolutionRestored ? static_cast<int>(evolutionTree.getProperty("style", 0)) : 0;
+    for (const char* type : {gestureTreeType, evolutionTreeType})
+        if (const auto child = restoredState.getChildWithName(type); child.isValid())
+            restoredState.removeChild(child, nullptr);
     // Pre-selector projects always used Automatic. Restore that behavior even
     // when an older preset is loaded into an instance currently using Sample Clock.
     if (!restoredState.getChildWithProperty("id", timingModeId).isValid())
@@ -1091,6 +1254,17 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
         lastLoadReport = std::move(result.report);
         publishSceneLocked();
     }
+    {
+        const std::lock_guard<std::mutex> lock(gestureMutex);
+        gesture.clear();
+        gestureRecording = gesturePlaying = false;
+        gestureTarget = juce::jlimit(0, 2, gestureTargetRestored);
+        const auto text = gestureBins.toStdString();
+        gesture.deserialize(text);
+    }
+    setEvolution(evolutionEnabled, static_cast<std::size_t>(juce::jmax(0, evolutionSceneRestored)),
+                 evolutionEveryRestored, std::isfinite(evolutionDistance) ? static_cast<float>(juce::jlimit(0.0, 1.0, evolutionDistance)) : 0.3f,
+                 evolutionStyle, 0x47524F4F56ull);
     activeVariation.store(active, std::memory_order_relaxed);
     queuedVariation.store(-1, std::memory_order_relaxed);
     samplesUntilSwitch.store(-1, std::memory_order_relaxed);
@@ -1163,6 +1337,7 @@ juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, i
 
 void GrooveMorphAudioProcessor::setGestureTarget(int target)
 {
+    const std::lock_guard<std::mutex> lock(gestureMutex);
     target = juce::jlimit(0, 2, target);
     if (target != gestureTarget)
     {
@@ -1181,6 +1356,7 @@ GrooveMorphAudioProcessor::EvolutionSettings GrooveMorphAudioProcessor::getEvolu
 
 void GrooveMorphAudioProcessor::setGestureRecording(bool record)
 {
+    const std::lock_guard<std::mutex> lock(gestureMutex);
     gestureRecording = record;
     if (record)
         gesturePlaying = false;
@@ -1188,6 +1364,7 @@ void GrooveMorphAudioProcessor::setGestureRecording(bool record)
 
 void GrooveMorphAudioProcessor::setGesturePlaying(bool play)
 {
+    const std::lock_guard<std::mutex> lock(gestureMutex);
     gesturePlaying = play && gesture.hasData();
     if (gesturePlaying)
         gestureRecording = false;
@@ -1195,23 +1372,33 @@ void GrooveMorphAudioProcessor::setGesturePlaying(bool play)
 
 void GrooveMorphAudioProcessor::clearGesture()
 {
+    const std::lock_guard<std::mutex> lock(gestureMutex);
     gesture.clear();
     gestureRecording = gesturePlaying = false;
 }
 
 void GrooveMorphAudioProcessor::updateGesture()
 {
-    if ((!gestureRecording && !gesturePlaying) || !transportPlaying.load(std::memory_order_relaxed))
-        return;
-    static constexpr const char* ids[] = {morphAmountId, masterIntensityId, dryWetId};
-    auto* parameter = parameters.getParameter(ids[gestureTarget]);
-    if (parameter == nullptr)
-        return;
-    const double fraction = phraseFractionStatus.load(std::memory_order_relaxed);
-    if (gestureRecording)
-        gesture.record(fraction, parameter->getValue());
-    else if (const float value = gesture.sample(fraction); value >= 0.0f)
-        parameter->setValueNotifyingHost(value);
+    float playbackValue = -1.0f;
+    juce::RangedAudioParameter* target = nullptr;
+    {
+        const std::lock_guard<std::mutex> lock(gestureMutex);
+        if ((!gestureRecording && !gesturePlaying) || !transportPlaying.load(std::memory_order_relaxed))
+            return;
+        static constexpr const char* ids[] = {morphAmountId, masterIntensityId, dryWetId};
+        target = parameters.getParameter(ids[gestureTarget]);
+        if (target == nullptr)
+            return;
+        const double fraction = phraseFractionStatus.load(std::memory_order_relaxed);
+        if (gestureRecording)
+            gesture.record(fraction, target->getValue());
+        else
+            playbackValue = gesture.sample(fraction);
+    }
+    // The host is called without holding gestureMutex (a host may save state from this notification).
+    // Playback is a stream of plugin-driven values, not a user touch, so it is not a change gesture.
+    if (playbackValue >= 0.0f)
+        target->setValueNotifyingHost(playbackValue);
 }
 
 void GrooveMorphAudioProcessor::setEvolution(bool enabled, std::size_t scene, int everyPhrases, float distance,

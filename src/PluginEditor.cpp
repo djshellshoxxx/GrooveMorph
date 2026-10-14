@@ -187,6 +187,15 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     inspector = std::make_unique<groovemorph::ui::InspectorPanel>(audioProcessor, std::move(access));
     addAndMakeVisible(*inspector);
     refreshSceneControls();
+    // Small displays (e.g. 1024x768): shrink the whole editor to fit instead of cropping it.
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+    {
+        const auto area = display->userArea;
+        const float fit = juce::jmin(1.0f, static_cast<float>(area.getWidth() - 40) / 1290.0f,
+                                     static_cast<float>(area.getHeight() - 100) / 740.0f);
+        if (fit < 1.0f && fit > 0.0f)
+            setScaleFactor(juce::jmax(0.5f, fit));
+    }
     setResizable(true, true);
     setResizeLimits(1230, 700, 1900, 1100);
     setSize(1290, 740);
@@ -227,7 +236,7 @@ void GrooveMorphAudioProcessorEditor::applySceneSettings(groovemorph::core::Vari
     // C03: locked fields are kept at their stored values for manual edits too. The lock
     // configuration being edited is kept; the locks in effect are those of the stored scene.
     const auto stored = audioProcessor.getSceneBank().variation(editingIndex).settings;
-    if (groovemorph::core::control::enforcePermissions(stored, settings, true) > 0)
+    if (groovemorph::core::control::enforcePermissions(stored, settings, true, audioProcessor.getGridContext().phraseTicks()) > 0)
         lockNoticeUntil = juce::Time::getMillisecondCounter() + 3000;
     editedVariation.settings = settings;
     if (audioProcessor.isAuditioning()) audioProcessor.setAuditionEdit(editedVariation);
@@ -240,7 +249,7 @@ void GrooveMorphAudioProcessorEditor::previewCandidate(const groovemorph::core::
     // Generated or recalled candidates still honour the locks that are in force now.
     auto settings = candidateSettings;
     const auto stored = audioProcessor.getSceneBank().variation(editingIndex).settings;
-    if (groovemorph::core::control::enforcePermissions(stored, settings, true) > 0)
+    if (groovemorph::core::control::enforcePermissions(stored, settings, true, audioProcessor.getGridContext().phraseTicks()) > 0)
         lockNoticeUntil = juce::Time::getMillisecondCounter() + 3000;
     if (!audioProcessor.isAuditioning())
     {
