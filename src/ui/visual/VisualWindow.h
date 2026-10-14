@@ -23,7 +23,8 @@ namespace groovemorph::ui::visual
 class VisualContent final : public juce::Component, private juce::Timer
 {
 public:
-    explicit VisualContent(GrooveMorphAudioProcessor& processor);
+    // persistPreferences: remember Reduce motion and the time span across sessions (off in tests and tools).
+    explicit VisualContent(GrooveMorphAudioProcessor& processor, bool persistPreferences = false);
     ~VisualContent() override;
 
     // Starts/stops the 30 Hz refresh and the trace ring (no tracing cost while inactive).
@@ -34,9 +35,18 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    bool keyPressed(const juce::KeyPress&) override;
+    void copyLedgerToClipboard();
+    void setReduceMotion(bool on);
+    [[nodiscard]] bool reduceMotion() const noexcept { return reduceMotionOn; }
+    void setSpanBeats(double beats);
+    [[nodiscard]] double spanBeats() const noexcept { return viewSpan; }
+    std::function<void()> onEscape;
 
 private:
     void timerCallback() override { refresh(); }
+    void savePreferences();
+    int refreshRate() const noexcept { return reduceMotionOn ? 10 : 30; }
 
     GrooveMorphAudioProcessor& processor;
     WeaveView weaveView;
@@ -45,6 +55,14 @@ private:
     StationsView stationsView;
     groovemorph::core::viz::LapRecorder lapRecorder;
     int lastPhraseBeats = 0;
+    juce::TextButton copyButton{"Copy as text"};
+    juce::ToggleButton reduceMotionButton{"Reduce motion"};
+    juce::Label spanLabel;
+    juce::ComboBox spanBox;
+    std::unique_ptr<juce::PropertiesFile> preferences;
+    bool reduceMotionOn = false;
+    double viewSpan = 4.0;
+    bool loadingPreferences = false;
     SceneOrbitView orbitView;
     std::vector<groovemorph::core::trace::TraceFrame> frameBuffer;
     groovemorph::core::scene::SceneBank cachedBank;

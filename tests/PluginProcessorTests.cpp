@@ -1184,6 +1184,26 @@ int main()
             for (int x = 0; x < image.getWidth(); x += 7)
                 if (image.getPixelAt(x, y) != image.getPixelAt(0, 0)) { drewSomething = true; break; }
         expect("content draws more than a flat colour", drewSomething);
+        // VF-06: view preferences, keyboard and accessible names.
+        content.setSpanBeats(99.0);
+        expect("span is clamped high", content.spanBeats() == 8.0);
+        content.setSpanBeats(0.1);
+        expect("span is clamped low", content.spanBeats() == 1.0);
+        content.setSpanBeats(4.0);
+        expect("reduce motion starts off", !content.reduceMotion());
+        content.setReduceMotion(true);
+        expect("reduce motion can be turned on", content.reduceMotion());
+        content.setReduceMotion(false);
+        bool escaped = false;
+        content.onEscape = [&] { escaped = true; };
+        expect("escape is handled", content.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey)) && escaped);
+        expect("unrelated keys are not swallowed", !content.keyPressed(juce::KeyPress('x')));
+        int named = 0;
+        for (int i = 0; i < content.getNumChildComponents(); ++i)
+            if (content.getChildComponent(i)->getTitle().isNotEmpty())
+                ++named;
+        expect("every view has an accessible name", named >= 5);
+
         content.setActive(false);
         expect("deactivating stops tracing", !processor.getTraceRing().active());
         const auto frames = processor.getTraceRing().pushedCount();

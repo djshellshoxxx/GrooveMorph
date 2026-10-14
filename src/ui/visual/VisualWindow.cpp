@@ -20,14 +20,45 @@ namespace trace = groovemorph::core::trace;
 namespace
 {
 constexpr std::size_t maxFrames = 4096; // about 11 s at 48 kHz: covers the view, its lead and the 4 s history
-constexpr double viewSpanBeats = 4.0;
 constexpr double viewLeadBeats = 2.0;
 constexpr double inkFrontPosition = 0.62; // fraction of the heard row to the left of "now"
 } // namespace
 
-VisualContent::VisualContent(GrooveMorphAudioProcessor& p) : processor(p), frameBuffer(maxFrames)
+VisualContent::VisualContent(GrooveMorphAudioProcessor& p, bool persistPreferences) : processor(p), frameBuffer(maxFrames)
 {
     setTitle("GrooveMorph visual feedback");
+    setWantsKeyboardFocus(true);
+    if (persistPreferences)
+    {
+        juce::PropertiesFile::Options options;
+        options.applicationName = "GrooveMorph";
+        options.filenameSuffix = ".settings";
+        options.folderName = "GrooveMorph";
+        options.osxLibrarySubFolder = "Application Support";
+        options.commonToAllUsers = false;
+        options.storageFormat = juce::PropertiesFile::storeAsXML;
+        preferences = std::make_unique<juce::PropertiesFile>(options);
+        reduceMotionOn = preferences->getBoolValue("visual.reduceMotion", false);
+        viewSpan = juce::jlimit(1.0, 8.0, preferences->getDoubleValue("visual.spanBeats", 4.0));
+    }
+    copyButton.setTooltip("Copies every number in the Change Ledger as plain text (shortcut: C), for bug reports or notes.");
+    copyButton.onClick = [this] { copyLedgerToClipboard(); };
+    addAndMakeVisible(copyButton);
+    reduceMotionButton.setTooltip("Refreshes the picture 10 times a second instead of 30. Nothing is animated beyond data updates.");
+    reduceMotionButton.setToggleState(reduceMotionOn, juce::dontSendNotification);
+    reduceMotionButton.onClick = [this] { setReduceMotion(reduceMotionButton.getToggleState()); };
+    addAndMakeVisible(reduceMotionButton);
+    spanLabel.setText("Span", juce::dontSendNotification);
+    spanLabel.setColour(juce::Label::textColourId, palette::dim);
+    spanLabel.setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(spanLabel);
+    spanBox.addItem("2 beats", 2);
+    spanBox.addItem("4 beats", 4);
+    spanBox.addItem("8 beats", 8);
+    spanBox.setSelectedId(static_cast<int>(std::lround(viewSpan)) == 2 ? 2 : static_cast<int>(std::lround(viewSpan)) == 8 ? 8 : 4, juce::dontSendNotification);
+    spanBox.setTooltip("How many beats the Warp Weave shows from left to right.");
+    spanBox.onChange = [this] { setSpanBeats(static_cast<double>(spanBox.getSelectedId())); };
+    addAndMakeVisible(spanBox);
     addAndMakeVisible(weaveView);
     addAndMakeVisible(ledgerView);
     addAndMakeVisible(ringsView);
@@ -48,7 +79,7 @@ void VisualContent::setActive(bool on)
     processor.getTraceRing().setActive(on);
     if (on)
     {
-        startTimerHz(30);
+        startTimerHz(refreshRate());
         refresh();
     }
     else
@@ -62,9 +93,62 @@ void VisualContent::paint(juce::Graphics& g)
     g.fillAll(palette::slate);
 }
 
+void VisualContent::copyLedgerToClipboard()
+{
+    juce::SystemClipboard::copyTextToClipboard(ledgerText());
+}
+
+void VisualContent::setReduceMotion(bool on)
+{
+    reduceMotionOn = on;
+    reduceMotionButton.setToggleState(on, juce::dontSendNotification);
+    if (active)
+        startTimerHz(refreshRate());
+    savePreferences();
+}
+
+void VisualContent::setSpanBeats(double beats)
+{
+    viewSpan = juce::jlimit(1.0, 8.0, beats);
+    savePreferences();
+}
+
+void VisualContent::savePreferences()
+{
+    if (preferences == nullptr)
+        return;
+    preferences->setValue("visual.reduceMotion", reduceMotionOn);
+    preferences->setValue("visual.spanBeats", viewSpan);
+    preferences->saveIfNeeded();
+}
+
+bool VisualContent::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress('c') || key == juce::KeyPress('C'))
+    {
+        copyLedgerToClipboard();
+        return true;
+    }
+    if (key == juce::KeyPress::escapeKey && onEscape)
+    {
+        onEscape();
+        return true;
+    }
+    return false;
+}
+
 void VisualContent::resized()
 {
     auto area = getLocalBounds().reduced(14);
+    {
+        auto bar = area.removeFromTop(28);
+        copyButton.setBounds(bar.removeFromLeft(110));
+        bar.removeFromLeft(10);
+        reduceMotionButton.setBounds(bar.removeFromLeft(130));
+        spanBox.setBounds(bar.removeFromRight(100));
+        spanLabel.setBounds(bar.removeFromRight(60));
+        area.removeFromTop(10);
+    }
     const int ledgerWidth = juce::jlimit(250, 300, area.getWidth() / 4);
     ledgerView.setBounds(area.removeFromRight(ledgerWidth));
     area.removeFromRight(12);
@@ -128,7 +212,7 @@ void VisualContent::refresh()
     data.bannerText = bannerText;
     const int threads = juce::jlimit(48, 256, weaveView.getWidth() / 5);
     viz::WeaveParams params;
-    params.spanBeats = viewSpanBeats;
+    params.spanBeats = viewSpan;
     params.leadBeats = viewLeadBeats;
     params.threads = threads;
     if (timed)
@@ -291,7 +375,8 @@ VisualWindow::VisualWindow(GrooveMorphAudioProcessor& processor, std::function<v
     : juce::DocumentWindow("GrooveMorph Visual", palette::slate, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
       onCloseRequested(std::move(onClose))
 {
-    contentComponent = new VisualContent(processor);
+    contentComponent = new VisualContent(processor, true);
+    contentComponent->onEscape = [this] { closeButtonPressed(); };
     setContentOwned(contentComponent, false);
     setUsingNativeTitleBar(true);
     setResizable(true, true);
@@ -309,6 +394,7 @@ void VisualWindow::open()
     setVisible(true);
     toFront(false);
     contentComponent->setActive(true);
+    contentComponent->grabKeyboardFocus();
 }
 
 void VisualWindow::close()

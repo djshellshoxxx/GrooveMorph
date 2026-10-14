@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 
+#include "core/viz/Palette.h"
 #include "core/viz/WeaveLayout.h"
 
 // Shared palette for the Visual window (docs/visual-feedback/SPEC.md section 11). Effect colours are
@@ -10,13 +11,14 @@ namespace groovemorph::ui::visual
 {
 namespace palette
 {
-inline const juce::Colour slate{0xff15171d};
-inline const juce::Colour panel{0xff1c1f27};
-inline const juce::Colour line{0xff2c303b};
-inline const juce::Colour ink{0xffece6d6};
-inline const juce::Colour dim{0xff8b90a0};
-inline const juce::Colour hatch{0xff4a4f5e};
-inline const juce::Colour warning{0xffe69f00};
+namespace shared = groovemorph::core::viz::palette;
+inline const juce::Colour slate{shared::slate};
+inline const juce::Colour panel{shared::panel};
+inline const juce::Colour line{shared::line};
+inline const juce::Colour ink{shared::ink};
+inline const juce::Colour dim{shared::dim};
+inline const juce::Colour hatch{shared::hatch};
+inline const juce::Colour warning{shared::warning};
 } // namespace palette
 
 inline juce::Colour effectColour(groovemorph::core::viz::Effect e)
@@ -24,14 +26,14 @@ inline juce::Colour effectColour(groovemorph::core::viz::Effect e)
     using E = groovemorph::core::viz::Effect;
     switch (e)
     {
-        case E::Repeat: return juce::Colour(0xff56b4e9);
-        case E::Reverse: return juce::Colour(0xffe69f00);
-        case E::Gate: return juce::Colour(0xffcc79a7);
-        case E::HalfTime: return juce::Colour(0xff009e73);
-        case E::TapeStop: return juce::Colour(0xfff0e442);
+        case E::Repeat: return juce::Colour(palette::shared::repeat);
+        case E::Reverse: return juce::Colour(palette::shared::reverse);
+        case E::Gate: return juce::Colour(palette::shared::gate);
+        case E::HalfTime: return juce::Colour(palette::shared::halfTime);
+        case E::TapeStop: return juce::Colour(palette::shared::tapeStop);
         case E::Live: break;
     }
-    return juce::Colour(0xffb9b4a6);
+    return juce::Colour(palette::shared::live);
 }
 
 inline const char* effectName(groovemorph::core::viz::Effect e)
