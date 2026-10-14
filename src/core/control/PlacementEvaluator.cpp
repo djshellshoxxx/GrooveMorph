@@ -28,11 +28,12 @@ double distanceTo(double phase, double b, double ring) noexcept
 bool isActive(const SceneControl& c) noexcept
 {
     return c.placement.enabled || c.lane.explicitEvents || c.placement.downbeatProtectBeats > 0.0f
+           || c.placement.regionCount > 0
            || (c.activity.enabled && c.activity.maxConcurrent < laneCount);
 }
 
 Targets evaluate(const SceneControl& c, const GridContext& grid, double positionBeats,
-                 std::uint32_t enabledMask) noexcept
+                 std::uint32_t enabledMask, double globalBeats) noexcept
 {
     Targets t;
     t.active.fill(true);
@@ -46,9 +47,14 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
     const double barTicks = static_cast<double>(grid.beatsPerBar) * ticksPerBeat;
     const double pos = positionBeats * ticksPerBeat;
     const double q = pos - static_cast<double>(c.placement.originTicks);
-    const double phraseIndex = std::floor(q / P);
+    const bool hasGlobal = std::isfinite(globalBeats);
+    const double globalPos = hasGlobal ? globalBeats * ticksPerBeat : pos;
+    const double globalQ = globalPos - static_cast<double>(c.placement.originTicks);
+    const double phraseIndex = std::floor(globalQ / P);
     const double phase = positiveMod(q, P);
     double until = distanceTo(phase, 0.0, P); // phrase boundary always limits the span
+    if (hasGlobal)
+        until = std::min(until, distanceTo(positiveMod(globalQ, P), 0.0, P)); // cadence changes here
 
     bool windowOpen = true;
     if (c.placement.enabled)
@@ -121,11 +127,24 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
     {
         const double protect = std::min(barTicks,
             static_cast<double>(c.placement.downbeatProtectBeats) * ticksPerBeat);
-        const double barPhase = positiveMod(pos, barTicks);
+        const double barPhase = positiveMod(globalPos, barTicks); // bar starts are audible downbeats
         if (barPhase < protect)
             on.fill(false);
         until = std::min(until, distanceTo(barPhase, protect, barTicks));
         until = std::min(until, distanceTo(barPhase, 0.0, barTicks));
+    }
+
+    for (std::size_t i = 0; i < c.placement.regionCount && i < maxProtectedRegions; ++i)
+    {
+        const auto& r = c.placement.regions[i];
+        if (r.lengthTicks < 1)
+            continue;
+        const double length = std::min(static_cast<double>(r.lengthTicks), P);
+        const double start = std::fmod(static_cast<double>(r.startTicks), P);
+        if (positiveMod(phase - start, P) < length)
+            on.fill(false);
+        until = std::min(until, distanceTo(phase, start, P));
+        until = std::min(until, distanceTo(phase, start + length, P));
     }
 
     if (c.activity.enabled && c.activity.maxConcurrent < laneCount)

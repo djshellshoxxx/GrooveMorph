@@ -335,6 +335,49 @@ int main()
         processor.setPlayHead(nullptr);
     }
 
+    // C04: the destination scene's phase policy sets the pattern shift at the switch frame.
+    {
+        GrooveMorphAudioProcessor processor;
+        setParameter(processor, "phraseBars", 4.0f);
+        processor.prepareToPlay(48000.0, 512);
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        setParameter(processor, "transitionMode", 0.0f); // Immediate
+        auto restartScene = processor.getSceneBank().variation(1).settings;
+        restartScene.control.phase.policy = groovemorph::core::control::PhasePolicy::Restart;
+        processor.setVariationSettings(1, restartScene);
+        std::int64_t sample = 30000; // global meter-beat position 1.25
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        expect("preserve scene keeps the transport phase", processor.getPhaseShiftBeats() == 0.0);
+        processor.requestVariation(1);
+        sample += 512;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        const double beat = static_cast<double>(sample) / 24000.0;
+        const double local = std::fmod(beat + processor.getPhaseShiftBeats(), 16.0);
+        expect("restart scene starts its pattern at phrase beat 0", processor.getActiveVariation() == 1
+                                                                       && (local < 1e-6 || 16.0 - local < 1e-6));
+        processor.requestVariation(0);
+        sample += 512;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        expect("switching back to a preserve scene returns to the transport phase", processor.getPhaseShiftBeats() == 0.0);
+        processor.restartActiveScene();
+        sample += 512;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        const double beat2 = static_cast<double>(sample) / 24000.0;
+        const double local2 = std::fmod(beat2 + processor.getPhaseShiftBeats(), 16.0);
+        expect("restart command restarts the active scene", processor.getActiveVariation() == 0
+                                                                && (local2 < 1e-6 || 16.0 - local2 < 1e-6));
+        sample += 100000; // a seek returns to the transport's own phase
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        expect("a seek cancels the phase shift", processor.getPhaseShiftBeats() == 0.0);
+        processor.setPlayHead(nullptr);
+    }
+
     // GM-FR-008: MIDI note-ons switch at their sample position or queue.
     {
         GrooveMorphAudioProcessor processor;

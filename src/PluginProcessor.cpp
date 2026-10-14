@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 
+#include <limits>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -330,6 +331,23 @@ core::VariationSettings GrooveMorphAudioProcessor::effectiveSettings(std::size_t
                                 morphWeight);
 }
 
+void GrooveMorphAudioProcessor::applyScenePhase(const std::optional<core::ResolvedTiming>& blockTiming,
+                                                int sampleInBlock,
+                                                const core::control::PhaseConfig& config) noexcept
+{
+    if (!blockTiming)
+        return;
+    auto t = *blockTiming;
+    t.currentSample += sampleInBlock;
+    if (t.ppqPosition)
+        *t.ppqPosition += static_cast<double>(sampleInBlock) * t.grid.tempoBpm / (60.0 * t.sampleRate);
+    core::control::GridContext grid;
+    grid.beatsPerBar = t.grid.meterNumerator;
+    grid.phraseBars = t.grid.phraseBars;
+    const double position = t.positionInBeats();
+    phaseShiftBeats = std::isfinite(position) ? core::control::resolvePhaseShift(config, position, grid) : 0.0;
+}
+
 void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, int numChannels,
                                               int start, int length,
                                               const std::optional<core::ResolvedTiming>& blockTiming,
@@ -353,6 +371,7 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
 
         core::RhythmTiming rhythm;
         core::control::GridContext gridContext;
+        double globalBeat = std::numeric_limits<double>::quiet_NaN();
         if (blockTiming)
         {
             auto t = *blockTiming;
@@ -361,7 +380,8 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
                 *t.ppqPosition += static_cast<double>(offset)
                     * t.grid.tempoBpm / (60.0 * t.sampleRate);
             rhythm.samplesPerBeat = t.samplesPerBeat();
-            rhythm.beatAtBlockStart = t.positionInBeats();
+            globalBeat = t.positionInBeats();
+            rhythm.beatAtBlockStart = globalBeat + phaseShiftBeats; // C04 pattern phase
             rhythm.isPlaying = t.isPlaying
                 && (t.mode != core::TimingMode::HostPpq || t.ppqPosition.has_value());
             gridContext.beatsPerBar = t.grid.meterNumerator;
@@ -377,7 +397,7 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
             && std::isfinite(rhythm.beatAtBlockStart))
         {
             const auto targets = core::control::evaluate(settings.control, gridContext,
-                                                         rhythm.beatAtBlockStart, enabledMask);
+                                                         rhythm.beatAtBlockStart, enabledMask, globalBeat);
             if (targets.gated)
             {
                 gated = settings;
@@ -627,6 +647,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     if (hostDiscontinuity)
     {
         engine.resetHistory();
+        phaseShiftBeats = 0.0; // C04: a seek/loop returns to the transport's own phase
         autoReturn.disarm(); // a seek/loop cancels a transient automatic return
         if (loopCapture.state() == core::LoopCapture::State::Recording)
             loopCapture.abort(); // a recording spanning a seek would not be contiguous audio
@@ -681,6 +702,14 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
             scheduler.request(*back, core::TransitionMode::NextBar);
     }
 
+    if (uiRestart.exchange(false, std::memory_order_acq_rel) && !audioScene.auditioning)
+    {
+        auto restart = effectiveSettings(scheduler.activeVariation()).control.phase;
+        restart.policy = core::control::PhasePolicy::Restart;
+        applyScenePhase(timing, 0, restart);
+        engine.resetHistory(); // a restarted pattern must not replay audio from before the restart
+    }
+
     // Split the block at MIDI events and at the scheduled switch offset.
     auto event = midi.cbegin();
     const auto eventsEnd = midi.cend();
@@ -729,6 +758,8 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
                     autoReturn.disarm();
                 const int offset = static_cast<int>(
                     std::clamp<std::int64_t>(switchEvent.sampleOffset, 0, length - 1));
+                // C04: the destination scene chooses where in its pattern it starts.
+                applyScenePhase(timing, position + offset, effectiveSettings(switchEvent.variation).control.phase);
                 if (offset > 0)
                     renderSegment(buffer, numChannels, position, offset, timing, before, wetAmount, bypassTarget);
                 lastSwitchSample.store(segmentTiming.currentSample + offset, std::memory_order_relaxed);
@@ -753,6 +784,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
 
     autoReturnTargetStatus.store(autoReturn.armed() ? static_cast<int>(*autoReturn.target()) : -1,
                                  std::memory_order_relaxed);
+    phaseShiftStatus.store(phaseShiftBeats, std::memory_order_relaxed);
     activeVariation.store(scheduler.activeVariation(), std::memory_order_relaxed);
     const auto queued = scheduler.queuedVariation();
     queuedVariation.store(queued ? static_cast<int>(*queued) : -1, std::memory_order_relaxed);

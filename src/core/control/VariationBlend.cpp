@@ -90,18 +90,26 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
         if ((locks & lock::slice) != 0 && c.sliceBeats != s.sliceBeats) { c.sliceBeats = s.sliceBeats; ++restored; }
     }
     // Events lock: lane events of a locked operation are restored from the source.
+    // Per-event locks (LaneEvent::locked) protect single events regardless of the operation lock.
+    const auto isLocked = [&perms](const LaneEvent& e) {
+        return e.locked || (perms.operationLocks[e.operation % laneCount] & lock::events) != 0;
+    };
     bool eventsLocked = false;
     for (auto l : perms.operationLocks)
         eventsLocked = eventsLocked || (l & lock::events) != 0;
+    for (std::size_t k = 0; k < source.control.lane.count && k < maxLaneEvents && !eventsLocked; ++k)
+        eventsLocked = source.control.lane.events[k].locked;
+    for (std::size_t k = 0; k < candidate.control.lane.count && k < maxLaneEvents && !eventsLocked; ++k)
+        eventsLocked = candidate.control.lane.events[k].locked;
     // Only touch the lane when a locked operation's events actually differ (order-insensitive), so
     // unrelated edits neither reorder events nor report a restore.
     bool lockedEventsDiffer = false;
     if (eventsLocked)
     {
-        const auto collect = [&perms](const EventLane& lane, std::array<LaneEvent, maxLaneEvents>& out) {
+        const auto collect = [&isLocked](const EventLane& lane, std::array<LaneEvent, maxLaneEvents>& out) {
             std::size_t n = 0;
             for (std::size_t k = 0; k < lane.count && k < maxLaneEvents; ++k)
-                if ((perms.operationLocks[lane.events[k].operation % laneCount] & lock::events) != 0)
+                if (isLocked(lane.events[k]))
                     out[n++] = lane.events[k];
             return n;
         };
@@ -115,7 +123,8 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
                 found = a[i].operation == b[j].operation && a[i].onsetTicks == b[j].onsetTicks
                         && a[i].durationTicks == b[j].durationTicks && a[i].depth == b[j].depth
                         && a[i].sliceBeats == b[j].sliceBeats && a[i].priority == b[j].priority
-                        && a[i].enabled == b[j].enabled && a[i].restartCycle == b[j].restartCycle;
+                        && a[i].enabled == b[j].enabled && a[i].restartCycle == b[j].restartCycle
+                        && a[i].locked == b[j].locked;
             lockedEventsDiffer = !found;
         }
     }
@@ -124,9 +133,7 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
         EventLane merged;
         merged.loopBeats = candidate.control.lane.loopBeats;
         merged.explicitEvents = source.control.lane.explicitEvents || candidate.control.lane.explicitEvents;
-        const auto locked = [&perms](const LaneEvent& e) {
-            return (perms.operationLocks[e.operation % laneCount] & lock::events) != 0;
-        };
+        const auto locked = isLocked;
         const auto push = [&merged](const LaneEvent& e) {
             if (merged.count < maxLaneEvents)
                 merged.events[merged.count++] = e;

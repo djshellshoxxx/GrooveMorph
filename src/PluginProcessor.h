@@ -4,6 +4,7 @@
 
 #include "core/Scheduler.h"
 #include "core/control/AutoReturn.h"
+#include "core/control/PhaseResolver.h"
 #include "core/control/PlacementEvaluator.h"
 #include "core/control/VariationBlend.h"
 #include "core/TransportResolver.h"
@@ -196,6 +197,10 @@ public:
     void requestVariation(std::size_t index) noexcept;
     void triggerManualSwitch() noexcept { uiTrigger.store(true, std::memory_order_release); }
     void cancelQueuedSwitch() noexcept { uiCancel.store(true, std::memory_order_release); }
+    // C04: restart the active scene's pattern now (transport and variation are unchanged).
+    void restartActiveScene() noexcept { uiRestart.store(true, std::memory_order_release); }
+    // Pattern-phase shift (meter beats) applied since the last switch/restart; 0 = following the transport.
+    double getPhaseShiftBeats() const noexcept { return phaseShiftStatus.load(std::memory_order_relaxed); }
 
     // ---- Scene bank editing (message thread) ----
     groovemorph::core::scene::SceneBank getSceneBank() const;
@@ -257,6 +262,8 @@ private:
     // Audio thread.
     void pullScene() noexcept;
     void handleMidi(const juce::uint8* data, int numBytes, groovemorph::core::TransitionMode mode) noexcept;
+    void applyScenePhase(const std::optional<groovemorph::core::ResolvedTiming>& blockTiming, int sampleInBlock,
+                         const groovemorph::core::control::PhaseConfig& config) noexcept;
     void renderSegment(juce::AudioBuffer<float>& buffer, int numChannels, int start, int length,
                        const std::optional<groovemorph::core::ResolvedTiming>& blockTiming,
                        std::size_t variation, float wetAmount, float bypassTarget) noexcept;
@@ -338,6 +345,9 @@ private:
     std::atomic<int> expectedParamEcho{-1}; // value the message thread wrote to the host param
     std::atomic<bool> uiTrigger{false};
     std::atomic<bool> uiCancel{false};
+    std::atomic<bool> uiRestart{false};
+    std::atomic<double> phaseShiftStatus{0.0};
+    double phaseShiftBeats = 0.0; // audio thread: pattern position = transport position + shift
 
     // Audio -> UI.
     std::atomic<bool> prepared{false};

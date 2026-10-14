@@ -1520,6 +1520,25 @@ public:
         distance.commit = [this] { applyEvolution(); };
         setupLabel(evolveInfo, "");
 
+        setupLabel(phaseTitle, "Scene start phase (edited scene): where its pattern starts when it launches");
+        phasePolicy.addItemList({"Follow the phrase", "Restart at launch", "Snap to next beat"}, 1);
+        phasePolicy.setTooltip("Preserve: the pattern keeps running with the phrase. Restart: the pattern starts from its "
+                               "beginning at launch. Snap: the pattern jumps forward to the next meter beat. The launch "
+                               "time still follows the Transition setting.");
+        phasePolicy.onChange = [this] {
+            edit([this](auto& s) { s.control.phase.policy = static_cast<gm::control::PhasePolicy>(juce::jmax(0, phasePolicy.getSelectedId() - 1)); });
+        };
+        phaseOffset.setup(*this, "Phase offset (beats)", "Added to the pattern start, -4 to +4 meter beats (step 1/16).", -4.0, 4.0, 1.0 / 16.0, 3);
+        phaseOffset.commit = [this] {
+            edit([this](auto& s) { s.control.phase.offsetBeats = static_cast<float>(phaseOffset.slider.getValue()); });
+        };
+        restartScene.setButtonText("Restart scene now");
+        restartScene.setTooltip("Restarts the active scene's pattern now. The transport and the active scene do not change.");
+        restartScene.onClick = [this] { processor.restartActiveScene(); };
+        setupLabel(phaseInfo, "");
+        for (auto* c : std::initializer_list<juce::Component*>{&phaseTitle, &phasePolicy, &restartScene, &phaseInfo})
+            addAndMakeVisible(*c);
+
         for (auto* c : std::initializer_list<juce::Component*>{&transitionLabel, &transition, &trigger, &cancel, &morphLabel, &morphTarget,
                                                                &gestureTitle, &gestureTarget, &record, &play, &clearGesture, &gestureInfo,
                                                                &evolveTitle, &evolveOn, &evolveScene, &evolveStyle, &evolveInfo})
@@ -1533,11 +1552,18 @@ public:
         for (auto& m : macros)
             m.setNumDecimalPlacesToDisplay(2);
     }
-    void refresh(const gm::VariationSettings&) override
+    void refresh(const gm::VariationSettings& settings) override
     {
         const juce::ScopedValueSetter<bool> guard(refreshing, true);
         const auto active = processor.getActiveVariation();
         const auto queued = processor.getQueuedVariation();
+        if (!phasePolicy.isPopupActive())
+            phasePolicy.setSelectedId(static_cast<int>(settings.control.phase.policy) + 1, juce::dontSendNotification);
+        phaseOffset.set(settings.control.phase.offsetBeats);
+        const double shift = processor.getPhaseShiftBeats();
+        phaseInfo.setText(shift == 0.0 ? "Pattern follows the transport."
+                                       : "Pattern is shifted by " + juce::String(shift, 3) + " beats from the transport.",
+                          juce::dontSendNotification);
         for (std::size_t i = 0; i < sceneButtons.size(); ++i)
             sceneButtons[i].setColour(juce::TextButton::buttonColourId,
                                       i == active ? juce::Colour(0xff2e7d32)
@@ -1608,6 +1634,13 @@ public:
         every.layout(nextRow(area), 120);
         distance.layout(nextRow(area), 120);
         evolveInfo.setBounds(nextRow(area));
+        area.removeFromTop(8);
+        phaseTitle.setBounds(nextRow(area));
+        r = nextRow(area);
+        phasePolicy.setBounds(r.removeFromLeft(170));
+        restartScene.setBounds(r.removeFromLeft(150).reduced(4, 0));
+        phaseOffset.layout(nextRow(area), 150);
+        phaseInfo.setBounds(nextRow(area));
     }
 private:
     void applyEvolution()
@@ -1620,7 +1653,10 @@ private:
     }
     bool evolveSynced = false;
     std::array<juce::TextButton, 4> sceneButtons;
-    juce::Label transitionLabel, morphLabel, gestureTitle, gestureInfo, evolveTitle, evolveInfo;
+    juce::Label transitionLabel, morphLabel, gestureTitle, gestureInfo, evolveTitle, evolveInfo, phaseTitle, phaseInfo;
+    juce::ComboBox phasePolicy;
+    juce::TextButton restartScene;
+    SliderRow phaseOffset;
     std::array<juce::Label, 3> macroLabels;
     std::array<juce::Slider, 3> macros;
     juce::ComboBox transition, morphTarget, gestureTarget, evolveScene, evolveStyle;

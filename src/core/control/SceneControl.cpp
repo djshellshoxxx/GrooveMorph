@@ -1,4 +1,5 @@
 #include "core/control/SceneControl.h"
+#include "core/control/PhaseResolver.h"
 
 #include <algorithm>
 #include <cmath>
@@ -19,7 +20,7 @@ bool sameEvent(const LaneEvent& a, const LaneEvent& b) noexcept
     return a.operation == b.operation && a.enabled == b.enabled && a.onsetTicks == b.onsetTicks
            && a.durationTicks == b.durationTicks && a.depth == b.depth
            && a.sliceBeats == b.sliceBeats && a.priority == b.priority
-           && a.restartCycle == b.restartCycle;
+           && a.restartCycle == b.restartCycle && a.locked == b.locked;
 }
 
 bool validEvent(const LaneEvent& e, std::int64_t phraseTicks) noexcept
@@ -32,7 +33,7 @@ bool validEvent(const LaneEvent& e, std::int64_t phraseTicks) noexcept
 }
 } // namespace
 
-bool sanitize(SceneControl& c, std::int32_t) noexcept
+bool sanitize(SceneControl& c, std::int32_t phraseTicksHint) noexcept
 {
     bool changed = false;
     auto& p = c.placement;
@@ -52,6 +53,23 @@ bool sanitize(SceneControl& c, std::int32_t) noexcept
         changed = true;
     }
     changed = clampFloat(p.downbeatProtectBeats, 0.0f, 4.0f, 0.0f) || changed;
+    if (p.regionCount > maxProtectedRegions) { p.regionCount = static_cast<std::uint8_t>(maxProtectedRegions); changed = true; }
+    for (std::size_t i = 0; i < p.regionCount; ++i)
+    {
+        auto& r = p.regions[i];
+        const std::int32_t limit = phraseTicksHint > 0 ? phraseTicksHint : 1966080;
+        if (r.startTicks < 0) { r.startTicks = 0; changed = true; }
+        if (r.startTicks >= limit) { r.startTicks = limit - 1; changed = true; }
+        if (r.lengthTicks < 1) { r.lengthTicks = 1; changed = true; }
+        if (r.lengthTicks > limit) { r.lengthTicks = limit; changed = true; }
+    }
+    for (std::size_t i = p.regionCount; i < maxProtectedRegions; ++i)
+        if (p.regions[i].startTicks != 0 || p.regions[i].lengthTicks != 0)
+        {
+            p.regions[i] = ProtectedRegion{};
+            changed = true;
+        }
+    changed = sanitize(c.phase) || changed;
 
     auto& lane = c.lane;
     if (lane.count > maxLaneEvents) { lane.count = static_cast<std::uint8_t>(maxLaneEvents); changed = true; }
@@ -89,7 +107,12 @@ bool sameControl(const SceneControl& a, const SceneControl& b) noexcept
     if (p.enabled != q.enabled || p.window != q.window || p.startPhase != q.startPhase
         || p.spanPhase != q.spanPhase || p.every != q.every || p.cadenceOffset != q.cadenceOffset
         || p.originTicks != q.originTicks || p.subdivision != q.subdivision
-        || p.downbeatProtectBeats != q.downbeatProtectBeats)
+        || p.downbeatProtectBeats != q.downbeatProtectBeats || p.regionCount != q.regionCount)
+        return false;
+    for (std::size_t i = 0; i < p.regionCount && i < maxProtectedRegions; ++i)
+        if (p.regions[i].startTicks != q.regions[i].startTicks || p.regions[i].lengthTicks != q.regions[i].lengthTicks)
+            return false;
+    if (!samePhase(a.phase, b.phase))
         return false;
     if (a.lane.explicitEvents != b.lane.explicitEvents || a.lane.count != b.lane.count
         || a.lane.loopBeats != b.lane.loopBeats)
