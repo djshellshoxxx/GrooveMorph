@@ -1,10 +1,12 @@
 #include "core/scene/SceneSerializer.h"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
 #include <exception>
 #include <system_error>
+#include <type_traits>
 
 namespace groovemorph::core::scene
 {
@@ -106,6 +108,92 @@ public:
     }
 
 private:
+    // Phrase placement / event lane / permissions / activity keys. All optional: files written
+    // before these keys existed (and by older builds) keep default, inert control state.
+    void applyControl(std::size_t idx, std::string_view fullKey, std::string_view rest,
+                      std::string_view value)
+    {
+        auto settings = result.bank.variation(idx).settings;
+        auto& c = settings.control;
+        long long n = 0;
+        float f = 0.0f;
+        const auto bad = [&] { note("invalid " + std::string(fullKey) + "; default kept"); };
+        const auto asInt = [&](auto& out) {
+            if (!parseNumber(value, n)) { bad(); return false; }
+            out = static_cast<std::remove_reference_t<decltype(out)>>(n);
+            return true;
+        };
+        const auto asFloat = [&](float& out) {
+            if (!parseNumber(value, f)) { bad(); return false; }
+            out = f;
+            return true;
+        };
+        const auto asBool = [&](bool& out) {
+            if (value == "1") out = true;
+            else if (value == "0") out = false;
+            else { bad(); return false; }
+            return true;
+        };
+        bool known = true;
+        if (rest == "placement.enabled") asBool(c.placement.enabled);
+        else if (rest == "placement.window")
+        {
+            if (parseNumber(value, n) && n >= 0 && n <= 2) c.placement.window = static_cast<control::WindowMode>(n);
+            else bad();
+        }
+        else if (rest == "placement.start") asFloat(c.placement.startPhase);
+        else if (rest == "placement.span") asFloat(c.placement.spanPhase);
+        else if (rest == "placement.every") { if (asInt(n)) c.placement.every = static_cast<std::uint8_t>(std::clamp<long long>(n, 1, 64)); }
+        else if (rest == "placement.offset") { if (asInt(n)) c.placement.cadenceOffset = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 63)); }
+        else if (rest == "placement.origin") { if (asInt(n)) c.placement.originTicks = static_cast<std::int32_t>(std::clamp<long long>(n, -1966080, 1966080)); }
+        else if (rest == "placement.subdiv") { if (asInt(n)) c.placement.subdivision = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 255)); }
+        else if (rest == "placement.protect") asFloat(c.placement.downbeatProtectBeats);
+        else if (rest == "lane.explicit") asBool(c.lane.explicitEvents);
+        else if (rest.starts_with("event."))
+        {
+            const auto tail = rest.substr(6);
+            const auto dot = tail.find('.');
+            long long k = -1;
+            if (dot == std::string_view::npos || !parseNumber(tail.substr(0, dot), k) || k < 0
+                || k >= static_cast<long long>(control::maxLaneEvents))
+                return;
+            const auto field = tail.substr(dot + 1);
+            auto& e = c.lane.events[static_cast<std::size_t>(k)];
+            if (c.lane.count <= k)
+                c.lane.count = static_cast<std::uint8_t>(k + 1);
+            if (field == "op") { if (asInt(n)) e.operation = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 255)); }
+            else if (field == "enabled") asBool(e.enabled);
+            else if (field == "onset") { if (asInt(n)) e.onsetTicks = static_cast<std::int32_t>(std::clamp<long long>(n, 0, 1966080)); }
+            else if (field == "duration") { if (asInt(n)) e.durationTicks = static_cast<std::int32_t>(std::clamp<long long>(n, 1, 1966080)); }
+            else if (field == "depth") asFloat(e.depth);
+            else known = false;
+        }
+        else if (rest.starts_with("perm.op."))
+        {
+            std::size_t op = 0;
+            if (!parseIndex(rest.substr(8, 1), op) || op >= operationCount || rest.size() != 9)
+                return;
+            if (asInt(n)) c.permissions.operationLocks[op] = static_cast<std::uint8_t>(n & control::lock::all);
+        }
+        else if (rest == "perm.placement") asBool(c.permissions.placementLocked);
+        else if (rest == "activity.enabled") asBool(c.activity.enabled);
+        else if (rest == "activity.max") { if (asInt(n)) c.activity.maxConcurrent = static_cast<std::uint8_t>(std::clamp<long long>(n, 1, 5)); }
+        else if (rest.starts_with("activity.prio."))
+        {
+            std::size_t op = 0;
+            if (!parseIndex(rest.substr(14, 1), op) || op >= operationCount || rest.size() != 15)
+                return;
+            if (asInt(n)) c.activity.priority[op] = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 100));
+        }
+        else
+            known = false;
+        if (!known)
+            return; // unknown key: ignored for forward compatibility
+        if (control::sanitize(c))
+            note(std::string(fullKey) + " out of range; clamped");
+        result.bank.setVariationSettings(idx, settings);
+    }
+
     void applyVariation(std::string_view fullKey, std::string_view rest, std::string_view value)
     {
         std::size_t idx = 0;
@@ -121,7 +209,10 @@ private:
             return;
         }
         if (!rest.starts_with("op."))
+        {
+            applyControl(idx, fullKey, rest, value);
             return;
+        }
         rest.remove_prefix(3);
         const auto dot = rest.find('.');
         if (dot == std::string_view::npos)
@@ -184,6 +275,44 @@ std::string SceneSerializer::serialize(const SceneBank& bank)
             line(p + "depth", formatFloat(s.depth));
             line(p + "slice", formatFloat(s.sliceBeats));
         }
+    }
+    // Scene control keys are written only when non-default so legacy-equivalent scenes serialize
+    // byte-identically to earlier builds.
+    for (std::size_t i = 0; i < variationCount; ++i)
+    {
+        const auto& c = bank.variation(i).settings.control;
+        if (control::isDefault(c))
+            continue;
+        const std::string prefix = "variation." + std::to_string(i) + ".";
+        const auto& p = c.placement;
+        line(prefix + "placement.enabled", p.enabled ? "1" : "0");
+        line(prefix + "placement.window", std::to_string(static_cast<int>(p.window)));
+        line(prefix + "placement.start", formatFloat(p.startPhase));
+        line(prefix + "placement.span", formatFloat(p.spanPhase));
+        line(prefix + "placement.every", std::to_string(p.every));
+        line(prefix + "placement.offset", std::to_string(p.cadenceOffset));
+        line(prefix + "placement.origin", std::to_string(p.originTicks));
+        line(prefix + "placement.subdiv", std::to_string(p.subdivision));
+        line(prefix + "placement.protect", formatFloat(p.downbeatProtectBeats));
+        line(prefix + "lane.explicit", c.lane.explicitEvents ? "1" : "0");
+        for (std::size_t k = 0; k < c.lane.count; ++k)
+        {
+            const auto& e = c.lane.events[k];
+            const std::string ep = prefix + "event." + std::to_string(k) + ".";
+            line(ep + "op", std::to_string(e.operation));
+            line(ep + "enabled", e.enabled ? "1" : "0");
+            line(ep + "onset", std::to_string(e.onsetTicks));
+            line(ep + "duration", std::to_string(e.durationTicks));
+            line(ep + "depth", formatFloat(e.depth));
+        }
+        for (std::size_t op = 0; op < operationCount; ++op)
+        {
+            line(prefix + "perm.op." + std::to_string(op), std::to_string(c.permissions.operationLocks[op]));
+            line(prefix + "activity.prio." + std::to_string(op), std::to_string(c.activity.priority[op]));
+        }
+        line(prefix + "perm.placement", c.permissions.placementLocked ? "1" : "0");
+        line(prefix + "activity.enabled", c.activity.enabled ? "1" : "0");
+        line(prefix + "activity.max", std::to_string(c.activity.maxConcurrent));
     }
     const auto& map = bank.midiNoteMap();
     for (std::size_t i = 0; i < variationCount; ++i)

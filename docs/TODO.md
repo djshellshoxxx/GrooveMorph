@@ -5,6 +5,15 @@ This ledger reflects runtime behavior, not every proposed feature. The historica
 feature audit examined earlier main `61d5156`; use the new QA ledger for current
 release validation evidence. Check active PRs before claiming ownership.
 
+## Alpha integration (2026-10-14)
+
+Windows Standalone alpha work: see [alpha feature status](alpha/ALPHA-FEATURE-STATUS.md),
+[known issues](alpha/KNOWN-ISSUES.md) and [test results](alpha/TEST-RESULTS.md). Delivered subsets:
+A01/C01 placement + event lanes, A02 host Variation sync, A03/C02/C03 generator with locks, A04 scene tools,
+C05 auto-return, C06 activity limits, F02 morph, F03 downbeat protection, F08 session history, demo loop,
+Standalone free-run clock fix. Still open: C04, per-event phase, LF protection and F04-F07, F09-F12; native
+host/device QA (issue #19).
+
 ## Completed
 
 - [x] Reconcile Claude DSP/scenes/state with Codex PPQ calculations using one Scheduler.

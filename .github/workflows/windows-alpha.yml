@@ -1,0 +1,155 @@
+name: Windows Standalone alpha
+
+# Builds the Windows x64 Standalone from the checked-out revision, runs the portable core and
+# processor tests, performs a startup smoke test (plus a best-effort desktop screenshot), packages a
+# ZIP with documentation, manifest and SHA-256 sums, and uploads it as an Actions artifact.
+# A GitHub *pre-release* is created only on manual dispatch with publish=true, or when a pushed
+# commit message contains [publish-alpha].
+
+on:
+  push:
+    branches:
+      - 'claude/**'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a GitHub pre-release with the ZIP attached'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 80
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: meta
+        shell: pwsh
+        run: |
+          $version = "0.1.0-alpha.${{ github.run_number }}"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+
+      - name: Build Standalone and tests
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Run tests
+        id: tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build --build-config Release --output-on-failure 2>&1 | Tee-Object -FilePath ctest.log
+          if ($LASTEXITCODE -ne 0) { throw "ctest failed" }
+
+      - name: Startup smoke test and screenshot (best effort)
+        id: smoke
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'build/GrooveMorphPlugin_artefacts/Release/Standalone/GrooveMorph.exe'
+          if (-not (Test-Path $exe)) { throw "Standalone executable not found: $exe" }
+          $process = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 8
+          $process.Refresh()
+          if ($process.HasExited) { throw "Standalone exited during startup with code $($process.ExitCode)" }
+          "startup=alive after 8 s" >> $env:GITHUB_OUTPUT
+          try {
+            Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $bitmap.Save((Join-Path $PWD 'windows-desktop-screenshot.png'))
+            "screenshot=captured" >> $env:GITHUB_OUTPUT
+          } catch {
+            "screenshot=unavailable: $($_.Exception.Message)" >> $env:GITHUB_OUTPUT
+          }
+          Stop-Process -Id $process.Id -Force
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "GrooveMorph-$env:VERSION-win-x64-standalone"
+          $stage = Join-Path $PWD $name
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item build/GrooveMorphPlugin_artefacts/Release/Standalone/GrooveMorph.exe $stage
+          foreach ($doc in 'ALPHA-FEATURE-STATUS.md','KNOWN-ISSUES.md','USER-TEST-GUIDE.md','TEST-RESULTS.md') {
+            Copy-Item "docs/alpha/$doc" $stage
+          }
+          Copy-Item ctest.log (Join-Path $stage 'ctest-windows.log')
+          if (Test-Path windows-desktop-screenshot.png) { Copy-Item windows-desktop-screenshot.png $stage }
+          $sha = (Get-FileHash (Join-Path $stage 'GrooveMorph.exe') -Algorithm SHA256).Hash.ToLower()
+          @"
+          GrooveMorph $env:VERSION - Windows x64 Standalone ALPHA (exploratory, not a beta or release)
+
+          1. Unzip anywhere and run GrooveMorph.exe (no installer; the JUCE runtime is statically linked).
+          2. Open Options > Audio/MIDI Settings and pick an output device (and an input, if you want live input).
+          3. Tick "Demo loop" in the top bar to hear a built-in drum loop without any external audio.
+          4. Follow USER-TEST-GUIDE.md. Read ALPHA-FEATURE-STATUS.md and KNOWN-ISSUES.md first:
+             several advertised-in-spec features are NOT implemented in this alpha.
+          Wear headphones or keep the volume low: this build has had no audio-hardware or listening tests.
+          "@ | Set-Content -Path (Join-Path $stage 'README-ALPHA.txt')
+          @"
+          # Build manifest
+
+          - Version: $env:VERSION
+          - Commit: ${{ github.sha }}
+          - Ref: ${{ github.ref }}
+          - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          - Runner: windows-2022, MSVC, CMake Release, x64
+          - GrooveMorph.exe SHA-256: $sha
+          - ctest (Windows): passed (see ctest-windows.log)
+          - Startup smoke test: ${{ steps.smoke.outputs.startup }}
+          - Desktop screenshot: ${{ steps.smoke.outputs.screenshot }}
+          - Not performed: DAW hosting, audio-device playback, listening tests, installer, code signing.
+          "@ | Set-Content -Path (Join-Path $stage 'BUILD-MANIFEST.md')
+          Compress-Archive -Path $stage -DestinationPath "$name.zip"
+          $zipSha = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$zipSha  $name.zip" | Set-Content "$name.zip.sha256"
+          "ZIP=$name.zip" >> $env:GITHUB_ENV
+
+      - name: Upload alpha artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrooveMorph-Windows-x64-Standalone-Alpha
+          path: |
+            GrooveMorph-*.zip
+            GrooveMorph-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload screenshot (if captured)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-desktop-screenshot
+          path: windows-desktop-screenshot.png
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish) || contains(github.event.head_commit.message, '[publish-alpha]')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: GrooveMorph-Windows-x64-Standalone-Alpha
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v$VERSION" GrooveMorph-*.zip GrooveMorph-*.zip.sha256 \
+            --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --prerelease --title "GrooveMorph $VERSION (Windows x64 Standalone alpha)" \
+            --notes "Exploratory ALPHA, not a beta or stable release. Windows x64 Standalone only. Read ALPHA-FEATURE-STATUS.md and KNOWN-ISSUES.md inside the ZIP. Built from ${{ github.sha }}; no DAW, audio-hardware or listening tests have been performed."

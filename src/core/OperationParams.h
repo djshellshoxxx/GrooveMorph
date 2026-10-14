@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/control/SceneControl.h"
+
 #include <array>
 #include <cstddef>
 
@@ -29,6 +31,8 @@ struct OperationSettings
 struct VariationSettings
 {
     std::array<OperationSettings, operationCount> operations{};
+    // Phrase placement, event lane, permissions and activity limits (default = inert).
+    control::SceneControl control{};
 
     OperationSettings& operator[](OperationType type) noexcept
     {

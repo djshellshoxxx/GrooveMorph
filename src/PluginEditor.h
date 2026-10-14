@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "core/scene/SceneBank.h"
+#include "ui/InspectorPanel.h"
 
 #include <memory>
 #include <vector>
@@ -16,6 +17,7 @@ public:
     ~GrooveMorphAudioProcessorEditor() override;
     void paint(juce::Graphics&) override;
     void resized() override;
+    void showInspectorTab(int index) { if (inspector != nullptr) inspector->showTab(index); }
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
@@ -32,7 +34,9 @@ private:
     juce::Label titleLabel, timingLabel, statusLabel, midiLabel;
     juce::Slider intensitySlider, dryWetSlider, tempoSlider, meterSlider, phraseSlider, midiNoteSlider;
     juce::ComboBox timingMode, transitionMode, denominator, editVariation;
-    juce::ToggleButton bypassButton{"Bypass"}, returnOnNoteOff{"Return on MIDI note-off"};
+    juce::ToggleButton bypassButton{"Bypass"}, returnOnNoteOff{"Return on MIDI note-off"},
+                       demoButton{"Demo loop"};
+    std::unique_ptr<groovemorph::ui::InspectorPanel> inspector;
     std::array<juce::TextButton, 4> variationButtons;
     std::array<OperationRow, groovemorph::core::operationCount> operations;
     juce::TextEditor variationName;
@@ -48,6 +52,10 @@ private:
     groovemorph::core::scene::Variation editedVariation;
     bool refreshing = false, comparingStored = false, draggingMidi = false;
     void timerCallback() override;
+    static constexpr int inspectorWidth = 420;
+    int contentWidth() const noexcept { return getWidth() - inspectorWidth; }
+    void applySceneSettings(const groovemorph::core::VariationSettings& settings);
+    void previewCandidate(const groovemorph::core::VariationSettings& settings);
     void refreshSceneControls();
     void editOperation(std::size_t index);
     void editName();
