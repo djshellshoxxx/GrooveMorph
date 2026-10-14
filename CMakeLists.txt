@@ -60,6 +60,7 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
         src/ui/InspectorPanel.cpp
+        src/ui/ControlMenu.cpp
         src/ui/visual/VisualWindow.cpp
         src/ui/visual/WeaveView.cpp
         src/ui/visual/LedgerView.cpp
