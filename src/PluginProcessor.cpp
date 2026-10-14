@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "core/dsp/LoopImport.h"
 
 #include <limits>
 #include <vector>
@@ -16,6 +17,7 @@ constexpr auto sceneTreeType = "SceneBank";
 constexpr auto sceneDataProperty = "data";
 constexpr auto gestureTreeType = "Gesture";
 constexpr auto evolutionTreeType = "Evolution";
+constexpr auto midiLinkTreeType = "MidiLinks";
 constexpr int meterDenominators[] = {1, 2, 4, 8, 16};
 constexpr int maxProcessedChannels = 2;
 
@@ -23,15 +25,6 @@ float loadParameter(const std::atomic<float>* parameter, float fallback) noexcep
 {
     const auto value = parameter != nullptr ? parameter->load(std::memory_order_relaxed) : fallback;
     return std::isfinite(value) ? value : fallback;
-}
-
-// MIDI CC macros stand in for a user moving a control, so they are bracketed as a change gesture
-// (host automation touch/write modes). Realignment echoes and gesture playback are not.
-void writeParameterAsGesture(juce::RangedAudioParameter& parameter, float normalised)
-{
-    parameter.beginChangeGesture();
-    parameter.setValueNotifyingHost(normalised);
-    parameter.endChangeGesture();
 }
 
 int loadIndex(const std::atomic<float>* parameter, int maxIndex) noexcept
@@ -175,6 +168,7 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     currentSampleRate = sampleRate > 0.0 && std::isfinite(sampleRate) ? sampleRate : 48000.0;
     maxBlock = juce::jmax(1, samplesPerBlock);
     engine.prepare(currentSampleRate, maxBlock, maxProcessedChannels);
+    engine.setTraceSink(&traceRing);
     dryBuffer.setSize(maxProcessedChannels, maxBlock, false, true, false);
     bandBypass.setSize(maxProcessedChannels, maxBlock, false, true, false);
     bandPart.setSize(maxProcessedChannels, maxBlock, false, true, false);
@@ -183,8 +177,14 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
         loopSource.prepare(currentSampleRate);
         loopCapture.prepare(currentSampleRate);
         sampleRateStatus.store(currentSampleRate, std::memory_order_relaxed);
+        // The host may call prepareToPlay again (sample rate or buffer size change): keep the user's loop.
+        if (!republishStoredLoop())
+        {
+            loopSeconds.store(0.0, std::memory_order_relaxed);
+            loopBeatsStatus.store(0.0, std::memory_order_relaxed);
+            loopBpmStatus.store(0.0, std::memory_order_relaxed);
+        }
     }
-    loopSeconds.store(0.0, std::memory_order_relaxed);
     bandLowState.fill(0.0f);
     svfIc1.fill(0.0f);
     svfIc2.fill(0.0f);
@@ -194,6 +194,8 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     for (auto& d : onsetDetectors)
         d.prepare(currentSampleRate);
     freeRunSample = 0;
+    freeRunOrigin = 0;
+    freeRunSamplesPerBeat = 0.0L;
     previousHostSamplePosition.reset();
     previousHostPpqPosition.reset();
     previousHostBlockSamples = 0;
@@ -298,6 +300,8 @@ void GrooveMorphAudioProcessor::handleMidi(const juce::uint8* data, int numBytes
     if (data == nullptr || numBytes < 2)
         return;
     const int status = data[0] & 0xf0;
+    if (status == 0xB0 && numBytes >= 3)
+        ccInbox.push(data[1] & 0x7f, data[2] & 0x7f); // for MIDI links / learn; applied on the message thread
     if (midiMacros.load(std::memory_order_relaxed))
     {
         if (status == 0xC0 && data[1] < core::variationCount) // program change -> scene
@@ -338,7 +342,133 @@ void GrooveMorphAudioProcessor::applyMidiMacros()
     for (std::size_t slot = 0; slot < 3; ++slot)
         if ((dirty & (1u << slot)) != 0)
             if (auto* parameter = parameters.getParameter(ids[slot]))
-                writeParameterAsGesture(*parameter, ccValue[slot].load(std::memory_order_relaxed));
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost(ccValue[slot].load(std::memory_order_relaxed));
+                parameter->endChangeGesture();
+            }
+}
+
+void GrooveMorphAudioProcessor::beginMidiLearn(const juce::String& target)
+{
+    if (!core::MidiLinkTable::validTarget(target.toStdString()))
+        return;
+    ccInbox.discardPending(); // only controller movement from now on counts
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    midiLearnTarget = target;
+}
+
+void GrooveMorphAudioProcessor::cancelMidiLearn()
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    midiLearnTarget = {};
+}
+
+juce::String GrooveMorphAudioProcessor::getMidiLearnTarget() const
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    return midiLearnTarget;
+}
+
+int GrooveMorphAudioProcessor::getMidiLinkCc(const juce::String& target) const
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    return midiLinks.ccFor(target.toStdString());
+}
+
+bool GrooveMorphAudioProcessor::linkMidi(int cc, const juce::String& target)
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    return midiLinks.link(cc, target.toStdString());
+}
+
+void GrooveMorphAudioProcessor::unlinkMidi(const juce::String& target)
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    midiLinks.unlink(target.toStdString());
+}
+
+void GrooveMorphAudioProcessor::clearMidiLinks()
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    midiLinks.clear();
+    midiLearnTarget = {};
+}
+
+void GrooveMorphAudioProcessor::applyMidiLinks()
+{
+    core::CcInbox::Change changes[64];
+    const auto count = ccInbox.collect(changes, 64);
+    if (count == 0)
+        return;
+    std::vector<core::MidiLink> links;
+    {
+        const std::lock_guard<std::mutex> lock(midiLinkMutex);
+        if (midiLearnTarget.isNotEmpty())
+        {
+            // Learn: the first controller that moved is linked to the waiting control and is not applied this time.
+            midiLinks.link(changes[0].cc, midiLearnTarget.toStdString());
+            midiLearnTarget = {};
+            return;
+        }
+        links = midiLinks.links();
+    }
+    for (std::size_t i = 0; i < count; ++i)
+        for (const auto& link : links)
+            if (link.cc == changes[i].cc)
+                applyLinkedValue(link.target, static_cast<float>(changes[i].value) / 127.0f);
+}
+
+void GrooveMorphAudioProcessor::applyLinkedValue(const std::string& target, float normalised)
+{
+    if (target.starts_with("p:"))
+    {
+        if (auto* parameter = parameters.getParameter(juce::String(target.substr(2))))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost(normalised);
+            parameter->endChangeGesture();
+        }
+        return;
+    }
+    if (target.starts_with("s:") && target.size() > 4)
+    {
+        const auto effect = static_cast<std::size_t>(target[2] - '0');
+        if (effect >= core::operationCount)
+            return;
+        const auto field = target.substr(4);
+        const auto sounding = static_cast<std::size_t>(activeVariation.load(std::memory_order_relaxed));
+        auto settings = getSceneBank().variation(std::min(sounding, core::variationCount - 1)).settings.operations[effect];
+        if (field == "depth")
+            settings.depth = normalised;
+        else if (field == "slice")
+            settings.sliceBeats = 0.0625f * std::pow(64.0f, normalised); // 1/16 .. 4 beats, logarithmic
+        else if (field == "enabled")
+            settings.enabled = normalised >= 0.5f;
+        setOperationSettingsLive(std::min(sounding, core::variationCount - 1), static_cast<core::OperationType>(effect), settings);
+    }
+}
+
+void GrooveMorphAudioProcessor::setOperationSettingsLive(std::size_t index, core::OperationType op,
+                                                         const core::OperationSettings& settings)
+{
+    if (index >= core::variationCount || op >= core::OperationType::Count)
+        return;
+    const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return;
+    auto bank = undoStack.current();
+    auto variation = bank.variation(index).settings;
+    const auto locks = variation.control.permissions.operationLocks[static_cast<std::size_t>(op)];
+    const auto before = variation;
+    variation[op] = settings;
+    core::control::enforcePermissions(before, variation, false); // locks apply to controllers too
+    (void) locks;
+    bank.setVariationSettings(index, variation);
+    if (bank == undoStack.current())
+        return;
+    undoStack.amend(bank);
+    publishSceneLocked();
 }
 
 core::VariationSettings GrooveMorphAudioProcessor::effectiveSettings(std::size_t variation) const noexcept
@@ -459,8 +589,16 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
                 loopCapture.process(readOnly.data(), numChannels, n, globalBeat, rhythm.samplesPerBeat, true);
             }
         }
-        else if (loopCapture.state() == core::LoopCapture::State::Recording)
-            loopCapture.abort(); // transport stopped mid-recording
+        else
+        {
+            if (loopCapture.state() == core::LoopCapture::State::Recording)
+                loopCapture.abort(); // transport stopped mid-recording
+            // Demo/loop sources only play with the transport: when stopped they must be silent, not the
+            // live input leaking through while the user believes playback is stopped.
+            if (sourceMode.load(std::memory_order_relaxed) != 0)
+                for (int c = 0; c < numChannels; ++c)
+                    std::fill_n(channels[static_cast<std::size_t>(c)], n, 0.0f);
+        }
 
         if (audioTriggerSel != 0)
         {
@@ -645,7 +783,13 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
             svfA2 = static_cast<float>(g * a1);
             svfA3 = static_cast<float>(g * g * a1);
         }
-        audioTriggerSel = loadIndex(cached.audioTrigger, 2);
+        {
+            const int previousTrigger = audioTriggerSel;
+            audioTriggerSel = loadIndex(cached.audioTrigger, 2);
+            if (previousTrigger == 0 && audioTriggerSel != 0)
+                for (auto& d : onsetDetectors)
+                    d.reset(); // stale envelopes from before would fire a false onset or hide a real one
+        }
         audioTriggerSensitivity = juce::jlimit(0.0f, 1.0f, loadParameter(cached.audioTriggerSens, 0.5f));
         if (onsetThisBlock)
         {
@@ -688,8 +832,56 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     auto timingModeSelection = static_cast<core::TimingMode>(loadIndex(cached.timingMode, 2));
     if (timingModeSelection == core::TimingMode::Automatic && standaloneWrapper)
         timingModeSelection = core::TimingMode::SampleClock;
-    const auto timing = core::TransportResolver::resolve(
-        hostTransport, manualGrid, freeRunSample, currentSampleRate, timingModeSelection);
+
+    // Internal clock: when the tempo or meter changes, move the grid origin so the musical position
+    // (in beats) is unchanged. Recomputing position as samples x new tempo would make it jump.
+    if (internalRewind.exchange(false, std::memory_order_relaxed))
+    {
+        freeRunSample = 0;
+        freeRunOrigin = 0;
+        freeRunSamplesPerBeat = 0.0L;
+        engine.resetHistory();
+        autoReturn.disarm();
+    }
+    auto internalGrid = manualGrid;
+    // Samples per beat of the grid the resolver will actually use: host tempo/meter when reported and valid.
+    auto effectiveGrid = manualGrid;
+    if (hostTransport.tempoBpm)
+    {
+        auto candidate = effectiveGrid;
+        candidate.tempoBpm = *hostTransport.tempoBpm;
+        if (core::PhraseClock::samplesPerMeterBeat(currentSampleRate, candidate))
+            effectiveGrid = candidate;
+    }
+    if (hostTransport.meterNumerator && hostTransport.meterDenominator)
+    {
+        auto candidate = effectiveGrid;
+        candidate.meterNumerator = *hostTransport.meterNumerator;
+        candidate.meterDenominator = *hostTransport.meterDenominator;
+        if (core::PhraseClock::samplesPerMeterBeat(currentSampleRate, candidate))
+            effectiveGrid = candidate;
+    }
+    if (const auto spb = core::PhraseClock::samplesPerMeterBeat(currentSampleRate, effectiveGrid); spb && *spb > 0.0L)
+    {
+        if (freeRunSamplesPerBeat > 0.0L && *spb != freeRunSamplesPerBeat)
+        {
+            // Re-base against the counter the resolver will use: a host sample position (Sample Clock mode
+            // with automated tempo) or the free-run counter. Either way the musical position stays continuous.
+            const long double counter = static_cast<long double>(hostTransport.timeInSamples.value_or(freeRunSample));
+            const long double beats = (counter - static_cast<long double>(freeRunOrigin)) / freeRunSamplesPerBeat;
+            freeRunOrigin = static_cast<std::int64_t>(std::llround(counter - beats * *spb));
+        }
+        freeRunSamplesPerBeat = *spb;
+    }
+    internalGrid.originSample = freeRunOrigin;
+    auto timing = core::TransportResolver::resolve(
+        hostTransport, internalGrid, freeRunSample, currentSampleRate, timingModeSelection);
+    // Play/Stop buttons decide the transport only when no host reports a play state.
+    const bool internalDecides = timing && !hostTransport.isPlaying.has_value()
+                                 && timing->mode == core::TimingMode::SampleClock;
+    internalClockActive.store(internalDecides, std::memory_order_relaxed);
+    if (internalDecides)
+        timing->isPlaying = internalPlaying.load(std::memory_order_relaxed);
 
     // Sample position is authoritative for detecting host seeks/loop wraps. For
     // PPQ-only hosts compare against the prior block's tempo, and suspend this
@@ -717,7 +909,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         phaseNeedsReset = true; // C04: a seek/loop returns to the active scene's own (Preserve) phase
         autoReturn.disarm(); // a seek/loop cancels a transient automatic return
         if (loopCapture.state() == core::LoopCapture::State::Recording)
-            loopCapture.abort(); // a recording spanning a seek would not be contiguous audio
+            loopCapture.abort(); // a splice of two timeline positions would be a corrupted loop
     }
     previousHostSamplePosition = hostTransport.timeInSamples;
     previousHostPpqPosition = timing ? timing->ppqPosition : std::nullopt;
@@ -738,6 +930,10 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         if (const double phrases = timing->positionInPhrases(); std::isfinite(phrases) && std::abs(phrases) < 1.0e12)
             phraseIndexStatus.store(static_cast<std::int64_t>(std::floor(phrases)), std::memory_order_relaxed);
         beatInBar.store(timing->beatInBar(), std::memory_order_relaxed);
+    }
+    else
+    {
+        transportPlaying.store(false, std::memory_order_relaxed); // never leave a stale "playing" when timing is unusable
     }
 
     const float intensity = juce::jlimit(0.0f, 1.0f, loadParameter(cached.masterIntensity, 0.0f));
@@ -865,7 +1061,8 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     for (; event != eventsEnd; ++event) // events stamped beyond the block
         handleMidi((*event).data, (*event).numBytes, mode);
 
-    freeRunSample += numSamples;
+    if (!internalDecides || internalPlaying.load(std::memory_order_relaxed))
+        freeRunSample += numSamples; // a stopped internal transport holds its position
 
     autoReturnTargetStatus.store(autoReturn.armed() ? static_cast<int>(*autoReturn.target()) : -1,
                                  std::memory_order_relaxed);
@@ -946,6 +1143,8 @@ void GrooveMorphAudioProcessor::setVariationSettings(std::size_t index, const co
     if (index >= core::variationCount)
         return;
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     bank.setVariationSettings(index, settings);
     commitBankLocked(bank);
@@ -1012,6 +1211,8 @@ void GrooveMorphAudioProcessor::setOperationSettings(std::size_t index, core::Op
     if (index >= core::variationCount || op >= core::OperationType::Count)
         return;
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     auto variation = bank.variation(index).settings;
     variation[op] = settings;
@@ -1024,6 +1225,8 @@ void GrooveMorphAudioProcessor::setVariationName(std::size_t index, std::string_
     if (index >= core::variationCount)
         return;
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     bank.setVariationName(index, name);
     commitBankLocked(bank);
@@ -1032,6 +1235,8 @@ void GrooveMorphAudioProcessor::setVariationName(std::size_t index, std::string_
 void GrooveMorphAudioProcessor::setMidiNoteMap(const scene::MidiNoteMap& map)
 {
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     bank.setMidiNoteMap(map);
     commitBankLocked(bank);
@@ -1040,6 +1245,8 @@ void GrooveMorphAudioProcessor::setMidiNoteMap(const scene::MidiNoteMap& map)
 void GrooveMorphAudioProcessor::setSceneSeed(std::uint64_t seed)
 {
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     bank.setSeed(seed);
     commitBankLocked(bank);
@@ -1183,6 +1390,15 @@ void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
         state.removeChild(state.getChildWithName(type), nullptr);
     state.appendChild(gestureTree, nullptr);
     state.appendChild(evolutionTree, nullptr);
+    {
+        juce::ValueTree linkTree(midiLinkTreeType);
+        {
+            const std::lock_guard<std::mutex> lock(midiLinkMutex);
+            linkTree.setProperty(sceneDataProperty, juce::String(midiLinks.serialize()), nullptr);
+        }
+        state.removeChild(state.getChildWithName(midiLinkTreeType), nullptr);
+        state.appendChild(linkTree, nullptr);
+    }
     if (const auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -1233,6 +1449,15 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
         clockState.setProperty("value", 0.0f, nullptr);
         restoredState.appendChild(clockState, nullptr);
     }
+    // Missing or malformed scene data yields defaults plus a recovery report.
+    auto result = scene::SceneSerializer::deserialize(sceneText);
+    const bool unreadableScenes = !sceneText.empty() && result.report.status == scene::LoadStatus::Defaulted;
+    juce::String linkText;
+    if (const auto linkTree = restoredState.getChildWithName(midiLinkTreeType); linkTree.isValid())
+    {
+        linkText = linkTree.getProperty(sceneDataProperty).toString();
+        restoredState.removeChild(linkTree, nullptr);
+    }
     // Parameters absent from the restored state would otherwise keep the previous session's values.
     // Note them before replacing so they can return to their defaults afterwards.
     std::vector<juce::RangedAudioParameter*> missingParameters;
@@ -1243,9 +1468,21 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
     parameters.replaceState(restoredState);
     for (auto* ranged : missingParameters)
         ranged->setValueNotifyingHost(ranged->getDefaultValue());
+    {
+        const std::lock_guard<std::mutex> lock(midiLinkMutex);
+        midiLinks = core::MidiLinkTable::deserialize(linkText.toStdString());
+        midiLearnTarget = {};
+    }
 
-    // Missing or malformed scene data yields defaults plus a recovery report.
-    auto result = scene::SceneSerializer::deserialize(sceneText);
+    if (unreadableScenes)
+    {
+        const std::lock_guard<std::mutex> lock(modelMutex);
+        lastLoadReport = std::move(result.report);
+        lastLoadReport.messages.push_back("current scenes kept");
+        publishSceneLocked();
+        uiResyncParam.store(true, std::memory_order_release);
+        return;
+    }
     const auto active = result.bank.activeIndex();
     {
         const std::lock_guard<std::mutex> lock(modelMutex);
@@ -1274,6 +1511,48 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
     uiReset.store(static_cast<int>(active), std::memory_order_release);
 }
 
+void GrooveMorphAudioProcessor::resetToDefaults()
+{
+    // Message thread. Every host parameter back to its default, factory scenes (names, effects, placement,
+    // MIDI notes, seed), no preview, no loop, live input, no evolution or gesture, transport at the start.
+    for (auto* parameter : getParameters())
+    {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter))
+        {
+            ranged->beginChangeGesture();
+            ranged->setValueNotifyingHost(ranged->getDefaultValue());
+            ranged->endChangeGesture();
+        }
+    }
+    {
+        const std::lock_guard<std::mutex> lock(modelMutex);
+        audition.revert();
+        undoStack.reset(scene::SceneBank{});
+        lastLoadReport = {};
+        publishSceneLocked();
+    }
+    setEvolution(false, 0, 1, 0.5f, 1, evolutionSettings.seed);
+    setGestureRecording(false);
+    setGesturePlaying(false);
+    clearGesture();
+    clearLoop();
+    clearMidiLinks();
+    setSourceMode(0);
+    {
+        const std::lock_guard<std::mutex> lock(loopServiceMutex);
+        loopCapture.cancel();
+    }
+    internalPlaying.store(true, std::memory_order_relaxed);
+    internalRewind.store(true, std::memory_order_relaxed);
+    activeVariation.store(0, std::memory_order_relaxed);
+    queuedVariation.store(-1, std::memory_order_relaxed);
+    samplesUntilSwitch.store(-1, std::memory_order_relaxed);
+    uiRequest.store(-1, std::memory_order_relaxed);
+    uiTrigger.store(false, std::memory_order_relaxed);
+    uiResyncParam.store(true, std::memory_order_release);
+    uiReset.store(0, std::memory_order_release);
+}
+
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new GrooveMorphAudioProcessor();
@@ -1299,16 +1578,71 @@ void GrooveMorphAudioProcessor::pollLoopCapture()
     const float* channels[2] = {loopCapture.channel(0), loopCapture.channel(1)};
     const auto samples = loopCapture.recordedSamples();
     if (loopSource.load(channels, 2, samples, loopCapture.loopBeats(), loopCapture.startBeat()))
-        loopSeconds.store(static_cast<double>(samples) / sampleRateStatus.load(std::memory_order_relaxed),
-                          std::memory_order_relaxed);
+    {
+        const double seconds = static_cast<double>(samples) / sampleRateStatus.load(std::memory_order_relaxed);
+        loopSeconds.store(seconds, std::memory_order_relaxed);
+        loopBeatsStatus.store(loopCapture.loopBeats(), std::memory_order_relaxed);
+        loopBpmStatus.store(seconds > 0.0 ? loopCapture.loopBeats() * 60.0 / seconds : 0.0, std::memory_order_relaxed);
+        loopStore.setSize(2, static_cast<int>(samples), false, true, false);
+        for (int c = 0; c < 2; ++c)
+            loopStore.copyFrom(c, 0, channels[c], static_cast<int>(samples));
+        loopStoreRate = sampleRateStatus.load(std::memory_order_relaxed);
+        loopStoreBeats = loopCapture.loopBeats();
+    }
     loopCapture.release();
 }
 
-juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, int bars)
+void GrooveMorphAudioProcessor::clearLoop() noexcept
 {
     const std::lock_guard<std::mutex> lock(loopServiceMutex);
-    if (bars < 1 || bars > 16)
-        return juce::Result::fail("Bars must be 1-16");
+    loopSource.clear();
+    loopStore.setSize(0, 0);
+    loopStoreRate = 0.0;
+    loopStoreBeats = 0.0;
+    loopSeconds.store(0.0, std::memory_order_relaxed);
+    loopBeatsStatus.store(0.0, std::memory_order_relaxed);
+    loopBpmStatus.store(0.0, std::memory_order_relaxed);
+}
+
+// Caller holds loopServiceMutex. Re-publishes the stored loop at the current sample rate. False when none is stored.
+bool GrooveMorphAudioProcessor::republishStoredLoop()
+{
+    if (loopStore.getNumSamples() < 16 || loopStoreRate <= 0.0 || !(loopStoreBeats > 0.0))
+        return false;
+    const double ratio = loopStoreRate / currentSampleRate;
+    const auto outLength = static_cast<int>(std::llround(static_cast<double>(loopStore.getNumSamples()) / ratio));
+    if (outLength < 16 || outLength > loopSource.capacitySamples())
+    {
+        loopStore.setSize(0, 0);
+        return false;
+    }
+    juce::AudioBuffer<float> out(2, outLength);
+    for (int c = 0; c < 2; ++c)
+    {
+        if (std::abs(ratio - 1.0) < 1.0e-9)
+            out.copyFrom(c, 0, loopStore, juce::jmin(c, loopStore.getNumChannels() - 1), 0, outLength);
+        else
+        {
+            juce::LagrangeInterpolator interpolator;
+            interpolator.process(ratio, loopStore.getReadPointer(juce::jmin(c, loopStore.getNumChannels() - 1)), out.getWritePointer(c), outLength);
+        }
+    }
+    const float* channels[2] = {out.getReadPointer(0), out.getReadPointer(1)};
+    if (!loopSource.load(channels, 2, outLength, loopStoreBeats, 0.0))
+        return false;
+    loopStore = out;
+    loopStoreRate = currentSampleRate;
+    loopSeconds.store(static_cast<double>(outLength) / currentSampleRate, std::memory_order_relaxed);
+    return true;
+}
+
+juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, int bars, double nativeBpm)
+{
+    const std::lock_guard<std::mutex> lock(loopServiceMutex);
+    if (bars < 0 || bars > 16)
+        return juce::Result::fail("Bars must be automatic or 1-16");
+    if (nativeBpm != 0.0 && !(nativeBpm >= 20.0 && nativeBpm <= 400.0))
+        return juce::Result::fail("Loop tempo must be 20-400 BPM (or 0 for automatic)");
     if (!file.existsAsFile())
         return juce::Result::fail("File not found");
     juce::AudioFormatManager formats;
@@ -1321,18 +1655,60 @@ juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, i
         return juce::Result::fail("File is too short");
     if (seconds > core::LoopSource::maxSeconds)
         return juce::Result::fail("File is longer than 20 seconds");
-    if (reader->lengthInSamples > loopSource.capacitySamples())
-        return juce::Result::fail("File has too many samples for this session's sample rate; use a shorter or lower-rate file");
+    const double deviceRate = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
+    const auto outLength = static_cast<int>(std::llround(seconds * deviceRate));
+    if (outLength < 16 || outLength > loopSource.capacitySamples())
+        return juce::Result::fail("File has too many samples for this session's sample rate; use a shorter file");
     const auto length = static_cast<int>(reader->lengthInSamples);
     juce::AudioBuffer<float> data(juce::jmin(2, static_cast<int>(reader->numChannels)), length);
     if (!reader->read(&data, 0, length, 0, true, data.getNumChannels() > 1))
         return juce::Result::fail("Could not read the audio data");
-    const float* channels[2] = {data.getReadPointer(0), data.getReadPointer(data.getNumChannels() - 1)};
-    const double beats = static_cast<double>(bars * getGridContext().beatsPerBar);
-    if (!loopSource.load(channels, 2, length, beats, 0.0))
+
+    // Resample to the device rate so the loop plays at its true pitch (the beat mapping below only fixes speed).
+    juce::AudioBuffer<float> resampled(data.getNumChannels(), outLength);
+    if (std::abs(reader->sampleRate - deviceRate) < 0.5)
+    {
+        for (int c = 0; c < data.getNumChannels(); ++c)
+            resampled.copyFrom(c, 0, data, c, 0, juce::jmin(length, outLength));
+    }
+    else
+    {
+        for (int c = 0; c < data.getNumChannels(); ++c)
+        {
+            juce::LagrangeInterpolator interpolator;
+            interpolator.process(reader->sampleRate / deviceRate, data.getReadPointer(c), resampled.getWritePointer(c), outLength);
+        }
+    }
+
+    const auto mapping = core::mapLoop(seconds, getGridContext().beatsPerBar,
+                                       static_cast<double>(loadParameter(cached.manualTempo, 120.0f)), bars, nativeBpm);
+    if (!mapping.valid)
+        return juce::Result::fail("Could not work out the loop length");
+    const float* channels[2] = {resampled.getReadPointer(0), resampled.getReadPointer(resampled.getNumChannels() - 1)};
+    if (!loopSource.load(channels, 2, outLength, mapping.beats, 0.0))
         return juce::Result::fail("Could not load the loop");
     loopSeconds.store(seconds, std::memory_order_relaxed);
+    loopBeatsStatus.store(mapping.beats, std::memory_order_relaxed);
+    loopBpmStatus.store(mapping.nativeBpm, std::memory_order_relaxed);
+    loopStore = resampled;
+    loopStoreRate = deviceRate;
+    loopStoreBeats = mapping.beats;
     return juce::Result::ok();
+}
+
+bool GrooveMorphAudioProcessor::matchTempoToLoop()
+{
+    const double bpm = getLoopBpm();
+    auto* parameter = parameters.getParameter(manualTempoId);
+    if (parameter == nullptr || !hasLoop() || !(bpm > 0.0))
+        return false;
+    const auto range = parameter->getNormalisableRange();
+    if (bpm < range.start || bpm > range.end)
+        return false;
+    parameter->beginChangeGesture();
+    parameter->setValueNotifyingHost(parameter->convertTo0to1(static_cast<float>(bpm)));
+    parameter->endChangeGesture();
+    return true;
 }
 
 void GrooveMorphAudioProcessor::setGestureTarget(int target)

@@ -1,4 +1,5 @@
 #include "ui/InspectorPanel.h"
+#include "ui/ControlMenu.h"
 
 #include "PluginProcessor.h"
 #include "core/control/PlacementEvaluator.h"
@@ -47,7 +48,7 @@ void setupLabel(juce::Label& label, const juce::String& text, const juce::String
 struct SliderRow
 {
     juce::Label label;
-    juce::Slider slider;
+    MenuSlider slider;
     bool dragging = false;
     std::function<void()> commit;
 
@@ -81,6 +82,14 @@ struct SliderRow
 class InspectorTab : public juce::Component
 {
 public:
+    // Makes a control right-clickable for MIDI learn on a host parameter.
+    template <class Control>
+    void linkParam(Control& control, const char* parameterId)
+    {
+        control.info().processor = &processor;
+        control.info().midiTarget = juce::String("p:") + parameterId;
+    }
+
     InspectorTab(GrooveMorphAudioProcessor& p, SceneEditAccess a) : processor(p), access(std::move(a)) {}
     virtual void refresh(const gm::VariationSettings& settings) = 0;
 
@@ -742,7 +751,11 @@ public:
         enable.setEnabled(free);
         origin.slider.setEnabled(free);
         protect.slider.setEnabled(free);
-        message.setText(locked ? "Placement is locked (Generator tab > Locks)." : "", juce::dontSendNotification);
+        if (static_cast<int>(locked) != lastLocked) // only on change, so canvas feedback ("event limit reached") is not erased
+        {
+            lastLocked = static_cast<int>(locked);
+            message.setText(locked ? "Placement is locked (Generator tab > Locks)." : "", juce::dontSendNotification);
+        }
         convert.setEnabled(!s.control.lane.explicitEvents);
         canvas.setSettingsView(s);
         const int sel = canvas.selected();
@@ -806,12 +819,13 @@ public:
     }
 
 private:
-    juce::ToggleButton enable, modeButton, eventEnabled;
-    juce::ComboBox window, snap;
+    int lastLocked = -1;
+    MenuToggleButton enable, modeButton, eventEnabled;
+    MenuComboBox window, snap;
     juce::Label snapLabel, message;
     SliderRow start, span, every, offset, origin, protect, eventDepth, eventSlice, eventPriority, loopBeats;
-    juce::ToggleButton eventRestart, eventLocked;
-    juce::ComboBox loopLane;
+    MenuToggleButton eventRestart, eventLocked;
+    MenuComboBox loopLane;
     juce::TextButton convert, removeSelected;
     LaneCanvas canvas;
 };
@@ -872,7 +886,7 @@ public:
             };
         }
         setupLabel(protectLabel, "Never touch");
-        setupLabel(locksTitle, "Locks (protect from generation)", "Locked fields are restored after generation. They do not change what you hear.");
+        setupLabel(locksTitle, "Locks (protect fields)", "A locked field cannot be changed by the generator, by phrase evolution, or by manual edits, whole-scene copies and MIDI controllers while it is locked: edits to it snap back. Locks do not change what you hear by themselves.");
         static const char* lockNames[] = {"Enable", "Depth", "Slice", "Events"};
         static const std::uint8_t lockBits[] = {ctl::lock::enable, ctl::lock::depth, ctl::lock::slice, ctl::lock::events};
         for (std::size_t op = 0; op < gm::operationCount; ++op)
@@ -964,15 +978,15 @@ private:
 
     gvar::GeneratorSettings settings;
     std::deque<Entry> entries;
-    juce::ComboBox style, history;
+    MenuComboBox style, history;
     juce::Label styleLabel, seedLabel, protectLabel, locksTitle, candidateLabel, resultLabel;
     juce::TextEditor seedEditor;
     juce::TextButton newSeed, generate, previous, regenerate;
     SliderRow distance;
-    std::array<juce::ToggleButton, gm::operationCount> protectOp;
+    std::array<MenuToggleButton, gm::operationCount> protectOp;
     std::array<juce::Label, gm::operationCount> lockRowLabel;
-    std::array<std::array<juce::ToggleButton, 4>, gm::operationCount> locks;
-    juce::ToggleButton lockPlacement;
+    std::array<std::array<MenuToggleButton, 4>, gm::operationCount> locks;
+    MenuToggleButton lockPlacement;
 
     void readSeed()
     {
@@ -1129,7 +1143,7 @@ public:
     }
 private:
     juce::Label info, message;
-    juce::ComboBox target, op;
+    MenuComboBox target, op;
     juce::TextButton duplicate, resetScene, resetOp, clearPlacement;
 };
 
@@ -1176,13 +1190,21 @@ public:
             addAndMakeVisible(*c);
         auto& apvts = processor.parameters;
         attachments.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::morphTargetId, morphTarget));
+        linkParam(morphTarget, GrooveMorphAudioProcessor::morphTargetId);
         attachments.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::morphAmountId, morphAmount));
+        linkParam(morphAmount, GrooveMorphAudioProcessor::morphAmountId);
         attachments.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnBarsId, returnBars));
+        linkParam(returnBars, GrooveMorphAudioProcessor::autoReturnBarsId);
         attachments.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnTargetId, returnTarget));
+        linkParam(returnTarget, GrooveMorphAudioProcessor::autoReturnTargetId);
         attachments.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnUnitId, returnUnit));
+        linkParam(returnUnit, GrooveMorphAudioProcessor::autoReturnUnitId);
     }
     void refresh(const gm::VariationSettings&) override
     {
+        morphAmount.setEnabled(morphTarget.getSelectedId() > 1); // nothing to morph toward when the target is Off
+        returnTarget.setEnabled(returnBars.getValue() > 0.0);
+        returnUnit.setEnabled(returnBars.getValue() > 0.0);
         const auto t = processor.getAutoReturnTarget();
         returnStatus.setText(t >= 0 ? "Return pending to scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + t))
                                     : "No return pending.",
@@ -1214,8 +1236,8 @@ public:
     }
 private:
     juce::Label morphTitle, morphTargetLabel, morphAmountLabel, note, returnTitle, returnBarsLabel, returnTargetLabel, returnStatus, returnUnitLabel;
-    juce::ComboBox morphTarget, returnTarget, returnUnit;
-    juce::Slider morphAmount, returnBars;
+    MenuComboBox morphTarget, returnTarget, returnUnit;
+    MenuSlider morphAmount, returnBars;
     struct AttachmentList
     {
         std::vector<std::unique_ptr<SliderAttachment>> sliders;
@@ -1405,10 +1427,10 @@ private:
             access.setSettings(settings);
         }
     }
-    juce::ToggleButton enable;
+    MenuToggleButton enable;
     juce::Label note, result, scaleResult;
     juce::TextButton analyze, reduce, regionAdd, regionRemove, scaleDouble, scaleHalf;
-    juce::ComboBox regionSelect;
+    MenuComboBox regionSelect;
     SliderRow regionStart, regionLength;
     SliderRow spacing, coverage;
     SliderRow maxSlider;
@@ -1431,19 +1453,25 @@ public:
         source.addItemList({"Live input", "Demo drum loop", "Captured / imported loop"}, 1);
         source.setTooltip("What feeds the effects. The demo and loop sources replace the input while the transport plays (Standalone: the free-running clock). Not saved with the project.");
         source.onChange = [this] { if (!refreshing) processor.setSourceMode(source.getSelectedId() - 1); };
-        bars.addItemList({"1 bar", "2 bars", "4 bars", "8 bars"}, 1);
-        bars.setSelectedId(2, juce::dontSendNotification);
-        bars.setTooltip("Length of a captured or imported loop in bars (uses the current beats-per-bar).");
+        bars.addItemList({"Auto bars", "1 bar", "2 bars", "4 bars", "8 bars"}, 1);
+        bars.setSelectedId(1, juce::dontSendNotification);
+        bars.setTooltip("Length of a captured or imported loop in bars (uses the current beats-per-bar). Auto works the bar count out from the file length so that its tempo is closest to the current tempo. For a capture, Auto records 2 bars. If you know the loop's tempo, type it in the BPM box instead: that is the most reliable way to import.");
+        loopBpmField.setInputRestrictions(7, "0123456789.");
+        loopBpmField.setTextToShowWhenEmpty("BPM", juce::Colours::grey);
+        loopBpmField.setTooltip("The loop's own tempo in BPM (20-400), for imports. Leave empty to work it out automatically. The loop then plays at its original speed when the plugin tempo equals this value, and proportionally faster or slower at other tempos (no time-stretching, so pitch follows).");
+        matchTempo.setButtonText("Set tempo to loop");
+        matchTempo.setTooltip("Sets the manual tempo to the tempo of the loaded loop so it plays at its original speed (when Timing method is Sample Clock, or in Standalone).");
+        matchTempo.onClick = [this] { message.setText(processor.matchTempoToLoop() ? "Tempo set to the loop's tempo." : "No loop loaded, or its tempo is outside the tempo range.", juce::dontSendNotification); };
         capture.setButtonText("Capture");
         capture.setTooltip("Records the signal entering the effects (live input or demo) for the chosen number of bars, starting on the next bar line while the transport plays. Then select 'Captured / imported loop'.");
         capture.onClick = [this] {
             if (processor.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Idle)
                 processor.cancelLoopCapture();
-            else if (!processor.armLoopCapture(barChoice()))
+            else if (!processor.armLoopCapture(barChoice() == 0 ? 2 : barChoice()))
                 message.setText("Capture could not start.", juce::dontSendNotification);
         };
         importButton.setButtonText("Import file...");
-        importButton.setTooltip("Loads a WAV/AIFF/FLAC file of up to 20 seconds as a loop spanning the chosen number of bars. It plays locked to the beat grid; there is no time stretching, so pitch follows tempo.");
+        importButton.setTooltip("Loads a WAV, AIFF, FLAC or OGG file of up to 20 seconds as a loop. Its tempo comes from the BPM box if filled in, otherwise from the bars choice (Auto works it out). It plays locked to the beat grid at the plugin tempo; there is no time stretching, so pitch follows tempo.");
         importButton.onClick = [this] {
             chooser = std::make_unique<juce::FileChooser>("Choose an audio loop", juce::File{}, "*.wav;*.aif;*.aiff;*.flac;*.ogg");
             chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -1451,8 +1479,10 @@ public:
                                      const auto file = fc.getResult();
                                      if (file == juce::File{})
                                          return;
-                                     const auto result = processor.importLoopFile(file, barChoice());
-                                     message.setText(result.wasOk() ? "Imported " + file.getFileName() : result.getErrorMessage(),
+                                     const auto result = processor.importLoopFile(file, barChoice(), loopBpmField.getText().getDoubleValue());
+                                     message.setText(result.wasOk() ? "Imported " + file.getFileName() + ": " + juce::String(processor.getLoopBeats(), 2)
+                                                                          + " beats = " + juce::String(processor.getLoopBpm(), 1) + " BPM. Plays at original speed at that tempo."
+                                                                    : result.getErrorMessage(),
                                                      juce::dontSendNotification);
                                      if (result.wasOk())
                                      {
@@ -1497,16 +1527,21 @@ public:
         midiMacros.setTooltip("CC 20 = Intensity, CC 21 = Dry/Wet, CC 22 = Morph amount; program change 0-3 = scene A-D. Applied at about 20 Hz via the host parameters. Off by default; not saved.");
         midiMacros.onClick = [this] { processor.setMidiMacrosEnabled(midiMacros.getToggleState()); };
 
-        for (auto* c : std::initializer_list<juce::Component*>{&sourceTitle, &source, &bars, &capture, &importButton, &clearLoop, &loopInfo,
+        for (auto* c : std::initializer_list<juce::Component*>{&sourceTitle, &source, &bars, &loopBpmField, &capture, &importButton, &clearLoop, &matchTempo, &loopInfo,
                                                                &message, &bandTitle, &bandModeLabel, &bandMode, &crossoverLabel, &crossover,
                                                                &triggerTitle, &triggerLabel, &trigger, &sensLabel, &sens, &onsets, &midiMacros})
             addAndMakeVisible(*c);
         auto& apvts = processor.parameters;
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandModeId, bandMode));
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandSlopeId, bandSlope));
+        linkParam(bandMode, GrooveMorphAudioProcessor::bandModeId);
+        linkParam(bandSlope, GrooveMorphAudioProcessor::bandSlopeId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::bandCrossoverId, crossover));
+        linkParam(crossover, GrooveMorphAudioProcessor::bandCrossoverId);
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerId, trigger));
+        linkParam(trigger, GrooveMorphAudioProcessor::audioTriggerId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerSensId, sens));
+        linkParam(sens, GrooveMorphAudioProcessor::audioTriggerSensId);
         sens.setNumDecimalPlacesToDisplay(2);
     }
     void refresh(const gm::VariationSettings&) override
@@ -1519,19 +1554,26 @@ public:
         {
             case State::Idle:
                 capture.setButtonText("Capture");
-                if (const int why = processor.getLoopCaptureFailure(); why == 1)
-                    message.setText("Capture refused: that many bars would exceed 20 seconds at this tempo.", juce::dontSendNotification);
-                else if (why == 2)
-                    message.setText("Capture stopped because the transport stopped.", juce::dontSendNotification);
+                if (const int why = processor.getLoopCaptureFailure(); why != lastCaptureFailure)
+                {
+                    lastCaptureFailure = why; // report each failure once, so later messages (e.g. "Imported ...") are not overwritten
+                    if (why == 1)
+                        message.setText("Capture refused: that many bars would exceed 20 seconds at this tempo.", juce::dontSendNotification);
+                    else if (why == 2)
+                        message.setText("Capture stopped: the transport stopped or jumped while recording.", juce::dontSendNotification);
+                }
                 break;
             case State::Armed: capture.setButtonText("Waiting for bar line (click to cancel)"); break;
             case State::Recording: capture.setButtonText("Recording... (click to cancel)"); break;
             case State::Done: capture.setButtonText("Finishing..."); break;
         }
-        loopInfo.setText(processor.hasLoop() ? "Loop loaded: " + juce::String(processor.getLoopSeconds(), 2) + " s"
+        loopInfo.setText(processor.hasLoop() ? "Loop loaded: " + juce::String(processor.getLoopSeconds(), 2) + " s, " + juce::String(processor.getLoopBeats(), 2) + " beats = " + juce::String(processor.getLoopBpm(), 1) + " BPM"
                                              : "No loop loaded (capture or import one).",
                          juce::dontSendNotification);
         clearLoop.setEnabled(processor.hasLoop());
+        matchTempo.setEnabled(processor.hasLoop());
+        crossover.setEnabled(bandMode.getSelectedId() > 1); // the crossover only matters when the bass is split
+        sens.setEnabled(trigger.getSelectedId() > 1);        // sensitivity only matters when a trigger action is chosen
         onsets.setText("Transients detected: " + juce::String(processor.getOnsetCount()), juce::dontSendNotification);
         midiMacros.setToggleState(processor.areMidiMacrosEnabled(), juce::dontSendNotification);
     }
@@ -1541,11 +1583,13 @@ public:
         sourceTitle.setBounds(nextRow(area));
         source.setBounds(nextRow(area).removeFromLeft(240));
         auto r = nextRow(area);
-        bars.setBounds(r.removeFromLeft(80));
-        capture.setBounds(r.removeFromLeft(240).reduced(4, 0));
+        bars.setBounds(r.removeFromLeft(100));
+        loopBpmField.setBounds(r.removeFromLeft(64).reduced(4, 0));
+        capture.setBounds(r.removeFromLeft(180).reduced(4, 0));
         r = nextRow(area);
         importButton.setBounds(r.removeFromLeft(120));
-        clearLoop.setBounds(r.removeFromLeft(110).reduced(4, 0));
+        clearLoop.setBounds(r.removeFromLeft(100).reduced(4, 0));
+        matchTempo.setBounds(r.removeFromLeft(150).reduced(4, 0));
         loopInfo.setBounds(nextRow(area));
         message.setBounds(nextRow(area));
         area.removeFromTop(8);
@@ -1570,12 +1614,15 @@ public:
         midiMacros.setBounds(nextRow(area));
     }
 private:
-    int barChoice() const { constexpr int values[] = {1, 2, 4, 8}; return values[juce::jlimit(0, 3, bars.getSelectedId() - 1)]; }
+    // 0 = automatic (import); a capture needs a number, so Auto records 2 bars.
+    int barChoice() const { constexpr int values[] = {0, 1, 2, 4, 8}; return values[juce::jlimit(0, 4, bars.getSelectedId() - 1)]; }
     juce::Label sourceTitle, loopInfo, message, bandTitle, bandModeLabel, crossoverLabel, triggerTitle, triggerLabel, sensLabel, onsets;
-    juce::ComboBox source, bars, bandMode, bandSlope, trigger;
-    juce::TextButton capture, importButton, clearLoop;
-    juce::Slider crossover, sens;
-    juce::ToggleButton midiMacros;
+    MenuComboBox source, bars, bandMode, bandSlope, trigger;
+    int lastCaptureFailure = 0;
+    juce::TextButton capture, importButton, clearLoop, matchTempo;
+    juce::TextEditor loopBpmField;
+    MenuSlider crossover, sens;
+    MenuToggleButton midiMacros;
     std::unique_ptr<juce::FileChooser> chooser;
     std::vector<std::unique_ptr<SliderAttachment>> sliders;
     std::vector<std::unique_ptr<ComboAttachment>> combos;
@@ -1681,12 +1728,26 @@ public:
             addAndMakeVisible(*c);
         auto& apvts = processor.parameters;
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::transitionModeId, transition));
+        linkParam(transition, GrooveMorphAudioProcessor::transitionModeId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::masterIntensityId, macros[0]));
+        linkParam(macros[0], GrooveMorphAudioProcessor::masterIntensityId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::dryWetId, macros[1]));
+        linkParam(macros[1], GrooveMorphAudioProcessor::dryWetId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::morphAmountId, macros[2]));
+        linkParam(macros[2], GrooveMorphAudioProcessor::morphAmountId);
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::morphTargetId, morphTarget));
+        linkParam(morphTarget, GrooveMorphAudioProcessor::morphTargetId);
         for (auto& m : macros)
             m.setNumDecimalPlacesToDisplay(2);
+        macros[0].setTooltip("Same control as the main Intensity slider: 0 = unprocessed sound, 1 = full effect. With MIDI macros on, CC 20 moves it.");
+        macros[1].setTooltip("Same control as the main Dry/wet slider: mix between unprocessed (0) and processed (1) sound. With MIDI macros on, CC 21 moves it.");
+        macros[2].setTooltip("How far the sound morphs from the sounding scene towards the Morph target scene (0 = not at all, 1 = fully the target). With MIDI macros on, CC 22 moves it.");
+        morphTarget.setTooltip("Scene to morph toward. Off disables morphing. Same control as in the Morph tab.");
+        transition.setTooltip("When a scene change takes effect: Immediate, next beat, next bar, next phrase, or Manual (waits for Trigger). Same control as the main window.");
+        evolveScene.setTooltip("Scene that evolves while it sounds: every N phrases it plays as a slightly changed variation of its stored settings. The stored scene itself is never edited.");
+        evolveStyle.setTooltip("How bold each evolution step is: Conservative (small changes), Creative, or Experimental (large changes).");
+        clearGesture.setTooltip("Erases the recorded gesture so a new one can be recorded.");
+        gestureTarget.setTooltip("Which control the gesture records and plays back: Morph amount, Intensity or Dry/wet. Changing it erases the recorded gesture.");
     }
     void refresh(const gm::VariationSettings& settings) override
     {
@@ -1794,10 +1855,10 @@ private:
     juce::TextButton restartScene;
     SliderRow phaseOffset;
     std::array<juce::Label, 3> macroLabels;
-    std::array<juce::Slider, 3> macros;
-    juce::ComboBox transition, morphTarget, gestureTarget, evolveScene, evolveStyle;
+    std::array<MenuSlider, 3> macros;
+    MenuComboBox transition, morphTarget, gestureTarget, evolveScene, evolveStyle;
     juce::TextButton trigger, cancel, record, play, clearGesture;
-    juce::ToggleButton evolveOn;
+    MenuToggleButton evolveOn;
     SliderRow every, distance;
     std::vector<std::unique_ptr<SliderAttachment>> sliders;
     std::vector<std::unique_ptr<ComboAttachment>> combos;
@@ -1859,9 +1920,14 @@ struct InspectorPanel::Impl
         const auto bg = juce::Colour(0xff1b232e);
         // Short names keep eight tabs on one row; the tooltips carry the full names.
         const char* names[] = {"Place", "Gen", "Scene", "Morph", "Limit", "Input", "Perform", "Info"};
-        const char* full[] = {"Phrase placement and event lanes", "Variation generator, seed, locks", "Scene tools",
-                              "Scene morph and automatic return", "Effect activity limits", "Input source, loop, bands, triggers, MIDI",
-                              "Performance macros, gestures, phrase evolution", "Alpha feature status"};
+        const char* full[] = {"Place: choose where in the phrase effects act (window, every N phrases) and draw event lanes",
+                              "Gen: generate variations of a scene (seed, style, distance) and lock parts of it",
+                              "Scene: duplicate, copy, reset and clear scenes and effects",
+                              "Morph: blend two scenes, and automatically return to a scene after a few bars or phrases",
+                              "Limit: cap how many effects play at once and how busy a scene may get",
+                              "Input: choose the input source, capture or import a loop, split the bass, audio triggers, MIDI macros",
+                              "Perform: live macros, record and play back a gesture, evolve a scene over phrases",
+                              "Info: what this alpha version implements and what is untested"};
         juce::Component* contents[] = {placement.get(), generator.get(), scenes.get(), morph.get(), limits.get(), input.get(),
                                        perform.get(), status.get()};
         for (int i = 0; i < 8; ++i)
@@ -1887,6 +1953,7 @@ InspectorPanel::InspectorPanel(GrooveMorphAudioProcessor& processor, SceneEditAc
     : impl(std::make_unique<Impl>(processor, std::move(access)))
 {
     addAndMakeVisible(impl->tabs);
+    finishControlMenus(*this, processor);
 }
 
 InspectorPanel::~InspectorPanel() = default;

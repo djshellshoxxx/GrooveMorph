@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/OperationParams.h"
+#include "core/dsp/StageGeometry.h"
+#include "core/trace/TraceRing.h"
 
 #include <array>
 #include <cstddef>
@@ -53,7 +55,7 @@ public:
     static constexpr double maxHistorySeconds = 4.0;
     static constexpr double crossfadeSeconds = 0.003;
     static constexpr double gateRampSeconds = 0.002;
-    static constexpr int repeatCycleSlices = 4;
+    static constexpr int repeatCycleSlices = stage::repeatCycleSlices;
 
     // Allocates all state. Not real-time safe. Resets the engine.
     void prepare(double sampleRate, int maxBlockSize, int maxChannels);
@@ -77,6 +79,11 @@ public:
                  const VariationSettings& variation,
                  float intensity,
                  const RhythmTiming& timing) noexcept;
+
+    // Optional read-only telemetry for the Visual window (docs/visual-feedback/SPEC.md section 4).
+    // nullptr (default) or an inactive ring costs nothing and never changes the audio output. Must
+    // not be changed concurrently with process(); the sink must outlive its use by the engine.
+    void setTraceSink(trace::TraceRing* sink) noexcept { traceSink = sink; }
 
     [[nodiscard]] bool isPrepared() const noexcept { return capacity > 0; }
     [[nodiscard]] int crossfadeSamples() const noexcept { return fadeSamples; }
@@ -121,5 +128,10 @@ private:
     std::array<Voice, historyStageCount> voices{};
     float gateGain = 1.0f;
     bool warmingAfterReset = false; // set by resetHistory(), cleared by reset()
+
+    trace::TraceRing* traceSink = nullptr;
+    std::uint32_t traceEpoch = 0; // increments on reset()/resetHistory()
+    float traceInPeak = 0.0f;     // peak accumulators over the current hop window
+    float traceOutPeak = 0.0f;
 };
 } // namespace groovemorph::core

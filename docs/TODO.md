@@ -73,6 +73,14 @@ records requirement coverage. Close tasks only with relevant current tests and
 user-facing wiring; update this ledger and help when behavior changes. No numeric
 project completion percentage is asserted.
 
+## Visual feedback window (2026-10-14)
+
+- [x] Research, [plan](visual-feedback/PLAN.md), [developer spec](visual-feedback/SPEC.md) and [integration plan](visual-feedback/INTEGRATION-PLAN.md).
+- [x] Slices S1-S10: trace ring and engine sink, StageGeometry, path resolver, weave layout, planned paths and plan builder, ledger, Visual window (Weave, Ledger, Rings, Stations, Orbit), palette checks, toolbar, [help page](../help/VISUAL-WINDOW.md).
+- [ ] S11 native validation (Windows / REAPER, CPU with the window open, Standalone vs VST3) under [issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19).
+- [ ] User review of the design against the Gross Beat anti-resemblance rules (PLAN 4b), screen-reader pass, human colour-blind review.
+- [ ] Optional S12: per-stage in/out peaks (delta strips), repeat/self-similarity map, keyboard thread cursor, planned view for evolution/gestures.
+
 ## Six-control specification package (2026-10-13)
 
 - [x] Author [six detailed specs and shared integration plan](control-specs/README.md).
