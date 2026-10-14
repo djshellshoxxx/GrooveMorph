@@ -164,8 +164,10 @@ Not planned: waveform/spectrum "eye candy", OpenGL, audio-reactive decoration un
 - **Single-thread assumption** of the ring: one audio thread writer only; asserted in tests.
 - **Overlap with another active session** landing features on `main`: P1 touches `RhythmEngine`, so coordinate before starting.
 
-## 10. Decisions needed from you
-1. Does the **Warp Weave** concept feel right as the hero, or do you want an alternative direction explored (e.g. rings as hero)?
-2. Show **planned** (pencil) future as well as heard past, or heard only?
-3. Window target: keep one window with all views, or a separate resizable "Visual" window?
-4. OK to start **P1** (touches `RhythmEngine`) now, or wait for the other session's work to settle?
+## 10. Decisions (resolved 2026-10-14)
+1. Warp Weave is the hero view: **approved**.
+2. Show planned (pencil) future as well as heard past: **yes**.
+3. A **separate, optional, openable/closeable Visual window** with additional visual information: **yes** (see SPEC §10).
+4. Start P1 now: delegated to the engineer; chosen **yes**: no other work is in flight (checked 2026-10-14) and the engine change is gated by a bit-exactness test.
+
+Detailed requirements: [SPEC.md](SPEC.md). Slices, gates and traceability: [INTEGRATION-PLAN.md](INTEGRATION-PLAN.md).
