@@ -63,6 +63,7 @@ public:
     static constexpr const char* autoReturnUnitId = "autoReturnUnit";
     static constexpr const char* bandModeId = "bandMode";
     static constexpr const char* bandCrossoverId = "bandCrossover";
+    static constexpr const char* bandSlopeId = "bandSlope";
     static constexpr const char* audioTriggerId = "audioTrigger";
     static constexpr const char* audioTriggerSensId = "audioTriggerSens";
 
@@ -290,6 +291,7 @@ private:
         std::atomic<float>* autoReturnUnit = nullptr;
         std::atomic<float>* bandMode = nullptr;
         std::atomic<float>* bandCrossover = nullptr;
+        std::atomic<float>* bandSlope = nullptr;
         std::atomic<float>* audioTrigger = nullptr;
         std::atomic<float>* audioTriggerSens = nullptr;
     } cached;
@@ -331,6 +333,11 @@ private:
     int bandModeSel = 0;          // 0 full band, 1 protect lows, 2 lows only
     float bandCoefficient = 0.0f;
     std::array<float, 2> bandLowState{};
+    // 12 dB/oct option: the band sent to the effects is a 2nd-order Butterworth (TPT state variable
+    // filter); the bypassed band is its exact complement, so the two always sum back to the input.
+    int bandSlopeSel = 0; // 0: 6 dB/oct, 1: 12 dB/oct
+    float svfA1 = 0.0f, svfA2 = 0.0f, svfA3 = 0.0f;
+    std::array<float, 2> svfIc1{}, svfIc2{};
     juce::AudioBuffer<float> bandBypass;
     juce::AudioBuffer<float> bandPart; // the band handed to the engine, to detect an unchanged signal
     std::array<groovemorph::core::OnsetDetector, 2> onsetDetectors;

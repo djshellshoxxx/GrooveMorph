@@ -25,6 +25,15 @@ float loadParameter(const std::atomic<float>* parameter, float fallback) noexcep
     return std::isfinite(value) ? value : fallback;
 }
 
+// Plugin-originated writes are bracketed as a change gesture so hosts treat them as one edit
+// (automation write/touch modes) instead of a stream of anonymous value changes.
+void writeParameterAsGesture(juce::RangedAudioParameter& parameter, float normalised)
+{
+    parameter.beginChangeGesture();
+    parameter.setValueNotifyingHost(normalised);
+    parameter.endChangeGesture();
+}
+
 int loadIndex(const std::atomic<float>* parameter, int maxIndex) noexcept
 {
     const auto value = loadParameter(parameter, 0.0f);
@@ -56,6 +65,7 @@ GrooveMorphAudioProcessor::GrooveMorphAudioProcessor()
     cached.autoReturnUnit = parameters.getRawParameterValue(autoReturnUnitId);
     cached.bandMode = parameters.getRawParameterValue(bandModeId);
     cached.bandCrossover = parameters.getRawParameterValue(bandCrossoverId);
+    cached.bandSlope = parameters.getRawParameterValue(bandSlopeId);
     cached.audioTrigger = parameters.getRawParameterValue(audioTriggerId);
     cached.audioTriggerSens = parameters.getRawParameterValue(audioTriggerSensId);
     bypassParameter = dynamic_cast<juce::AudioParameterBool*>(parameters.getParameter(bypassId));
@@ -137,6 +147,10 @@ GrooveMorphAudioProcessor::createParameterLayout()
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{bandCrossoverId, 1}, "Crossover",
         juce::NormalisableRange<float>{40.0f, 400.0f, 1.0f, 0.5f}, 120.0f));
+    // Steeper crossover for the band sent to the effects (the bypassed band stays its exact complement).
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{bandSlopeId, 1}, "Band Slope",
+        juce::StringArray{"6 dB/oct", "12 dB/oct"}, 0));
     // F07: detected input transients request a scene change.
     layout.add(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{audioTriggerId, 1}, "Audio Trigger",
@@ -172,6 +186,8 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     }
     loopSeconds.store(0.0, std::memory_order_relaxed);
     bandLowState.fill(0.0f);
+    svfIc1.fill(0.0f);
+    svfIc2.fill(0.0f);
     for (auto& d : onsetDetectors)
         d.prepare(currentSampleRate);
     freeRunSample = 0;
@@ -319,7 +335,7 @@ void GrooveMorphAudioProcessor::applyMidiMacros()
     for (std::size_t slot = 0; slot < 3; ++slot)
         if ((dirty & (1u << slot)) != 0)
             if (auto* parameter = parameters.getParameter(ids[slot]))
-                parameter->setValueNotifyingHost(ccValue[slot].load(std::memory_order_relaxed));
+                writeParameterAsGesture(*parameter, ccValue[slot].load(std::memory_order_relaxed));
 }
 
 core::VariationSettings GrooveMorphAudioProcessor::effectiveSettings(std::size_t variation) const noexcept
@@ -467,6 +483,31 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
                 float* x = channels[static_cast<std::size_t>(c)];
                 float* bypass = bandBypass.getWritePointer(c);
                 float* part = bandPart.getWritePointer(c);
+                if (bandSlopeSel == 1)
+                {
+                    float ic1 = svfIc1[static_cast<std::size_t>(c)], ic2 = svfIc2[static_cast<std::size_t>(c)];
+                    if (!std::isfinite(ic1) || !std::isfinite(ic2))
+                        ic1 = ic2 = 0.0f;
+                    constexpr float k = 1.41421356f;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float in = std::isfinite(x[i]) ? x[i] : 0.0f;
+                        const float v3 = in - ic2;
+                        const float v1 = svfA1 * ic1 + svfA2 * v3;
+                        const float v2 = ic2 + svfA2 * ic1 + svfA3 * v3;
+                        ic1 = 2.0f * v1 - ic1;
+                        ic2 = 2.0f * v2 - ic2;
+                        const float low = v2;
+                        const float high = in - k * v1 - v2;
+                        const float effected = bandModeSel == 1 ? high : low;
+                        x[i] = effected;
+                        bypass[i] = in - effected; // exact complement
+                        part[i] = effected;
+                    }
+                    svfIc1[static_cast<std::size_t>(c)] = ic1;
+                    svfIc2[static_cast<std::size_t>(c)] = ic2;
+                    continue;
+                }
                 float state = bandLowState[static_cast<std::size_t>(c)];
                 if (!std::isfinite(state))
                     state = 0.0f;
@@ -580,6 +621,17 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         const float crossover = juce::jlimit(20.0f, 1000.0f, loadParameter(cached.bandCrossover, 120.0f));
         bandCoefficient = static_cast<float>(1.0 - std::exp(-2.0 * juce::MathConstants<double>::pi
                                                             * static_cast<double>(crossover) / currentSampleRate));
+        bandSlopeSel = loadIndex(cached.bandSlope, 1);
+        {
+            // Zavalishin/Cytomic TPT state variable filter, Butterworth (k = sqrt 2).
+            const double g = std::tan(juce::MathConstants<double>::pi * static_cast<double>(crossover)
+                                      / currentSampleRate);
+            const double k = std::sqrt(2.0);
+            const double a1 = 1.0 / (1.0 + g * (g + k));
+            svfA1 = static_cast<float>(a1);
+            svfA2 = static_cast<float>(g * a1);
+            svfA3 = static_cast<float>(g * g * a1);
+        }
         audioTriggerSel = loadIndex(cached.audioTrigger, 2);
         audioTriggerSensitivity = juce::jlimit(0.0f, 1.0f, loadParameter(cached.audioTriggerSens, 0.5f));
         if (onsetThisBlock)
@@ -823,7 +875,7 @@ void GrooveMorphAudioProcessor::syncHostVariationParameter()
         || paramSeenByAudio.load(std::memory_order_acquire) != shown)
         return;
     expectedParamEcho.store(active, std::memory_order_release);
-    parameter->setValueNotifyingHost(parameter->convertTo0to1(static_cast<float>(active)));
+    writeParameterAsGesture(*parameter, parameter->convertTo0to1(static_cast<float>(active)));
 }
 
 void GrooveMorphAudioProcessor::publishSceneLocked()
@@ -1307,7 +1359,7 @@ void GrooveMorphAudioProcessor::updateGesture()
     if (gestureRecording)
         gesture.record(fraction, parameter->getValue());
     else if (const float value = gesture.sample(fraction); value >= 0.0f)
-        parameter->setValueNotifyingHost(value);
+        writeParameterAsGesture(*parameter, value);
 }
 
 void GrooveMorphAudioProcessor::setEvolution(bool enabled, std::size_t scene, int everyPhrases, float distance,

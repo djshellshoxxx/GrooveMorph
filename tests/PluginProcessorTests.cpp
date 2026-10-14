@@ -199,11 +199,12 @@ int main()
         expect("intensity 0 null test", identical);
 
         // Audit regression: the same null holds with the band split active, including after a NaN block.
-        for (const float mode : {1.0f, 2.0f})
+        for (const float mode : {1.0f, 2.0f, 11.0f, 12.0f}) // 1x/2x: 6 dB slope, 11/12: protect/lows at 12 dB
         {
             GrooveMorphAudioProcessor split;
             setParameter(split, "masterIntensity", 0.0f);
-            setParameter(split, "bandMode", mode);
+            setParameter(split, "bandMode", mode > 10.0f ? mode - 10.0f : mode);
+            setParameter(split, "bandSlope", mode > 10.0f ? 1.0f : 0.0f);
             split.prepareToPlay(48000.0, 256);
             FakePlayHead splitHead;
             split.setPlayHead(&splitHead);

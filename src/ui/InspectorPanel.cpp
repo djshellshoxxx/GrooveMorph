@@ -1469,7 +1469,11 @@ public:
         setupLabel(bandTitle, "Band split (effects on part of the spectrum)");
         setupLabel(bandModeLabel, "Process");
         bandMode.addItemList({"Full band", "Protect lows", "Lows only"}, 1);
-        bandMode.setTooltip("Full band: unchanged. Protect lows: bass below the crossover bypasses the effects (keeps the low end solid). Lows only: only the bass goes through the effects. First-order crossover (6 dB/oct), so the split is gentle.");
+        bandMode.setTooltip("Full band: unchanged. Protect lows: bass below the crossover bypasses the effects (keeps the low end solid). Lows only: only the bass goes through the effects. The slope is selectable: 6 dB/oct is gentle, 12 dB/oct is steeper.");
+        bandSlope.addItemList({"6 dB/oct", "12 dB/oct"}, 1);
+        bandSlope.setTooltip("Slope of the crossover filter around the effected band. 12 dB/oct rejects the other band more strongly; "
+                             "the bypassed band is always the exact complement, so nothing is lost when the effects are off.");
+        addAndMakeVisible(bandSlope);
         setupLabel(crossoverLabel, "Crossover");
         crossover.setSliderStyle(juce::Slider::LinearHorizontal);
         crossover.setTextBoxStyle(juce::Slider::TextBoxRight, false, 62, 22);
@@ -1497,6 +1501,7 @@ public:
             addAndMakeVisible(*c);
         auto& apvts = processor.parameters;
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandModeId, bandMode));
+        combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandSlopeId, bandSlope));
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::bandCrossoverId, crossover));
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerId, trigger));
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerSensId, sens));
@@ -1546,6 +1551,7 @@ public:
         r = nextRow(area);
         bandModeLabel.setBounds(r.removeFromLeft(100));
         bandMode.setBounds(r.removeFromLeft(160));
+        bandSlope.setBounds(r.removeFromLeft(110).reduced(6, 0));
         r = nextRow(area);
         crossoverLabel.setBounds(r.removeFromLeft(100));
         crossover.setBounds(r);
@@ -1564,7 +1570,7 @@ public:
 private:
     int barChoice() const { constexpr int values[] = {1, 2, 4, 8}; return values[juce::jlimit(0, 3, bars.getSelectedId() - 1)]; }
     juce::Label sourceTitle, loopInfo, message, bandTitle, bandModeLabel, crossoverLabel, triggerTitle, triggerLabel, sensLabel, onsets;
-    juce::ComboBox source, bars, bandMode, trigger;
+    juce::ComboBox source, bars, bandMode, bandSlope, trigger;
     juce::TextButton capture, importButton, clearLoop;
     juce::Slider crossover, sens;
     juce::ToggleButton midiMacros;
