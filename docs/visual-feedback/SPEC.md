@@ -85,6 +85,9 @@ tau = t; weight = 1; for stage in [Mix, TapeStop, HalfTime, Gate, Reverse, Repea
 result: {sourceSample = tau, weight (0..1), path flags: which stages were wet, crossfading}
 ```
 - Output: `ResolvedThread { double sourceSample; float weight; std::uint8_t wetMask; bool noData; }`.
+- Lag at an arbitrary `tau` is extrapolated from the nearest frame: `lag(tau) = f.lag + (tau - f.sample) * (1 - f.rate)` (reverse grows 2 samples/sample, half-time 0.5, repeat 0). Exact for Repeat/Reverse/HalfTime, <1 sample for TapeStop (verified against impulses through the real engine).
+- Accuracy limit: frames are 128 samples apart, so within one hop of a stage discontinuity (slice boundary) the nearest frame may belong to the neighbouring slice; the engine crossfades there too. Geometry checks skip that margin.
+- The final `tau` must also lie inside the window, otherwise `noData=true`.
 - Edge cases: `tau` before the first frame or in a different epoch → `noData=true` (drawn hatched, VF "no audio yet");
   `TimingOk` false → weight 0, `wetMask=0`; `tau` never increases (clamp `lag>=0`). Deterministic for identical inputs.
 - Beat conversion: `beat(tau) = f.beat + (tau - f.sample) / f.samplesPerBeat` using the frame at `tau`.
