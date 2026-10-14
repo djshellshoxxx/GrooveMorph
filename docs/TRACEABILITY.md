@@ -40,3 +40,20 @@ passing after restoration; that is historical regression evidence, not a new run
 ## Deferred scope
 
 GM-FR-013–018 cover transient analysis, low-frequency protection, controlled generation, external bank files, sidechain triggering and full phrase capture. They are intentionally outside this timing reconciliation. The separate F01–F12 expansion specification branch has not been folded into this integration or declared implemented.
+
+## Visual feedback window (2026-10-14)
+
+Specification: [docs/visual-feedback/SPEC.md](visual-feedback/SPEC.md); plan: [INTEGRATION-PLAN.md](visual-feedback/INTEGRATION-PLAN.md).
+All evidence below is automated Linux tests plus CI; nothing here was validated in a DAW, on audio hardware, or by listening.
+
+| Requirement | Implemented behavior and modules | Verification evidence | Remaining check or discrepancy |
+|---|---|---|---|
+| VF-01 audio unchanged by tracing | `RhythmEngine::setTraceSink` is read-only; `TraceRing` | `TraceEngineTests` (bit-identical output with null/inactive/active sink at block sizes 1/7/64/128/513), `EngineGoldenTests`, `PluginProcessorTests` | Real-host confirmation |
+| VF-02 bounded callback cost | One 96-byte frame per 128 samples, no allocation/lock/I/O, ring allocated in constructor | Offline benchmark: overhead below noise (0.88 % vs 0.81 % of real time, 60 s stereo, all five effects) | No real-time deadline measurement in a host; no allocation-instrumented run |
+| VF-03 portable core | `src/core/trace`, `src/core/viz` (no JUCE); JUCE only in `src/ui/visual` | Core-only build and tests; ASan/UBSan clean | CI include audit not automated |
+| VF-04 no visual state in project state | View prefs stored by the window only | State round-trip tests unchanged | - |
+| VF-05 closed window means tracing off | `VisualContent::setActive` | `PluginProcessorTests` (frames stop when closed) | - |
+| VF-06 accessibility | Ledger text equivalent, accessible names, Reduce motion, Esc/C keys, palette checks | `PaletteTests` (WCAG contrast, Machado-2009 simulation), `PluginProcessorTests` | Screen-reader pass and human colour-blind review not done |
+| VF-07 no Gross Beat likeness | Thread weave, rings, stations, orbit; no XY envelope grid, no sweep line, no clock, different palette | Design review rules in PLAN 4b | User side-by-side review pending |
+| VF-08 planned vs measured consistent | `StageGeometry` shared by engine and planner; `PlanBuilder` mirrors processor gating | `PlannedPathTests` and `PlanBuilderTests`: planner vs real-engine 96-100 % within 0.01 beat; misses at slice boundaries | Evolution, gestures, audio triggers not modelled (marked as limits) |
+| VF-09 honest idle/invalid/preview | Ledger banners, stations "stopped/held off", orbit preview note | `LedgerTests`, `StageModelTests` | - |

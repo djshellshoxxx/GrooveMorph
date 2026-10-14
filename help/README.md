@@ -10,6 +10,7 @@
 4. [Timing and transitions](TIMING.md): Automatic vs Host PPQ vs Sample Clock; queue semantics and fallback.
 5. [Troubleshooting](TROUBLESHOOTING.md): silent output, missing timing, held transitions, MIDI, host state.
 6. [Visual guide and screenshot capture](VISUAL-GUIDE.md): arrows, numbered labels, and screenshot verification process.
+7. [The Visual window](VISUAL-WINDOW.md): the live picture of what the plugin is doing to the sound (alpha).
 
 ## Scope
 
