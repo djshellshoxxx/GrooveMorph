@@ -22,7 +22,8 @@ public:
     [[nodiscard]] std::optional<std::size_t> target() const noexcept;
 
     // Call once per block with the block-start position in bars. Returns the scene to request
-    // with NextBar quantization (at most once per arming). A backwards jump of more than one
+    // with NextBar quantization (at most once per arming), strictly after the start of the bar
+    // that precedes the return boundary. A backwards jump of more than one
     // bar before the arming bar (seek/loop) disarms.
     [[nodiscard]] std::optional<std::size_t> poll(double positionInBars) noexcept;
     // The request fired; the arming is consumed after the boundary switch is observed.

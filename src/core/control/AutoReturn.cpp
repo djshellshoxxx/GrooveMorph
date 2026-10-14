@@ -32,7 +32,9 @@ std::optional<std::size_t> AutoReturn::poll(double positionInBars) noexcept
         disarm(); // seek or loop wrapped before the arming point
         return std::nullopt;
     }
-    if (std::floor(positionInBars) + 1.0 >= targetBar)
+    // Strictly after the start of the bar before the target: a NextBar request made exactly on a bar
+    // line would fire immediately (one bar early) instead of at the next boundary.
+    if (positionInBars > targetBar - 1.0 + 1.0e-9)
     {
         requested = true;
         return scene;

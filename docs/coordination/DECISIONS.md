@@ -10,3 +10,9 @@
 - **Morph/auto-return are APVTS parameters** (IDs appended, never reused); locks, placement, events are scene state.
 - **Auto-return requests a NextBar switch one bar early** so the existing Scheduler lands it on the bar line.
 - **Demo loop is not a parameter and not saved.** It overwrites the input in the callback while the transport is playing.
+- **Per-event cycle restart is an engine phase offset** (`RhythmTiming::phaseOffsetBeats`, zeros = legacy grid, bit-identical). The evaluator supplies the absolute beat of the active event onset; the engine measures each operation's slice grid from it.
+- **Polyrhythm = per-lane loop rings** in the evaluator (events repeat every `loopBeats[op]` beats); no second clock or Scheduler.
+- **Loop playback is beat-locked, not stretched.** `LoopSource` maps the timeline beat to a file position; capture starts on a bar line and records exactly N bars.
+- **Phrase evolution, gestures, loop audio and history are session state** (not in the saved scene format) to keep saved projects and undo clean.
+- **Locks apply to every edit path** (manual, preview, history recall, whole-scene operations); lock configuration itself stays editable.
+- **Loop-service handoff** uses a reader-flag handshake plus a mutex against `prepareToPlay`; the audio thread never takes a lock.

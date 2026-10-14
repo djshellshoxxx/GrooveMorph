@@ -23,5 +23,8 @@ namespace groovemorph::core::control
 
 // C03: restore every locked field of `candidate` from `source` (post-hoc, so generator
 // randomness is never perturbed by locks). Returns the number of fields restored.
-std::uint32_t enforcePermissions(const VariationSettings& source, VariationSettings& candidate) noexcept;
+// keepCandidatePermissions = true is for manual edits: the lock configuration being edited is kept
+// while every other locked field is restored (the lock state used is the source's).
+std::uint32_t enforcePermissions(const VariationSettings& source, VariationSettings& candidate,
+                                 bool keepCandidatePermissions = false) noexcept;
 } // namespace groovemorph::core::control

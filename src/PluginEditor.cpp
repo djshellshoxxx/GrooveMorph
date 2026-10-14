@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "core/control/VariationBlend.h"
 
 namespace
 {
@@ -79,10 +80,8 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     addCombo(transitionMode, "transitionMode", {"Immediate", "Next Beat", "Next Bar", "Next Phrase", "Manual"}, "Transition");
     addCombo(denominator, "manualMeterDenominator", {"1", "2", "4", "8", "16"}, "Manual beat unit");
     addAndMakeVisible(bypassButton);
-    demoButton.setTooltip("Standalone evaluation aid: replaces the audio input with a built-in drum loop "
-                          "(kick, snare, hat) while the transport runs, so the effects can be heard without "
-                          "external audio. Not saved with the project. Use headphones; the level is moderate.");
     demoButton.onClick = [this] { audioProcessor.setDemoSourceEnabled(demoButton.getToggleState()); };
+    demoButton.setTooltip("Switches the input source between live input and the built-in drum loop (kick, snare, hat) so the effects can be heard without external audio. Captured/imported loops are in the Input tab. Not saved with the project.");
     addAndMakeVisible(demoButton);
     bypassAttachment = std::make_unique<ButtonAttachment>(audioProcessor.parameters, "bypass", bypassButton);
 
@@ -107,7 +106,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
             editVariation.setSelectedId(static_cast<int>(editingIndex) + 1, juce::dontSendNotification);
             return;
         }
-        editingIndex = static_cast<std::size_t>(editVariation.getSelectedId() - 1);
+        editingIndex = static_cast<std::size_t>(juce::jmax(0, editVariation.getSelectedId() - 1));
         refreshSceneControls();
     };
     addAndMakeVisible(editVariation);
@@ -137,13 +136,13 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
         row.slice.setNumDecimalPlacesToDisplay(3);
         row.slice.setRange(1.0 / 16.0, 4, 1.0 / 16.0);
         row.slice.setTooltip(names[static_cast<int>(i)] + " slice in meter beats. Bounded 4-second history limits effective duration: repeat < 1.33 s, reverse < 2 s, half-time/tape stop < 4 s; gate uses the full requested value.");
-        row.enabled.onClick = [this, i] { editOperation(i); };
+        row.enabled.onClick = [this, i] { editOperation(i, 0); };
         row.depth.onDragStart = [this, i] { operations[i].draggingDepth = true; };
         row.slice.onDragStart = [this, i] { operations[i].draggingSlice = true; };
-        row.depth.onDragEnd = [this, i] { operations[i].draggingDepth = false; editOperation(i); };
-        row.slice.onDragEnd = [this, i] { operations[i].draggingSlice = false; editOperation(i); };
-        row.depth.onValueChange = [this, i] { if (!operations[i].draggingDepth) editOperation(i); };
-        row.slice.onValueChange = [this, i] { if (!operations[i].draggingSlice) editOperation(i); };
+        row.depth.onDragEnd = [this, i] { operations[i].draggingDepth = false; editOperation(i, 1); };
+        row.slice.onDragEnd = [this, i] { operations[i].draggingSlice = false; editOperation(i, 2); };
+        row.depth.onValueChange = [this, i] { if (!operations[i].draggingDepth) editOperation(i, 1); };
+        row.slice.onValueChange = [this, i] { if (!operations[i].draggingSlice) editOperation(i, 2); };
         addAndMakeVisible(row.enabled);
         addAndMakeVisible(row.depth);
         addAndMakeVisible(row.slice);
@@ -189,8 +188,8 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     addAndMakeVisible(*inspector);
     refreshSceneControls();
     setResizable(true, true);
-    setResizeLimits(1180, 700, 1900, 1100);
-    setSize(1240, 740);
+    setResizeLimits(1230, 700, 1900, 1100);
+    setSize(1290, 740);
     startTimerHz(10);
 }
 
@@ -222,17 +221,27 @@ void GrooveMorphAudioProcessorEditor::refreshSceneControls()
     if (inspector != nullptr) inspector->refresh();
 }
 
-void GrooveMorphAudioProcessorEditor::applySceneSettings(const groovemorph::core::VariationSettings& settings)
+void GrooveMorphAudioProcessorEditor::applySceneSettings(groovemorph::core::VariationSettings settings)
 {
     if (refreshing) return;
+    // C03: locked fields are kept at their stored values for manual edits too. The lock
+    // configuration being edited is kept; the locks in effect are those of the stored scene.
+    const auto stored = audioProcessor.getSceneBank().variation(editingIndex).settings;
+    if (groovemorph::core::control::enforcePermissions(stored, settings, true) > 0)
+        lockNoticeUntil = juce::Time::getMillisecondCounter() + 3000;
     editedVariation.settings = settings;
     if (audioProcessor.isAuditioning()) audioProcessor.setAuditionEdit(editedVariation);
     else audioProcessor.setVariationSettings(editingIndex, settings);
     refreshSceneControls();
 }
 
-void GrooveMorphAudioProcessorEditor::previewCandidate(const groovemorph::core::VariationSettings& settings)
+void GrooveMorphAudioProcessorEditor::previewCandidate(const groovemorph::core::VariationSettings& candidateSettings)
 {
+    // Generated or recalled candidates still honour the locks that are in force now.
+    auto settings = candidateSettings;
+    const auto stored = audioProcessor.getSceneBank().variation(editingIndex).settings;
+    if (groovemorph::core::control::enforcePermissions(stored, settings, true) > 0)
+        lockNoticeUntil = juce::Time::getMillisecondCounter() + 3000;
     if (!audioProcessor.isAuditioning())
     {
         editName();
@@ -245,16 +254,18 @@ void GrooveMorphAudioProcessorEditor::previewCandidate(const groovemorph::core::
     refreshSceneControls();
 }
 
-void GrooveMorphAudioProcessorEditor::editOperation(std::size_t index)
+void GrooveMorphAudioProcessorEditor::editOperation(std::size_t index, int field)
 {
     if (refreshing) return;
+    // Write back only the control that changed, so enabling an effect never rounds the depth/slice of
+    // a generated or restored value to the slider step.
     const auto& row = operations[index];
-    auto& settings = editedVariation.settings.operations[index];
-    settings = {row.enabled.getToggleState(), static_cast<float>(row.depth.getValue()),
-                static_cast<float>(row.slice.getValue())};
-    if (audioProcessor.isAuditioning()) audioProcessor.setAuditionEdit(editedVariation);
-    else audioProcessor.setOperationSettings(editingIndex,
-        static_cast<groovemorph::core::OperationType>(index), settings);
+    auto settings = editedVariation.settings;
+    auto& op = settings.operations[index];
+    if (field == 0) op.enabled = row.enabled.getToggleState();
+    else if (field == 1) op.depth = static_cast<float>(row.depth.getValue());
+    else op.sliceBeats = static_cast<float>(row.slice.getValue());
+    applySceneSettings(settings);
 }
 
 void GrooveMorphAudioProcessorEditor::editName()
@@ -329,6 +340,7 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
         returnOnNoteOff.setToggleState(bank.midiNoteMap().noteOffPolicy ==
             groovemorph::core::scene::NoteOffPolicy::ReturnToPrevious, juce::dontSendNotification);
     }
+    if (juce::Time::getMillisecondCounter() < lockNoticeUntil) status << " | locked field(s) kept (Generator tab > Locks)";
     if (preview) status << (comparingStored ? " | Preview: stored" : " | Preview: edited")
                         << (audioProcessor.isAuditionDirty() ? " (unapplied)" : "");
     const auto recovery = audioProcessor.getLastSceneLoadReport();
@@ -375,6 +387,7 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
             juce::dontSendNotification);
         midiLabel.setTooltip("Incoming MIDI note events from the host");
     }
+    demoButton.setToggleState(audioProcessor.isDemoSourceEnabled(), juce::dontSendNotification);
     if (inspector != nullptr && !refreshing) inspector->refresh();
     repaint();
 }

@@ -34,6 +34,8 @@ void DemoSource::render(float* const* channels, int numChannels, int numSamples,
         const double frac = beat - whole;
         const double t = frac * beatSeconds; // seconds since the beat started
         const auto beatIndex = static_cast<long long>(whole);
+        // Noise is keyed to the absolute sample position so splitting blocks never changes it.
+        const auto absolute = static_cast<std::int64_t>(std::llround(std::fmod(beat, 1.0e9) * samplesPerBeat));
         const long long inBar = ((beatIndex % 4) + 4) % 4;
         float v = 0.0f;
         // Kick: pitch-swept sine with exponential decay.
@@ -46,8 +48,7 @@ void DemoSource::render(float* const* channels, int numChannels, int numSamples,
         if (inBar == 1 || inBar == 3)
         {
             const double env = std::exp(-t * 18.0);
-            v += static_cast<float>(0.5 * env * noise(static_cast<std::uint64_t>(beatAtStart * 1000.0) * 7919u
-                                                      + static_cast<std::uint64_t>(i)));
+            v += static_cast<float>(0.5 * env * noise(static_cast<std::uint64_t>(absolute) * 7919u));
             v += static_cast<float>(0.25 * env * std::sin(twoPi * 190.0 * t));
         }
         // Hat on the off-beat eighth: short noise burst.
@@ -55,8 +56,7 @@ void DemoSource::render(float* const* channels, int numChannels, int numSamples,
             const double offT = (frac >= 0.5 ? frac - 0.5 : -1.0) * beatSeconds;
             if (offT >= 0.0)
                 v += static_cast<float>(0.22 * std::exp(-offT * 90.0)
-                                        * noise(static_cast<std::uint64_t>(i) * 31u + 5u
-                                                + static_cast<std::uint64_t>(beatIndex) * 977u));
+                                        * noise(static_cast<std::uint64_t>(absolute) * 31u + 5u));
         }
         v *= level;
         for (int c = 0; c < numChannels; ++c)

@@ -23,6 +23,11 @@ struct Targets
 {
     std::array<bool, laneCount> active{};
     std::array<float, laneCount> depthScale{};
+    // Event-local slice in meter beats; 0 = keep the operation's own slice.
+    std::array<float, laneCount> sliceBeats{};
+    // Absolute meter-beat position the operation's beat grid is measured from; 0 = shared grid.
+    // Non-zero only inside an event with restartCycle set (the cycle restarts at the onset).
+    std::array<double, laneCount> phaseOffsetBeats{};
     // Ticks (1/960 meter beat) until anything in `active`/`depthScale` can change.
     // Infinite (1e18) when the scene control is inert.
     double ticksUntilChange = 1.0e18;

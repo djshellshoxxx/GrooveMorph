@@ -121,7 +121,16 @@ public:
     void setSettingsView(const gm::VariationSettings& s)
     {
         if (!dragging)
+        {
             draft = s.control;
+            // The selection follows the event itself (operation, onset, duration), not its array
+            // slot, so undo, Reduce, scene switches and lock merges never leave it on another event.
+            if (hasSelection)
+            {
+                selectedIndex = findSelected(draft.lane);
+                hasSelection = selectedIndex >= 0;
+            }
+        }
         view = s;
         repaint();
     }
@@ -133,8 +142,9 @@ public:
         if (isLocked(next.lane.events[static_cast<std::size_t>(selectedIndex)].operation))
             return false;
         ctl::removeEvent(next.lane, static_cast<std::size_t>(selectedIndex));
-        commit(next);
         selectedIndex = -1;
+        hasSelection = false;
+        commit(next);
         if (onSelectionChanged)
             onSelectionChanged();
         return true;
@@ -288,6 +298,9 @@ public:
         const auto tick = tickAt(event.x, grid);
         dragLane = lane;
         selectedIndex = hit(control, lane, tick, P);
+        hasSelection = selectedIndex >= 0;
+        if (hasSelection)
+            selectedEvent = control.lane.events[static_cast<std::size_t>(selectedIndex)];
         dragging = true;
         dragMoved = false;
         if (selectedIndex >= 0)
@@ -338,6 +351,8 @@ public:
                 return;
             }
             selectedIndex = draft.lane.count - 1;
+            hasSelection = true;
+            selectedEvent = created;
             original = created;
             mode = Mode::ResizeEnd;
             dragMoved = true;
@@ -360,7 +375,7 @@ public:
         if (mode == Mode::Move)
         {
             auto onset = snap(tick - grabOffset, draft, true);
-            onset = std::clamp<std::int64_t>(onset, 0, pt - original.durationTicks);
+            onset = std::clamp<std::int64_t>(onset, 0, std::max<std::int64_t>(0, pt - original.durationTicks));
             e.onsetTicks = static_cast<std::int32_t>(onset);
         }
         else if (mode == Mode::ResizeStart)
@@ -380,6 +395,7 @@ public:
         if (ctl::replaceEvent(trial.lane, static_cast<std::size_t>(selectedIndex), e, pt) == ctl::EditStatus::Ok)
         {
             draft = trial;
+            selectedEvent = e;
             dragMoved = true;
         }
         repaint();
@@ -397,7 +413,7 @@ public:
 
     void mouseDoubleClick(const juce::MouseEvent& event) override
     {
-        if (!draft.lane.explicitEvents)
+        if (!draft.lane.explicitEvents || event.x < labelWidth)
             return;
         const auto grid = processor.getGridContext();
         const int lane = (event.y - laneTop) / laneHeight;
@@ -429,16 +445,20 @@ public:
             return true;
         const std::int64_t step = key.getModifiers().isShiftDown() ? ctl::ticksPerBeat : std::max<std::int64_t>(1, unit(control));
         auto onset = static_cast<std::int64_t>(e.onsetTicks) + (right ? step : -step);
-        onset = std::clamp<std::int64_t>(onset, 0, grid.phraseTicks() - e.durationTicks);
+        onset = std::clamp<std::int64_t>(onset, 0, std::max<std::int64_t>(0, grid.phraseTicks() - e.durationTicks));
         e.onsetTicks = static_cast<std::int32_t>(onset);
         if (ctl::replaceEvent(control.lane, static_cast<std::size_t>(selectedIndex), e, grid.phraseTicks()) == ctl::EditStatus::Ok)
+        {
+            selectedEvent = e;
             commit(control);
+        }
         return true;
     }
 
     void select(int index)
     {
         selectedIndex = index;
+        hasSelection = index >= 0;
         repaint();
     }
 
@@ -454,6 +474,8 @@ private:
     gm::VariationSettings view;
     ctl::SceneControl draft;
     int selectedIndex = -1;
+    bool hasSelection = false;
+    ctl::LaneEvent selectedEvent;
     int dragLane = 0;
     bool dragging = false, dragMoved = false;
     bool snapEnabled = true;
@@ -461,6 +483,14 @@ private:
     std::int64_t grabOffset = 0;
     ctl::LaneEvent original;
 
+    int findSelected(const ctl::EventLane& lane) const noexcept
+    {
+        for (std::size_t i = 0; i < lane.count; ++i)
+            if (lane.events[i].operation == selectedEvent.operation && lane.events[i].onsetTicks == selectedEvent.onsetTicks
+                && lane.events[i].durationTicks == selectedEvent.durationTicks)
+                return static_cast<int>(i);
+        return -1;
+    }
     bool isLocked(std::uint8_t op) const
     {
         return op < ctl::laneCount && (access.settings().control.permissions.operationLocks[op] & ctl::lock::events) != 0;
@@ -486,10 +516,11 @@ private:
             const auto& e = c.lane.events[i];
             if (e.operation != lane)
                 continue;
-            double d = std::fmod(static_cast<double>(tick - e.onsetTicks), P);
+            const double onset = std::fmod(static_cast<double>(e.onsetTicks), P);
+            double d = std::fmod(static_cast<double>(tick) - onset, P);
             if (d < 0.0)
                 d += P;
-            if (d < static_cast<double>(e.durationTicks) || std::abs(static_cast<double>(tick - e.onsetTicks)) < 1.0)
+            if (d < static_cast<double>(e.durationTicks) || std::abs(static_cast<double>(tick) - onset) < 1.0)
                 return static_cast<int>(i);
         }
         return -1;
@@ -498,7 +529,9 @@ private:
     static std::vector<std::pair<int, int>> eventRanges(const ctl::LaneEvent& e, double P, int width)
     {
         std::vector<std::pair<int, int>> ranges;
-        const double a = e.onsetTicks, b = a + e.durationTicks;
+        // Events saved for a longer phrase wrap into this one, exactly like the audio side.
+        const double a = std::fmod(static_cast<double>(e.onsetTicks), P);
+        const double b = a + std::min(static_cast<double>(e.durationTicks), P);
         if (b <= P)
             ranges.emplace_back(static_cast<int>(a / P * width), static_cast<int>(b / P * width));
         else
@@ -571,7 +604,7 @@ public:
                         mask |= 1u << i;
                 const auto pt = processor.getGridContext().phraseTicks();
                 s.control.lane.count = 0;
-                ctl::convertLegacyToEvents(s.control.lane, mask, pt);
+                ctl::convertLegacyToEvents(s.control.lane, mask, pt, &s.control.activity.priority);
             });
         };
         removeSelected.setButtonText("Delete event");
@@ -586,6 +619,46 @@ public:
                 if (static_cast<std::size_t>(i) < s.control.lane.count)
                     s.control.lane.events[static_cast<std::size_t>(i)].depth = static_cast<float>(eventDepth.slider.getValue());
             });
+        };
+        eventSlice.setup(*this, "Event slice (beats)", "0 = use the effect's own slice. Otherwise this event uses its own slice length (1/16 - 4 beats) while it is active.", 0, 4, 1.0 / 16.0, 3);
+        eventSlice.slider.textFromValueFunction = [](double v) { return v < 0.001 ? juce::String("effect") : juce::String(v, 3); };
+        eventSlice.commit = [this] {
+            const int i = canvas.selected();
+            if (i < 0 || refreshing) return;
+            edit([this, i](auto& s) {
+                if (static_cast<std::size_t>(i) < s.control.lane.count)
+                    s.control.lane.events[static_cast<std::size_t>(i)].sliceBeats = static_cast<float>(eventSlice.slider.getValue());
+            });
+        };
+        eventPriority.setup(*this, "Event priority", "0-100. When the 'effects at once' limit is exceeded, higher-priority events keep playing (Limits tab).", 0, 100, 1, 0);
+        eventPriority.commit = [this] {
+            const int i = canvas.selected();
+            if (i < 0 || refreshing) return;
+            edit([this, i](auto& s) {
+                if (static_cast<std::size_t>(i) < s.control.lane.count)
+                    s.control.lane.events[static_cast<std::size_t>(i)].priority = static_cast<std::uint8_t>(eventPriority.slider.getValue());
+            });
+        };
+        eventRestart.setButtonText("Restart effect cycle at event start");
+        eventRestart.setTooltip("On: the effect's repeat/gate/rate grid restarts at the event onset, so the event always begins at the start of a cycle. Off: the effect keeps the shared beat grid.");
+        eventRestart.onClick = [this] {
+            const int i = canvas.selected();
+            if (i < 0 || refreshing) return;
+            edit([this, i](auto& s) {
+                if (static_cast<std::size_t>(i) < s.control.lane.count)
+                    s.control.lane.events[static_cast<std::size_t>(i)].restartCycle = eventRestart.getToggleState();
+            });
+        };
+        loopLane.addItemList(operationNames, 1);
+        loopLane.setSelectedId(1, juce::dontSendNotification);
+        loopLane.setTooltip("Lane whose loop length to set (polyrhythm).");
+        loopLane.onChange = [this] { refresh(access.settings()); };
+        loopBeats.setup(*this, "", "Loop length of the chosen lane's events in meter beats. 0 = follow the phrase. A lane with 3 beats and another with 4 beats drift against each other (polyrhythm).", 0, 64, 1, 0);
+        loopBeats.label.setVisible(false);
+        loopBeats.slider.textFromValueFunction = [](double v) { return v < 0.5 ? juce::String("phrase") : juce::String(static_cast<int>(v)) + " beats"; };
+        loopBeats.commit = [this] {
+            const auto lane = static_cast<std::size_t>(juce::jmax(0, loopLane.getSelectedId() - 1));
+            edit([this, lane](auto& s) { s.control.lane.loopBeats[lane] = static_cast<std::uint8_t>(loopBeats.slider.getValue()); });
         };
         eventEnabled.setButtonText("Event enabled");
         eventEnabled.setTooltip("Mutes the selected event without deleting it.");
@@ -603,7 +676,7 @@ public:
         setupLabel(message, "");
         message.setColour(juce::Label::textColourId, juce::Colours::orange);
         for (auto* c : std::initializer_list<juce::Component*>{&enable, &window, &snap, &snapLabel, &modeButton, &convert,
-                                                               &removeSelected, &eventEnabled, &message, &canvas})
+                                                               &removeSelected, &eventEnabled, &message, &canvas, &eventRestart, &loopLane})
             addAndMakeVisible(*c);
     }
 
@@ -625,26 +698,35 @@ public:
         protect.set(p.downbeatProtectBeats);
         modeButton.setToggleState(s.control.lane.explicitEvents, juce::dontSendNotification);
         const bool custom = p.window == ctl::WindowMode::Custom && p.enabled;
-        start.slider.setEnabled(custom);
-        span.slider.setEnabled(custom);
-        every.slider.setEnabled(p.enabled);
-        offset.slider.setEnabled(p.enabled);
-        window.setEnabled(p.enabled);
-        for (auto* c : std::initializer_list<juce::Component*>{&enable, &window, &start.slider, &span.slider, &every.slider,
-                                                               &offset.slider, &origin.slider, &protect.slider})
-            if (locked)
-                c->setEnabled(false);
-        if (locked)
-            message.setText("Placement is locked (Generator tab > Locks).", juce::dontSendNotification);
+        const bool free = !locked;
+        start.slider.setEnabled(free && custom);
+        span.slider.setEnabled(free && custom);
+        every.slider.setEnabled(free && p.enabled);
+        offset.slider.setEnabled(free && p.enabled);
+        window.setEnabled(free && p.enabled);
+        enable.setEnabled(free);
+        origin.slider.setEnabled(free);
+        protect.slider.setEnabled(free);
+        message.setText(locked ? "Placement is locked (Generator tab > Locks)." : "", juce::dontSendNotification);
         convert.setEnabled(!s.control.lane.explicitEvents);
+        canvas.setSettingsView(s);
         const int sel = canvas.selected();
         const bool haveSel = s.control.lane.explicitEvents && sel >= 0 && static_cast<std::size_t>(sel) < s.control.lane.count;
         removeSelected.setEnabled(haveSel);
         eventDepth.slider.setEnabled(haveSel);
+        eventSlice.slider.setEnabled(haveSel);
+        eventPriority.slider.setEnabled(haveSel);
+        eventRestart.setEnabled(haveSel);
         eventEnabled.setEnabled(haveSel);
+        loopLane.setEnabled(s.control.lane.explicitEvents);
+        loopBeats.slider.setEnabled(s.control.lane.explicitEvents);
+        loopBeats.set(s.control.lane.loopBeats[static_cast<std::size_t>(juce::jmax(0, loopLane.getSelectedId() - 1))]);
         if (haveSel)
         {
             const auto& e = s.control.lane.events[static_cast<std::size_t>(sel)];
+            eventSlice.set(e.sliceBeats);
+            eventPriority.set(e.priority);
+            eventRestart.setToggleState(e.restartCycle, juce::dontSendNotification);
             eventDepth.set(e.depth);
             eventEnabled.setToggleState(e.enabled, juce::dontSendNotification);
         }
@@ -674,7 +756,14 @@ public:
         removeSelected.setBounds(buttons.removeFromLeft(100).reduced(2, 0));
         canvas.setBounds(nextRow(area, 18 + 5 * 24 + 6));
         eventDepth.layout(nextRow(area), 150);
-        eventEnabled.setBounds(nextRow(area));
+        eventSlice.layout(nextRow(area), 150);
+        eventPriority.layout(nextRow(area), 150);
+        auto flags = nextRow(area);
+        eventEnabled.setBounds(flags.removeFromLeft(130));
+        eventRestart.setBounds(flags);
+        auto loop = nextRow(area);
+        loopLane.setBounds(loop.removeFromLeft(150));
+        loopBeats.slider.setBounds(loop);
         message.setBounds(nextRow(area));
     }
 
@@ -682,7 +771,9 @@ private:
     juce::ToggleButton enable, modeButton, eventEnabled;
     juce::ComboBox window, snap;
     juce::Label snapLabel, message;
-    SliderRow start, span, every, offset, origin, protect, eventDepth;
+    SliderRow start, span, every, offset, origin, protect, eventDepth, eventSlice, eventPriority, loopBeats;
+    juce::ToggleButton eventRestart;
+    juce::ComboBox loopLane;
     juce::TextButton convert, removeSelected;
     LaneCanvas canvas;
 };
@@ -708,9 +799,9 @@ public:
         newSeed.setButtonText("New seed");
         newSeed.setTooltip("Picks a fresh random seed and resets the candidate number to 1.");
         newSeed.onClick = [this] {
-            settings.seed = juce::Random::getSystemRandom().nextInt64();
+            settings.seed = static_cast<std::uint64_t>(juce::Random::getSystemRandom().nextInt64());
             settings.candidate = 0;
-            seedEditor.setText(juce::String(static_cast<juce::int64>(settings.seed)), false);
+            seedEditor.setText(juce::String(settings.seed), false);
             updateCandidateLabel();
         };
         distance.setup(*this, "Distance", "How far the candidate moves from the stored scene: 0 = unchanged, 1 = full generated change. Enable flips need >= 0.5.", 0, 1, 0.01, 2);
@@ -847,16 +938,13 @@ private:
 
     void readSeed()
     {
+        // Digits only, any length up to 20 (unsigned 64-bit; larger values wrap).
         const auto text = seedEditor.getText().trim();
-        settings.seed = text.isEmpty() ? 1ull : static_cast<std::uint64_t>(text.getLargeIntValue());
-        if (text.length() > 18)
-        {
-            // getLargeIntValue saturates at int64; parse unsigned 64-bit manually.
-            std::uint64_t v = 0;
-            for (auto ch : text)
-                v = v * 10u + static_cast<std::uint64_t>(ch - '0');
-            settings.seed = v;
-        }
+        std::uint64_t value = 0;
+        for (auto ch : text)
+            if (ch >= '0' && ch <= '9')
+                value = value * 10u + static_cast<std::uint64_t>(ch - '0');
+        settings.seed = text.isEmpty() ? 1ull : value;
         settings.candidate = 0;
         updateCandidateLabel();
     }
@@ -903,7 +991,7 @@ private:
         for (const auto& e : entries)
         {
             history.addItem(juce::String("#") + juce::String(id) + "  scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + e.scene))
-                                + "  seed " + juce::String(static_cast<juce::int64>(e.settings.seed)) + "  cand " + juce::String(e.settings.candidate + 1)
+                                + "  seed " + juce::String(e.settings.seed) + "  cand " + juce::String(e.settings.candidate + 1)
                                 + "  " + juce::StringArray{"Cons", "Creat", "Exper"}[static_cast<int>(e.settings.style)]
                                 + "  d=" + juce::String(e.settings.distance, 2), id);
             ++id;
@@ -915,6 +1003,12 @@ private:
         if (id < 1 || static_cast<std::size_t>(id) > entries.size())
             return;
         const auto entry = entries[static_cast<std::size_t>(id - 1)];
+        if (entry.scene != access.editingIndex())
+        {
+            resultLabel.setText("That entry belongs to scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + entry.scene))
+                                    + ". Select it in the Edit combo first.", juce::dontSendNotification);
+            return;
+        }
         const auto candidate = gvar::buildCandidate(entry.source, entry.settings);
         describe(candidate);
         resultLabel.setText("Recalled history #" + juce::String(id) + ". " + resultLabel.getText(), juce::dontSendNotification);
@@ -939,7 +1033,7 @@ public:
         duplicate.setTooltip("Copies the edited scene completely (effects, placement, events, locks and name) into the target. One undo step. Disabled during a preview.");
         duplicate.onClick = [this] {
             const auto from = access.editingIndex();
-            const auto to = static_cast<std::size_t>(target.getSelectedId() - 1);
+            const auto to = static_cast<std::size_t>(juce::jmax(0, target.getSelectedId() - 1));
             message.setText(processor.duplicateVariation(from, to) ? "Duplicated." : "Nothing to duplicate (same scene, identical scenes or preview active).",
                             juce::dontSendNotification);
         };
@@ -952,7 +1046,7 @@ public:
         resetOp.setButtonText("Reset selected effect");
         resetOp.setTooltip("Resets the chosen effect of the edited scene to off / depth 1 / slice 0.25 beat.");
         resetOp.onClick = [this] {
-            const auto index = static_cast<std::size_t>(op.getSelectedId() - 1);
+            const auto index = static_cast<std::size_t>(juce::jmax(0, op.getSelectedId() - 1));
             edit([index](auto& s) { s.operations[index] = gm::OperationSettings{}; });
             message.setText("Effect reset.", juce::dontSendNotification);
         };
@@ -1025,11 +1119,14 @@ public:
         note.setJustificationType(juce::Justification::topLeft);
 
         setupLabel(returnTitle, "Automatic return (host automatable)");
-        setupLabel(returnBarsLabel, "Return after (bars)");
+        setupLabel(returnBarsLabel, "Return after");
         returnBars.setSliderStyle(juce::Slider::LinearHorizontal);
         returnBars.setTextBoxStyle(juce::Slider::TextBoxRight, false, 62, 22);
         returnBars.setNumDecimalPlacesToDisplay(0);
         returnBars.setTooltip("0 = off. After a scene switch, switch back after this many bars. Lands on the bar line. A new request, Cancel or a seek cancels it.");
+        setupLabel(returnUnitLabel, "Unit");
+        returnUnit.addItemList({"Bars", "Phrases"}, 1);
+        returnUnit.setTooltip("Count the return delay in bars or in whole phrases (phrase length comes from the timing settings).");
         setupLabel(returnTargetLabel, "Return to");
         returnTarget.addItemList({"Previous scene", "A", "B", "C", "D"}, 1);
         returnTarget.setTooltip("Scene to return to. Previous returns to the scene that was sounding before the switch.");
@@ -1037,13 +1134,14 @@ public:
 
         for (auto* c : std::initializer_list<juce::Component*>{&morphTitle, &morphTargetLabel, &morphTarget, &morphAmountLabel,
                                                                &morphAmount, &note, &returnTitle, &returnBarsLabel, &returnBars,
-                                                               &returnTargetLabel, &returnTarget, &returnStatus})
+                                                               &returnTargetLabel, &returnTarget, &returnStatus, &returnUnitLabel, &returnUnit})
             addAndMakeVisible(*c);
         auto& apvts = processor.parameters;
         attachments.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::morphTargetId, morphTarget));
         attachments.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::morphAmountId, morphAmount));
         attachments.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnBarsId, returnBars));
         attachments.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnTargetId, returnTarget));
+        attachments.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnUnitId, returnUnit));
     }
     void refresh(const gm::VariationSettings&) override
     {
@@ -1069,13 +1167,16 @@ public:
         returnBarsLabel.setBounds(r.removeFromLeft(120));
         returnBars.setBounds(r);
         r = nextRow(area);
+        returnUnitLabel.setBounds(r.removeFromLeft(120));
+        returnUnit.setBounds(r.removeFromLeft(150));
+        r = nextRow(area);
         returnTargetLabel.setBounds(r.removeFromLeft(120));
         returnTarget.setBounds(r.removeFromLeft(150));
         returnStatus.setBounds(nextRow(area));
     }
 private:
-    juce::Label morphTitle, morphTargetLabel, morphAmountLabel, note, returnTitle, returnBarsLabel, returnTargetLabel, returnStatus;
-    juce::ComboBox morphTarget, returnTarget;
+    juce::Label morphTitle, morphTargetLabel, morphAmountLabel, note, returnTitle, returnBarsLabel, returnTargetLabel, returnStatus, returnUnitLabel;
+    juce::ComboBox morphTarget, returnTarget, returnUnit;
     juce::Slider morphAmount, returnBars;
     struct AttachmentList
     {
@@ -1104,10 +1205,25 @@ public:
             prio[i].setup(*this, operationNames[static_cast<int>(i)] + " priority", "0-100. Higher priority survives when the limit is exceeded; ties keep the earlier effect in chain order.", 0, 100, 1, 0);
             prio[i].commit = [this, i] { edit([this, i](auto& s) { s.control.activity.priority[i] = static_cast<std::uint8_t>(prio[i].slider.getValue()); }); };
         }
-        setupLabel(note, "Applies live to the scene being played. Not implemented in this alpha: minimum event spacing and maximum phrase coverage limits.");
+        spacing.setup(*this, "Min event spacing (beats)", "Reduce action: event starts must be at least this far apart (0 = no limit).", 0, 4, 1.0 / 16.0, 3);
+        spacing.commit = [this] { edit([this](auto& s) { s.control.activity.minSpacingBeats = static_cast<float>(spacing.slider.getValue()); }); };
+        coverage.setup(*this, "Max phrase coverage", "Reduce action: the union of event lengths may cover at most this fraction of the phrase.", 0, 1, 0.01, 2);
+        coverage.commit = [this] { edit([this](auto& s) { s.control.activity.maxCoverage = static_cast<float>(coverage.slider.getValue()); }); };
+        analyze.setButtonText("Analyze");
+        analyze.setTooltip("Shows what Reduce would keep and drop. Changes nothing.");
+        analyze.onClick = [this] { run(false); };
+        reduce.setButtonText("Reduce events");
+        reduce.setTooltip("Drops lower-priority events until the spacing and coverage limits hold. Events of lanes with a locked Events bit are kept. One undo step.");
+        reduce.onClick = [this] { run(true); };
+        setupLabel(note, "'Effects at once' is applied live. Spacing and coverage are explicit actions: they edit the event list only when you press Reduce (Undo restores).");
         note.setJustificationType(juce::Justification::topLeft);
+        result.setColour(juce::Label::textColourId, juce::Colours::orange);
+        result.setJustificationType(juce::Justification::topLeft);
         addAndMakeVisible(enable);
         addAndMakeVisible(note);
+        addAndMakeVisible(analyze);
+        addAndMakeVisible(reduce);
+        addAndMakeVisible(result);
     }
     void refresh(const gm::VariationSettings& s) override
     {
@@ -1119,6 +1235,10 @@ public:
         maxSlider.slider.setEnabled(s.control.activity.enabled);
         for (auto& p : prio)
             p.slider.setEnabled(s.control.activity.enabled);
+        spacing.set(s.control.activity.minSpacingBeats);
+        coverage.set(s.control.activity.maxCoverage);
+        reduce.setEnabled(s.control.lane.explicitEvents && s.control.lane.count > 0);
+        analyze.setEnabled(reduce.isEnabled());
     }
     void resized() override
     {
@@ -1127,13 +1247,388 @@ public:
         maxSlider.layout(nextRow(area), 150);
         for (auto& p : prio)
             p.layout(nextRow(area), 190);
+        spacing.layout(nextRow(area), 190);
+        coverage.layout(nextRow(area), 190);
+        auto buttons = nextRow(area, 28);
+        analyze.setBounds(buttons.removeFromLeft(100));
+        reduce.setBounds(buttons.removeFromLeft(130).reduced(4, 0));
+        result.setBounds(nextRow(area, 44));
         note.setBounds(nextRow(area, 60));
     }
 private:
+    void run(bool apply)
+    {
+        auto settings = access.settings();
+        const auto phraseTicks = processor.getGridContext().phraseTicks();
+        auto lane = settings.control.lane;
+        const auto report = ctl::reduceEvents(lane, settings.control.activity, settings.control.permissions, phraseTicks, apply);
+        if (report.status == ctl::ReduceStatus::ConflictLocked)
+        {
+            result.setText("Conflict: locked events alone break the limits. Nothing changed.", juce::dontSendNotification);
+            return;
+        }
+        juce::String text = juce::String(apply ? "Reduced: " : "Would keep ") + juce::String(report.kept) + ", drop "
+                            + juce::String(report.dropped) + " | coverage " + juce::String(report.coverage * 100.0f, 0)
+                            + "% | peak " + juce::String(report.peakConcurrent) + " effects at once";
+        result.setText(text, juce::dontSendNotification);
+        if (apply && report.dropped > 0)
+        {
+            settings.control.lane = lane;
+            access.setSettings(settings);
+        }
+    }
     juce::ToggleButton enable;
-    juce::Label note;
+    juce::Label note, result;
+    juce::TextButton analyze, reduce;
+    SliderRow spacing, coverage;
     SliderRow maxSlider;
     std::array<SliderRow, gm::operationCount> prio;
+};
+
+
+// ---------------------------------------------------------------------------------------
+// Input tab: source, loop capture/import (F09), band split (F03/F10), audio trigger (F07), MIDI (F12)
+// ---------------------------------------------------------------------------------------
+class InputTab final : public InspectorTab
+{
+public:
+    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+    InputTab(GrooveMorphAudioProcessor& p, SceneEditAccess a) : InspectorTab(p, a)
+    {
+        setupLabel(sourceTitle, "Input source");
+        source.addItemList({"Live input", "Demo drum loop", "Captured / imported loop"}, 1);
+        source.setTooltip("What feeds the effects. The demo and loop sources replace the input while the transport plays (Standalone: the free-running clock). Not saved with the project.");
+        source.onChange = [this] { if (!refreshing) processor.setSourceMode(source.getSelectedId() - 1); };
+        bars.addItemList({"1 bar", "2 bars", "4 bars", "8 bars"}, 1);
+        bars.setSelectedId(2, juce::dontSendNotification);
+        bars.setTooltip("Length of a captured or imported loop in bars (uses the current beats-per-bar).");
+        capture.setButtonText("Capture");
+        capture.setTooltip("Records the signal entering the effects (live input or demo) for the chosen number of bars, starting on the next bar line while the transport plays. Then select 'Captured / imported loop'.");
+        capture.onClick = [this] {
+            if (processor.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Idle)
+                processor.cancelLoopCapture();
+            else if (!processor.armLoopCapture(barChoice()))
+                message.setText("Capture could not start.", juce::dontSendNotification);
+        };
+        importButton.setButtonText("Import file...");
+        importButton.setTooltip("Loads a WAV/AIFF/FLAC file of up to 20 seconds as a loop spanning the chosen number of bars. It plays locked to the beat grid; there is no time stretching, so pitch follows tempo.");
+        importButton.onClick = [this] {
+            chooser = std::make_unique<juce::FileChooser>("Choose an audio loop", juce::File{}, "*.wav;*.aif;*.aiff;*.flac;*.ogg");
+            chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                 [this](const juce::FileChooser& fc) {
+                                     const auto file = fc.getResult();
+                                     if (file == juce::File{})
+                                         return;
+                                     const auto result = processor.importLoopFile(file, barChoice());
+                                     message.setText(result.wasOk() ? "Imported " + file.getFileName() : result.getErrorMessage(),
+                                                     juce::dontSendNotification);
+                                     if (result.wasOk())
+                                     {
+                                         processor.setSourceMode(2);
+                                         source.setSelectedId(3, juce::dontSendNotification);
+                                     }
+                                 });
+        };
+        clearLoop.setButtonText("Clear loop");
+        clearLoop.setTooltip("Discards the captured/imported loop.");
+        clearLoop.onClick = [this] { processor.clearLoop(); if (processor.getSourceMode() == 2) { processor.setSourceMode(0); source.setSelectedId(1, juce::dontSendNotification); } };
+        setupLabel(loopInfo, "");
+        setupLabel(message, "");
+        message.setColour(juce::Label::textColourId, juce::Colours::orange);
+
+        setupLabel(bandTitle, "Band split (effects on part of the spectrum)");
+        setupLabel(bandModeLabel, "Process");
+        bandMode.addItemList({"Full band", "Protect lows", "Lows only"}, 1);
+        bandMode.setTooltip("Full band: unchanged. Protect lows: bass below the crossover bypasses the effects (keeps the low end solid). Lows only: only the bass goes through the effects. First-order crossover (6 dB/oct), so the split is gentle.");
+        setupLabel(crossoverLabel, "Crossover");
+        crossover.setSliderStyle(juce::Slider::LinearHorizontal);
+        crossover.setTextBoxStyle(juce::Slider::TextBoxRight, false, 62, 22);
+        crossover.setTextValueSuffix(" Hz");
+        crossover.setTooltip("Crossover frequency, 40-400 Hz.");
+
+        setupLabel(triggerTitle, "Audio trigger (F07)");
+        setupLabel(triggerLabel, "On transient");
+        trigger.addItemList({"Off", "Next scene", "Trigger queued"}, 1);
+        trigger.setTooltip("Off, switch to the next scene (using the Transition setting) or fire a queued Manual transition whenever a drum-like transient is detected in the signal entering the effects.");
+        setupLabel(sensLabel, "Sensitivity");
+        sens.setSliderStyle(juce::Slider::LinearHorizontal);
+        sens.setTextBoxStyle(juce::Slider::TextBoxRight, false, 62, 22);
+        sens.setNumDecimalPlacesToDisplay(2);
+        sens.setTooltip("Higher reacts to softer transients (and false triggers).");
+        setupLabel(onsets, "");
+
+        midiMacros.setButtonText("MIDI macros: CC 20/21/22 and program change");
+        midiMacros.setTooltip("CC 20 = Intensity, CC 21 = Dry/Wet, CC 22 = Morph amount; program change 0-3 = scene A-D. Applied at about 20 Hz via the host parameters. Off by default; not saved.");
+        midiMacros.onClick = [this] { processor.setMidiMacrosEnabled(midiMacros.getToggleState()); };
+
+        for (auto* c : std::initializer_list<juce::Component*>{&sourceTitle, &source, &bars, &capture, &importButton, &clearLoop, &loopInfo,
+                                                               &message, &bandTitle, &bandModeLabel, &bandMode, &crossoverLabel, &crossover,
+                                                               &triggerTitle, &triggerLabel, &trigger, &sensLabel, &sens, &onsets, &midiMacros})
+            addAndMakeVisible(*c);
+        auto& apvts = processor.parameters;
+        combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandModeId, bandMode));
+        sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::bandCrossoverId, crossover));
+        combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerId, trigger));
+        sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerSensId, sens));
+        sens.setNumDecimalPlacesToDisplay(2);
+    }
+    void refresh(const gm::VariationSettings&) override
+    {
+        const juce::ScopedValueSetter<bool> guard(refreshing, true);
+        if (!source.isPopupActive())
+            source.setSelectedId(processor.getSourceMode() + 1, juce::dontSendNotification);
+        using State = groovemorph::core::LoopCapture::State;
+        switch (processor.getLoopCaptureState())
+        {
+            case State::Idle:
+                capture.setButtonText("Capture");
+                if (const int why = processor.getLoopCaptureFailure(); why == 1)
+                    message.setText("Capture refused: that many bars would exceed 20 seconds at this tempo.", juce::dontSendNotification);
+                else if (why == 2)
+                    message.setText("Capture stopped because the transport stopped.", juce::dontSendNotification);
+                break;
+            case State::Armed: capture.setButtonText("Waiting for bar line (click to cancel)"); break;
+            case State::Recording: capture.setButtonText("Recording... (click to cancel)"); break;
+            case State::Done: capture.setButtonText("Finishing..."); break;
+        }
+        loopInfo.setText(processor.hasLoop() ? "Loop loaded: " + juce::String(processor.getLoopSeconds(), 2) + " s"
+                                             : "No loop loaded (capture or import one).",
+                         juce::dontSendNotification);
+        clearLoop.setEnabled(processor.hasLoop());
+        onsets.setText("Transients detected: " + juce::String(processor.getOnsetCount()), juce::dontSendNotification);
+        midiMacros.setToggleState(processor.areMidiMacrosEnabled(), juce::dontSendNotification);
+    }
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(8);
+        sourceTitle.setBounds(nextRow(area));
+        source.setBounds(nextRow(area).removeFromLeft(240));
+        auto r = nextRow(area);
+        bars.setBounds(r.removeFromLeft(80));
+        capture.setBounds(r.removeFromLeft(240).reduced(4, 0));
+        r = nextRow(area);
+        importButton.setBounds(r.removeFromLeft(120));
+        clearLoop.setBounds(r.removeFromLeft(110).reduced(4, 0));
+        loopInfo.setBounds(nextRow(area));
+        message.setBounds(nextRow(area));
+        area.removeFromTop(8);
+        bandTitle.setBounds(nextRow(area));
+        r = nextRow(area);
+        bandModeLabel.setBounds(r.removeFromLeft(100));
+        bandMode.setBounds(r.removeFromLeft(160));
+        r = nextRow(area);
+        crossoverLabel.setBounds(r.removeFromLeft(100));
+        crossover.setBounds(r);
+        area.removeFromTop(8);
+        triggerTitle.setBounds(nextRow(area));
+        r = nextRow(area);
+        triggerLabel.setBounds(r.removeFromLeft(100));
+        trigger.setBounds(r.removeFromLeft(180));
+        r = nextRow(area);
+        sensLabel.setBounds(r.removeFromLeft(100));
+        sens.setBounds(r);
+        onsets.setBounds(nextRow(area));
+        area.removeFromTop(8);
+        midiMacros.setBounds(nextRow(area));
+    }
+private:
+    int barChoice() const { constexpr int values[] = {1, 2, 4, 8}; return values[juce::jlimit(0, 3, bars.getSelectedId() - 1)]; }
+    juce::Label sourceTitle, loopInfo, message, bandTitle, bandModeLabel, crossoverLabel, triggerTitle, triggerLabel, sensLabel, onsets;
+    juce::ComboBox source, bars, bandMode, trigger;
+    juce::TextButton capture, importButton, clearLoop;
+    juce::Slider crossover, sens;
+    juce::ToggleButton midiMacros;
+    std::unique_ptr<juce::FileChooser> chooser;
+    std::vector<std::unique_ptr<SliderAttachment>> sliders;
+    std::vector<std::unique_ptr<ComboAttachment>> combos;
+};
+
+// ---------------------------------------------------------------------------------------
+// Perform tab: live macros (F04), gesture lane (F11), phrase evolution (F05)
+// ---------------------------------------------------------------------------------------
+class PerformTab final : public InspectorTab
+{
+public:
+    using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+
+    PerformTab(GrooveMorphAudioProcessor& p, SceneEditAccess a) : InspectorTab(p, a)
+    {
+        for (std::size_t i = 0; i < sceneButtons.size(); ++i)
+        {
+            sceneButtons[i].setButtonText(juce::String::charToString(static_cast<juce::juce_wchar>('A' + i)));
+            sceneButtons[i].setTooltip("Launch this scene using the Transition setting below.");
+            sceneButtons[i].onClick = [this, i] { processor.requestVariation(i); };
+            addAndMakeVisible(sceneButtons[i]);
+        }
+        setupLabel(transitionLabel, "Transition");
+        transition.addItemList({"Immediate", "Next Beat", "Next Bar", "Next Phrase", "Manual"}, 1);
+        transition.setTooltip("When a scene launch takes effect.");
+        trigger.setButtonText("Trigger queued");
+        trigger.setTooltip("Fires a queued Manual launch now.");
+        trigger.onClick = [this] { processor.triggerManualSwitch(); };
+        cancel.setButtonText("Cancel queued");
+        cancel.setTooltip("Cancels a queued launch.");
+        cancel.onClick = [this] { processor.cancelQueuedSwitch(); };
+        const char* names[] = {"Intensity", "Dry / wet", "Morph amount"};
+        for (std::size_t i = 0; i < 3; ++i)
+        {
+            setupLabel(macroLabels[i], names[i]);
+            macros[i].setSliderStyle(juce::Slider::LinearHorizontal);
+            macros[i].setTextBoxStyle(juce::Slider::TextBoxRight, false, 62, 22);
+            macros[i].setNumDecimalPlacesToDisplay(2);
+            addAndMakeVisible(macroLabels[i]);
+            addAndMakeVisible(macros[i]);
+        }
+        setupLabel(morphLabel, "Morph toward");
+        morphTarget.addItemList({"Off", "A", "B", "C", "D"}, 1);
+
+        setupLabel(gestureTitle, "Gesture lane (records one phrase of movement)");
+        gestureTarget.addItemList({"Morph amount", "Intensity", "Dry / wet"}, 1);
+        gestureTarget.setSelectedId(1, juce::dontSendNotification);
+        gestureTarget.setTooltip("Which macro the gesture lane records and plays back.");
+        gestureTarget.onChange = [this] { if (!refreshing) processor.setGestureTarget(juce::jmax(0, gestureTarget.getSelectedId() - 1)); };
+        record.setButtonText("Record");
+        record.setClickingTogglesState(true);
+        record.setTooltip("Changing the target clears the lane. While the transport plays, records the target's value by phrase position (move the slider while recording). Overwrites as the phrase loops.");
+        record.onClick = [this] { processor.setGestureRecording(record.getToggleState()); };
+        play.setButtonText("Play");
+        play.setClickingTogglesState(true);
+        play.setTooltip("Plays the recorded gesture back by phrase position (about 20 updates per second).");
+        play.onClick = [this] { processor.setGesturePlaying(play.getToggleState()); if (play.getToggleState() && !processor.isGesturePlaying()) play.setToggleState(false, juce::dontSendNotification); };
+        clearGesture.setButtonText("Clear");
+        clearGesture.onClick = [this] { processor.clearGesture(); };
+        setupLabel(gestureInfo, "");
+
+        setupLabel(evolveTitle, "Phrase evolution (sounding only, never edits scenes)");
+        evolveOn.setButtonText("Evolve scene");
+        evolveOn.setTooltip("Every N phrases the chosen scene is replaced, for sounding only, by a deterministic variation of its stored settings. Stored scenes and project state are never changed. Locks are respected.");
+        evolveOn.onClick = [this] { applyEvolution(); };
+        evolveScene.addItemList({"A", "B", "C", "D"}, 1);
+        evolveScene.setSelectedId(1, juce::dontSendNotification);
+        evolveScene.onChange = [this] { applyEvolution(); };
+        evolveStyle.addItemList({"Conservative", "Creative", "Experimental"}, 1);
+        evolveStyle.setSelectedId(1, juce::dontSendNotification);
+        evolveStyle.onChange = [this] { applyEvolution(); };
+        every.setup(*this, "Every N phrases", "How often the evolving scene changes.", 1, 16, 1, 0);
+        every.slider.setValue(2, juce::dontSendNotification);
+        every.commit = [this] { applyEvolution(); };
+        distance.setup(*this, "Distance", "How far each step moves from the stored scene.", 0, 1, 0.01, 2);
+        distance.slider.setValue(0.3, juce::dontSendNotification);
+        distance.commit = [this] { applyEvolution(); };
+        setupLabel(evolveInfo, "");
+
+        for (auto* c : std::initializer_list<juce::Component*>{&transitionLabel, &transition, &trigger, &cancel, &morphLabel, &morphTarget,
+                                                               &gestureTitle, &gestureTarget, &record, &play, &clearGesture, &gestureInfo,
+                                                               &evolveTitle, &evolveOn, &evolveScene, &evolveStyle, &evolveInfo})
+            addAndMakeVisible(*c);
+        auto& apvts = processor.parameters;
+        combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::transitionModeId, transition));
+        sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::masterIntensityId, macros[0]));
+        sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::dryWetId, macros[1]));
+        sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::morphAmountId, macros[2]));
+        combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::morphTargetId, morphTarget));
+        for (auto& m : macros)
+            m.setNumDecimalPlacesToDisplay(2);
+    }
+    void refresh(const gm::VariationSettings&) override
+    {
+        const juce::ScopedValueSetter<bool> guard(refreshing, true);
+        const auto active = processor.getActiveVariation();
+        const auto queued = processor.getQueuedVariation();
+        for (std::size_t i = 0; i < sceneButtons.size(); ++i)
+            sceneButtons[i].setColour(juce::TextButton::buttonColourId,
+                                      i == active ? juce::Colour(0xff2e7d32)
+                                                  : static_cast<int>(i) == queued ? juce::Colour(0xff8d6e00) : juce::Colour(0xff3a4658));
+        trigger.setEnabled(queued >= 0);
+        cancel.setEnabled(queued >= 0);
+        record.setToggleState(processor.isGestureRecording(), juce::dontSendNotification);
+        play.setToggleState(processor.isGesturePlaying(), juce::dontSendNotification);
+        play.setEnabled(processor.getGestureFill() > 0);
+        gestureInfo.setText(processor.getGestureFill() > 0 ? "Recorded bins: " + juce::String(processor.getGestureFill()) + " / 256"
+                                                           : "Nothing recorded.", juce::dontSendNotification);
+        if (!evolveScene.isPopupActive() && !evolveStyle.isPopupActive() && !every.slider.isMouseButtonDown()
+            && !distance.slider.isMouseButtonDown())
+        {
+            const auto evo = processor.getEvolutionSettings();
+            if (evo.enabled || !evolveSynced)
+            {
+                evolveOn.setToggleState(evo.enabled, juce::dontSendNotification);
+                if (evo.enabled)
+                {
+                    evolveScene.setSelectedId(static_cast<int>(evo.scene) + 1, juce::dontSendNotification);
+                    evolveStyle.setSelectedId(evo.style + 1, juce::dontSendNotification);
+                    every.slider.setValue(evo.everyPhrases, juce::dontSendNotification);
+                    distance.slider.setValue(evo.distance, juce::dontSendNotification);
+                }
+                evolveSynced = true;
+            }
+        }
+        if (!gestureTarget.isPopupActive())
+            gestureTarget.setSelectedId(processor.getGestureTarget() + 1, juce::dontSendNotification);
+        evolveInfo.setText(processor.isEvolving() ? "Evolving: step " + juce::String(processor.getEvolutionStep()) : "Evolution off.",
+                           juce::dontSendNotification);
+    }
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(8);
+        auto r = nextRow(area, 44);
+        for (auto& b : sceneButtons)
+            b.setBounds(r.removeFromLeft(r.getWidth() / (4 - static_cast<int>(&b - sceneButtons.data()))).reduced(3, 0));
+        r = nextRow(area);
+        transitionLabel.setBounds(r.removeFromLeft(90));
+        transition.setBounds(r.removeFromLeft(130));
+        trigger.setBounds(r.removeFromLeft(120).reduced(4, 0));
+        cancel.setBounds(r.removeFromLeft(120).reduced(4, 0));
+        for (std::size_t i = 0; i < 3; ++i)
+        {
+            r = nextRow(area);
+            macroLabels[i].setBounds(r.removeFromLeft(110));
+            macros[i].setBounds(r);
+        }
+        r = nextRow(area);
+        morphLabel.setBounds(r.removeFromLeft(110));
+        morphTarget.setBounds(r.removeFromLeft(110));
+        area.removeFromTop(8);
+        gestureTitle.setBounds(nextRow(area));
+        r = nextRow(area);
+        gestureTarget.setBounds(r.removeFromLeft(140));
+        record.setBounds(r.removeFromLeft(80).reduced(4, 0));
+        play.setBounds(r.removeFromLeft(80).reduced(4, 0));
+        clearGesture.setBounds(r.removeFromLeft(70).reduced(4, 0));
+        gestureInfo.setBounds(nextRow(area));
+        area.removeFromTop(8);
+        evolveTitle.setBounds(nextRow(area));
+        r = nextRow(area);
+        evolveOn.setBounds(r.removeFromLeft(130));
+        evolveScene.setBounds(r.removeFromLeft(60));
+        evolveStyle.setBounds(r.removeFromLeft(140).reduced(4, 0));
+        every.layout(nextRow(area), 120);
+        distance.layout(nextRow(area), 120);
+        evolveInfo.setBounds(nextRow(area));
+    }
+private:
+    void applyEvolution()
+    {
+        if (refreshing)
+            return;
+        processor.setEvolution(evolveOn.getToggleState(), static_cast<std::size_t>(juce::jmax(0, evolveScene.getSelectedId() - 1)),
+                               static_cast<int>(every.slider.getValue()), static_cast<float>(distance.slider.getValue()),
+                               evolveStyle.getSelectedId() - 1, 0x47524F4F56ull);
+    }
+    bool evolveSynced = false;
+    std::array<juce::TextButton, 4> sceneButtons;
+    juce::Label transitionLabel, morphLabel, gestureTitle, gestureInfo, evolveTitle, evolveInfo;
+    std::array<juce::Label, 3> macroLabels;
+    std::array<juce::Slider, 3> macros;
+    juce::ComboBox transition, morphTarget, gestureTarget, evolveScene, evolveStyle;
+    juce::TextButton trigger, cancel, record, play, clearGesture;
+    juce::ToggleButton evolveOn;
+    SliderRow every, distance;
+    std::vector<std::unique_ptr<SliderAttachment>> sliders;
+    std::vector<std::unique_ptr<ComboAttachment>> combos;
 };
 
 // ---------------------------------------------------------------------------------------
@@ -1148,23 +1643,23 @@ public:
         text.setReadOnly(true);
         text.setCaretVisible(false);
         text.setText(
-            "ALPHA FEATURE STATUS\n\n"
-            "Working (see docs/alpha/ALPHA-FEATURE-STATUS.md):\n"
-            " - Phrase placement: window, every-N cadence, origin, snap grid, downbeat protect\n"
-            " - Event lanes: per-effect events (max 32/scene), drag/resize/nudge/delete\n"
-            " - Generator: seed, style, distance, candidates, locks, preview/apply/revert, history\n"
-            " - Scenes: duplicate, reset, copy FX, rename, undo/redo\n"
-            " - Scene morph and automatic return (host parameters)\n"
-            " - Effect activity limit (max at once + priority)\n"
-            " - Host Variation parameter follows the sounding scene\n"
-            " - Demo loop (replaces input in Standalone for evaluation)\n\n"
-            "Not implemented in this alpha:\n"
-            " - C04 transition phase options\n"
-            " - Per-event phase restart / cycle anchors; spacing and coverage limits\n"
-            " - Low-frequency (bass) protection; multiband processing\n"
-            " - Performance mode macros, phrase evolution, polyrhythmic lanes\n"
-            " - Audio-triggered actions, audio import/capture, gesture recording\n"
-            " - CLAP and additional formats\n\n"
+            "ALPHA FEATURE STATUS (see docs/alpha/ALPHA-FEATURE-STATUS.md)\n\n"
+            "Implemented (automated tests; not tried in a DAW or by ear):\n"
+            " - Placement window/cadence/origin/snap, downbeat protect, event lanes with per-event\n"
+            "   depth, slice, priority and cycle restart; per-lane loop lengths (polyrhythm)\n"
+            " - Generator: seed, style, distance, candidates, locks (also hold for manual edits),\n"
+            "   preview/apply/revert, session history\n"
+            " - Scenes: duplicate, reset, copy FX, rename, undo/redo, morph, auto-return (bars/phrases)\n"
+            " - Limits: effects at once + priority; spacing/coverage via Reduce\n"
+            " - Input: demo loop, capture/import loop (beat-locked), band split, audio trigger,\n"
+            "   MIDI CC/program-change macros\n"
+            " - Perform: scene launch, macros, gesture lane, phrase evolution\n"
+            " - Host Variation parameter follows the sounding scene\n\n"
+            "Not implemented / limited in this alpha:\n"
+            " - C04 transition phase options; protected temporal regions and per-event locks\n"
+            " - Band split is first-order (6 dB/oct); no time stretching for loops\n"
+            " - Gestures/evolution/loops are not saved with the project; gestures run at ~20 Hz\n"
+            " - Capture is stereo-limited, 20 s max; CLAP and other formats\n\n"
             "Untested: real DAW hosts, audio hardware, listening quality.",
             false);
         addAndMakeVisible(text);
@@ -1184,16 +1679,25 @@ struct InspectorPanel::Impl
           scenes(std::make_unique<ScenesTab>(p, a)),
           morph(std::make_unique<MorphTab>(p, a)),
           limits(std::make_unique<LimitsTab>(p, a)),
+          input(std::make_unique<InputTab>(p, a)),
+          perform(std::make_unique<PerformTab>(p, a)),
           status(std::make_unique<StatusTab>()),
           tabs(juce::TabbedButtonBar::TabsAtTop)
     {
         const auto bg = juce::Colour(0xff1b232e);
-        tabs.addTab("Placement", bg, placement.get(), false);
-        tabs.addTab("Generator", bg, generator.get(), false);
-        tabs.addTab("Scenes", bg, scenes.get(), false);
-        tabs.addTab("Morph/Return", bg, morph.get(), false);
-        tabs.addTab("Limits", bg, limits.get(), false);
-        tabs.addTab("Status", bg, status.get(), false);
+        // Short names keep eight tabs on one row; the tooltips carry the full names.
+        const char* names[] = {"Place", "Gen", "Scene", "Morph", "Limit", "Input", "Perform", "Info"};
+        const char* full[] = {"Phrase placement and event lanes", "Variation generator, seed, locks", "Scene tools",
+                              "Scene morph and automatic return", "Effect activity limits", "Input source, loop, bands, triggers, MIDI",
+                              "Performance macros, gestures, phrase evolution", "Alpha feature status"};
+        juce::Component* contents[] = {placement.get(), generator.get(), scenes.get(), morph.get(), limits.get(), input.get(),
+                                       perform.get(), status.get()};
+        for (int i = 0; i < 8; ++i)
+        {
+            tabs.addTab(names[i], bg, contents[i], false);
+            if (auto* button = tabs.getTabbedButtonBar().getTabButton(i))
+                button->setTooltip(full[i]);
+        }
     }
     SceneEditAccess access;
     std::unique_ptr<PlacementTab> placement;
@@ -1201,6 +1705,8 @@ struct InspectorPanel::Impl
     std::unique_ptr<ScenesTab> scenes;
     std::unique_ptr<MorphTab> morph;
     std::unique_ptr<LimitsTab> limits;
+    std::unique_ptr<InputTab> input;
+    std::unique_ptr<PerformTab> perform;
     std::unique_ptr<StatusTab> status;
     juce::TabbedComponent tabs;
 };
@@ -1227,5 +1733,7 @@ void InspectorPanel::refresh()
     impl->scenes->refresh(settings);
     impl->morph->refresh(settings);
     impl->limits->refresh(settings);
+    impl->input->refresh(settings);
+    impl->perform->refresh(settings);
 }
 } // namespace groovemorph::ui

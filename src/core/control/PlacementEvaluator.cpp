@@ -80,8 +80,12 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
 
     std::array<bool, laneCount> on{};
     std::array<float, laneCount> scale{};
+    std::array<float, laneCount> slice{};
+    std::array<double, laneCount> offset{};
+    std::array<int, laneCount> eventPriority{};
     on.fill(windowOpen);
     scale.fill(1.0f);
+    eventPriority.fill(-1);
     if (c.lane.explicitEvents)
     {
         on.fill(false);
@@ -90,14 +94,25 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
             const auto& e = c.lane.events[i];
             if (!e.enabled || e.operation >= laneCount)
                 continue;
-            const double onset = static_cast<double>(e.onsetTicks);
-            const double dur = static_cast<double>(e.durationTicks);
-            until = std::min(until, distanceTo(phase, onset, P));
-            until = std::min(until, distanceTo(phase, onset + dur, P));
-            if (windowOpen && !on[e.operation] && positiveMod(phase - onset, P) < dur)
+            // F06: an operation may loop its events on its own length instead of the phrase.
+            const std::uint8_t loop = c.lane.loopBeats[e.operation];
+            const double ring = loop > 0 ? static_cast<double>(loop) * ticksPerBeat : P;
+            const double opPhase = loop > 0 ? positiveMod(q, ring) : phase;
+            const double onset = std::fmod(static_cast<double>(e.onsetTicks), ring);
+            const double dur = std::min(static_cast<double>(e.durationTicks), ring);
+            until = std::min(until, distanceTo(opPhase, onset, ring));
+            until = std::min(until, distanceTo(opPhase, onset + dur, ring));
+            if (loop > 0)
+                until = std::min(until, distanceTo(opPhase, 0.0, ring));
+            const double since = positiveMod(opPhase - onset, ring);
+            if (windowOpen && !on[e.operation] && since < dur)
             {
                 on[e.operation] = true;
                 scale[e.operation] = std::clamp(e.depth, 0.0f, 1.0f);
+                slice[e.operation] = e.sliceBeats;
+                eventPriority[e.operation] = e.priority;
+                if (e.restartCycle)
+                    offset[e.operation] = (pos - since) / ticksPerBeat;
             }
         }
     }
@@ -120,10 +135,21 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
         for (std::size_t op = 0; op < laneCount; ++op)
             if (on[op] && (enabledMask & (1u << op)) != 0)
                 order[n++] = op;
-        std::stable_sort(order.begin(), order.begin() + static_cast<std::ptrdiff_t>(n),
-                         [&c](std::size_t a, std::size_t b) {
-                             return c.activity.priority[a] > c.activity.priority[b];
-                         });
+        // Stable insertion sort (n <= 5): std::stable_sort may allocate a temporary buffer.
+        const auto priorityOf = [&c, &eventPriority](std::size_t op) {
+            return eventPriority[op] >= 0 ? eventPriority[op] : static_cast<int>(c.activity.priority[op]);
+        };
+        for (std::size_t i = 1; i < n; ++i)
+        {
+            const std::size_t key = order[i];
+            std::size_t j = i;
+            while (j > 0 && priorityOf(order[j - 1]) < priorityOf(key))
+            {
+                order[j] = order[j - 1];
+                --j;
+            }
+            order[j] = key;
+        }
         for (std::size_t k = c.activity.maxConcurrent; k < n; ++k)
             on[order[k]] = false;
     }
@@ -132,6 +158,8 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
     {
         t.active[op] = on[op];
         t.depthScale[op] = scale[op];
+        t.sliceBeats[op] = slice[op];
+        t.phaseOffsetBeats[op] = offset[op];
     }
     t.ticksUntilChange = until;
     return t;

@@ -741,6 +741,371 @@ int main()
         plugin.setPlayHead(nullptr);
     }
 
+
+    // ---- Alpha 2: auto-return in phrase units (C05) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        setParameter(processor, "transitionMode", 0.0f);
+        setParameter(processor, "autoReturnBars", 1.0f);
+        setParameter(processor, "autoReturnUnit", 1.0f); // phrases (4 bars)
+        std::int64_t sample = 0;
+        const auto block = [&] {
+            setTransport(playHead, sample);
+            processSilence(processor, 256);
+            sample += 256;
+        };
+        block();
+        processor.requestVariation(1);
+        block();
+        while (sample < 384000 + 512)
+            block();
+        expect("phrase-unit return lands on the phrase boundary", processor.getActiveVariation() == 0
+               && processor.getLastSwitchSample() == 384000);
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha 2: band split keeps one part of the spectrum out of the effects (F03/F10) ----
+    {
+        const auto measure = [](float mode, double& lowRms, double& highRms) {
+            GrooveMorphAudioProcessor processor;
+            FakePlayHead playHead;
+            processor.setPlayHead(&playHead);
+            processor.prepareToPlay(48000.0, 480);
+            setParameter(processor, "masterIntensity", 1.0f);
+            setParameter(processor, "bandMode", mode);
+            setParameter(processor, "bandCrossover", 400.0f);
+            groovemorph::core::VariationSettings settings;
+            settings[groovemorph::core::OperationType::Gate] = {true, 1.0f, 1.0f}; // closed 2nd half of each beat
+            processor.setVariationSettings(0, settings);
+            double lowSum = 0.0, highSum = 0.0;
+            std::int64_t counted = 0;
+            for (std::int64_t sample = 0; sample < 48000 * 3; sample += 480)
+            {
+                juce::AudioBuffer<float> buffer(2, 480);
+                for (int i = 0; i < 480; ++i)
+                {
+                    const double t = static_cast<double>(sample + i) / 48000.0;
+                    const float low = 0.3f * static_cast<float>(std::sin(6.283185307179586 * 50.0 * t));
+                    const float high = 0.3f * static_cast<float>(std::sin(6.283185307179586 * 5000.0 * t));
+                    buffer.setSample(0, i, low + high);
+                    buffer.setSample(1, i, low + high);
+                }
+                setTransport(playHead, sample);
+                juce::MidiBuffer midi;
+                processor.processBlock(buffer, midi);
+                // Closed part of the gate: beat fraction 0.6 .. 0.95, well after the ramp.
+                const double beatFraction = std::fmod(static_cast<double>(sample) / 24000.0, 1.0);
+                if (sample > 48000 && beatFraction > 0.6 && beatFraction < 0.95)
+                    for (int i = 0; i < 480; ++i)
+                    {
+                        const double t = static_cast<double>(sample + i) / 48000.0;
+                        const double sLow = std::sin(6.283185307179586 * 50.0 * t);
+                        const double sHigh = std::sin(6.283185307179586 * 5000.0 * t);
+                        const double y = buffer.getSample(0, i);
+                        lowSum += y * sLow;   // projection on each tone (blocks hold whole cycles)
+                        highSum += y * sHigh;
+                        ++counted;
+                    }
+            }
+            lowRms = 2.0 * lowSum / static_cast<double>(counted);   // amplitude of the 50 Hz component
+            highRms = 2.0 * highSum / static_cast<double>(counted); // amplitude of the 5 kHz component
+            processor.setPlayHead(nullptr);
+        };
+        double low = 0, high = 0;
+        measure(0.0f, low, high);
+        expect("full band: gate silences both tones", std::abs(low) < 0.03 && std::abs(high) < 0.03);
+        measure(1.0f, low, high);
+        expect("protect lows: bass survives the closed gate, highs are gated", low > 0.2 && std::abs(high) < 0.03);
+        measure(2.0f, low, high);
+        expect("lows only: highs bypass the closed gate, bass is gated", high > 0.25 && std::abs(low) < 0.1);
+    }
+
+    // ---- Alpha 2: audio trigger changes scene on input transients (F07) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 480);
+        setParameter(processor, "transitionMode", 0.0f);
+        setParameter(processor, "audioTrigger", 1.0f); // next scene
+        std::int64_t sample = 0;
+        bool changed = false;
+        for (int b = 0; b < 48000 * 3 / 480; ++b)
+        {
+            juce::AudioBuffer<float> buffer(2, 480);
+            for (int i = 0; i < 480; ++i)
+            {
+                const std::int64_t since = (sample + i) % 24000;
+                const float click = since < 1200 ? 0.8f * std::exp(-static_cast<float>(since) / 300.0f) : 0.0f;
+                const float v = 0.005f * std::sin(0.05f * static_cast<float>(sample + i)) + click;
+                buffer.setSample(0, i, v);
+                buffer.setSample(1, i, v);
+            }
+            setTransport(playHead, sample);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            changed = changed || processor.getActiveVariation() != 0;
+            sample += 480;
+        }
+        expect("onsets detected", processor.getOnsetCount() >= 4);
+        expect("audio trigger advanced the scene", changed);
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha 2: MIDI macros (F12) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        setParameter(processor, "transitionMode", 0.0f);
+        setParameter(processor, "masterIntensity", 0.2f);
+        const auto send = [&](std::initializer_list<juce::uint8> bytes) {
+            juce::MidiBuffer midi;
+            midi.addEvent(bytes.begin(), static_cast<int>(bytes.size()), 0);
+            setTransport(playHead, 0);
+            juce::AudioBuffer<float> buffer(2, 256);
+            buffer.clear();
+            processor.processBlock(buffer, midi);
+        };
+        send({0xB0, 20, 127});
+        send({0xC0, 2});
+        processor.applyMidiMacros();
+        expect("macros off by default: CC and program change ignored",
+               std::abs(processor.parameters.getRawParameterValue("masterIntensity")->load() - 0.2f) < 1e-4f
+               && processor.getActiveVariation() == 0);
+        processor.setMidiMacrosEnabled(true);
+        send({0xB0, 20, 127});
+        send({0xB0, 22, 64});
+        send({0xC0, 2});
+        send({0xC0, 9}); // out of range: ignored
+        processor.applyMidiMacros();
+        expect("CC 20 sets intensity", std::abs(processor.parameters.getRawParameterValue("masterIntensity")->load() - 1.0f) < 1e-3f);
+        expect("CC 22 sets morph amount", std::abs(processor.parameters.getRawParameterValue("morphAmount")->load() - 64.0f / 127.0f) < 1e-3f);
+        expect("program change selects a scene", processor.getActiveVariation() == 2);
+        processor.setPlayHead(nullptr);
+    }
+
+
+    // ---- Alpha 2: capture a loop and play it back beat-locked (F09) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        const int blockSize = 480;
+        processor.prepareToPlay(48000.0, blockSize);
+        setParameter(processor, "masterIntensity", 0.0f); // dry path: output == the (replaced) input exactly
+        expect("capture arms", processor.armLoopCapture(1));
+        std::vector<float> recorded;
+        std::int64_t sample = 5 * blockSize; // start mid-bar: capture waits for the next bar line
+        const auto signal = [](std::int64_t i) { return 0.5f * static_cast<float>(std::sin(0.002 * static_cast<double>(i))); };
+        while (processor.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Done && sample < 96000 * 4)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                buffer.setSample(0, i, signal(sample + i));
+                buffer.setSample(1, i, signal(sample + i));
+            }
+            setTransport(playHead, sample);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            sample += blockSize;
+        }
+        expect("capture completed", processor.getLoopCaptureState() == groovemorph::core::LoopCapture::State::Done);
+        processor.pollLoopCapture();
+        expect("loop published", processor.hasLoop() && std::abs(processor.getLoopSeconds() - 2.0) < 1e-3);
+        processor.setSourceMode(2);
+        bool exact = true;
+        for (std::int64_t pos = 96000 * 3; pos < 96000 * 3 + 4800; pos += blockSize)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            buffer.clear();
+            setTransport(playHead, pos);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                // The capture started on the bar line at sample 96000, so the loop is the signal
+                // from [96000, 192000) repeated every bar (96000 samples).
+                const float want = signal(96000 + ((pos + i) % 96000));
+                exact = exact && std::abs(buffer.getSample(0, i) - want) < 1e-3f;
+            }
+        }
+        expect("loop plays back locked to the bar grid", exact);
+        processor.clearLoop();
+        expect("loop cleared", !processor.hasLoop());
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha 2: file import validation (F09) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        processor.prepareToPlay(48000.0, 256);
+        expect("missing file rejected", processor.importLoopFile(juce::File("/nonexistent/none.wav"), 2).failed());
+        const auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm-import-test.wav");
+        {
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::FileOutputStream> stream(tmp.createOutputStream());
+            std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(stream.get(), 44100.0, 1, 16, {}, 0));
+            if (writer != nullptr)
+            {
+                stream.release();
+                juce::AudioBuffer<float> data(1, 44100);
+                for (int i = 0; i < 44100; ++i)
+                    data.setSample(0, i, 0.3f * std::sin(0.05f * static_cast<float>(i)));
+                writer->writeFromAudioSampleBuffer(data, 0, 44100);
+            }
+        }
+        expect("bad bar count rejected", processor.importLoopFile(tmp, 0).failed());
+        expect("wav imports", processor.importLoopFile(tmp, 2).wasOk() && processor.hasLoop()
+                                  && std::abs(processor.getLoopSeconds() - 1.0) < 1e-3);
+        tmp.deleteFile();
+        const auto text = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm-not-audio.wav");
+        text.replaceWithText("not audio");
+        expect("non-audio file rejected", processor.importLoopFile(text, 1).failed());
+        text.deleteFile();
+    }
+
+    // ---- Alpha 2: gesture record/playback (F11) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        processor.setGestureTarget(0); // morph amount
+        const auto atPhrase = [&](double fraction) {
+            setTransport(playHead, static_cast<std::int64_t>(fraction * 384000.0)); // 4-bar phrase
+            processSilence(processor, 256);
+        };
+        processor.setGestureRecording(true);
+        for (int step = 0; step < 8; ++step)
+        {
+            const double fraction = step / 8.0;
+            atPhrase(fraction);
+            setParameter(processor, "morphAmount", static_cast<float>(step) / 7.0f);
+            processor.updateGesture();
+        }
+        expect("gesture recorded", processor.getGestureFill() >= 8);
+        processor.setGestureRecording(false);
+        setParameter(processor, "morphAmount", 0.0f);
+        processor.setGesturePlaying(true);
+        atPhrase(5.0 / 8.0);
+        processor.updateGesture();
+        const float played = processor.parameters.getRawParameterValue("morphAmount")->load();
+        expect("gesture plays back the recorded value", std::abs(played - 5.0f / 7.0f) < 0.05f);
+        processor.clearGesture();
+        expect("gesture cleared", processor.getGestureFill() == 0 && !processor.isGesturePlaying());
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha 2: phrase evolution never touches stored scenes (F05) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        const auto stored = processor.getSceneBank();
+        processor.setEvolution(true, 0, 1, 1.0f, 2, 1234);
+        std::int64_t sample = 0;
+        const auto advanceTo = [&](std::int64_t target) {
+            while (sample < target)
+            {
+                setTransport(playHead, sample);
+                processSilence(processor, 256);
+                processor.updateEvolution();
+                sample += 256;
+            }
+        };
+        advanceTo(10000);
+        expect("no evolution step within the first phrase", processor.getEvolutionStep() == 0);
+        advanceTo(384000 + 2560);
+        expect("evolves at the phrase boundary", processor.getEvolutionStep() == 1);
+        advanceTo(2 * 384000 + 2560);
+        expect("and again next phrase", processor.getEvolutionStep() == 2);
+        expect("stored scene is untouched", processor.getSceneBank() == stored);
+        juce::MemoryBlock state;
+        processor.getStateInformation(state);
+        GrooveMorphAudioProcessor restored;
+        restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        expect("evolution is not saved into project state", restored.getSceneBank() == stored);
+        processor.setEvolution(false, 0, 1, 1.0f, 2, 1234);
+        expect("evolution off", !processor.isEvolving());
+        processor.setPlayHead(nullptr);
+    }
+
+
+    // ---- Audit regressions ----
+    {
+        // Capture stays contiguous when placement boundaries split the render segments.
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        const int blockSize = 480;
+        processor.prepareToPlay(48000.0, blockSize);
+        setParameter(processor, "masterIntensity", 0.0f);
+        auto settings = processor.getSceneBank().variation(0).settings;
+        settings.control.placement.enabled = true;
+        settings.control.placement.window = groovemorph::core::control::WindowMode::Custom;
+        settings.control.placement.startPhase = 0.1f;
+        settings.control.placement.spanPhase = 0.3f;
+        settings.control.placement.downbeatProtectBeats = 0.7f;
+        processor.setVariationSettings(0, settings);
+        expect("capture arms with placement active", processor.armLoopCapture(1));
+        const auto signal = [](std::int64_t i) { return 0.5f * static_cast<float>(std::sin(0.002 * static_cast<double>(i))); };
+        std::int64_t sample = 7 * blockSize;
+        while (processor.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Done && sample < 96000 * 4)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                buffer.setSample(0, i, signal(sample + i));
+                buffer.setSample(1, i, signal(sample + i));
+            }
+            setTransport(playHead, sample);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            sample += blockSize;
+        }
+        processor.pollLoopCapture();
+        processor.setSourceMode(2);
+        bool exact = processor.hasLoop();
+        for (std::int64_t pos = 96000 * 3; pos < 96000 * 3 + 4800 && exact; pos += blockSize)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            buffer.clear();
+            setTransport(playHead, pos);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            for (int i = 0; i < blockSize; ++i)
+                exact = exact && std::abs(buffer.getSample(0, i) - signal(96000 + ((pos + i) % 96000))) < 1e-3f;
+        }
+        expect("captured loop has no duplicated spans when placement splits segments", exact);
+        processor.setPlayHead(nullptr);
+    }
+    {
+        // Scene operations keep the destination's locked fields and lock configuration.
+        GrooveMorphAudioProcessor processor;
+        auto locked = processor.getSceneBank().variation(1).settings;
+        locked.operations[2] = {true, 0.55f, 0.5f};
+        locked.control.permissions.operationLocks[2] = groovemorph::core::control::lock::depth;
+        processor.setVariationSettings(1, locked);
+        expect("duplicate keeps the destination's locked depth",
+               processor.duplicateVariation(0, 1)
+               && processor.getSceneBank().variation(1).settings.operations[2].depth == 0.55f
+               && processor.getSceneBank().variation(1).settings.control.permissions.operationLocks[2]
+                      == groovemorph::core::control::lock::depth);
+        processor.resetVariation(1);
+        expect("reset keeps locked fields", processor.getSceneBank().variation(1).settings.operations[2].depth == 0.55f);
+        // Undo is refused while a preview is running.
+        processor.beginAudition(0);
+        expect("undo refused during audition", !processor.undoSceneEdit());
+        processor.revertAudition();
+    }
+
     if (failures == 0)
         std::cout << "PluginProcessorTests: all checks passed\n";
     return failures == 0 ? 0 : 1;

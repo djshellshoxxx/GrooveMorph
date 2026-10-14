@@ -48,6 +48,34 @@ class Parser
 {
 public:
     LoadResult result;
+    std::array<std::array<control::LaneEvent, control::maxLaneEvents>, variationCount> pendingEvents{};
+    std::array<std::array<std::uint8_t, control::maxLaneEvents>, variationCount> pendingSeen{};
+
+    // Commits the collected events (complete slots only, in slot order).
+    void finish()
+    {
+        for (std::size_t v = 0; v < variationCount; ++v)
+        {
+            std::uint8_t count = 0;
+            bool any = false;
+            for (std::size_t k = 0; k < control::maxLaneEvents; ++k)
+                any = any || pendingSeen[v][k] != 0;
+            if (!any)
+                continue;
+            auto settings = result.bank.variation(v).settings;
+            settings.control.lane.events = {};
+            for (std::size_t k = 0; k < control::maxLaneEvents; ++k)
+            {
+                if (pendingSeen[v][k] == 7u)
+                    settings.control.lane.events[count++] = pendingEvents[v][k];
+                else if (pendingSeen[v][k] != 0)
+                    note("variation." + std::to_string(v) + ".event." + std::to_string(k) + " is incomplete; dropped");
+            }
+            settings.control.lane.count = count;
+            control::sanitize(settings.control);
+            result.bank.setVariationSettings(v, settings);
+        }
+    }
 
     void note(std::string msg)
     {
@@ -149,8 +177,19 @@ private:
         else if (rest == "placement.subdiv") { if (asInt(n)) c.placement.subdivision = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 255)); }
         else if (rest == "placement.protect") asFloat(c.placement.downbeatProtectBeats);
         else if (rest == "lane.explicit") asBool(c.lane.explicitEvents);
+        else if (rest.starts_with("lane.loop."))
+        {
+            std::size_t op = 0;
+            if (!parseIndex(rest.substr(10, 1), op) || op >= operationCount || rest.size() != 11)
+                return;
+            if (asInt(n)) c.lane.loopBeats[op] = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 64));
+        }
+        else if (rest == "activity.spacing") asFloat(c.activity.minSpacingBeats);
+        else if (rest == "activity.coverage") asFloat(c.activity.maxCoverage);
         else if (rest.starts_with("event."))
         {
+            // Events are collected per slot and committed in finish() only when op, onset and
+            // duration were all parsed; sparse or garbled slots never become phantom events.
             const auto tail = rest.substr(6);
             const auto dot = tail.find('.');
             long long k = -1;
@@ -158,15 +197,17 @@ private:
                 || k >= static_cast<long long>(control::maxLaneEvents))
                 return;
             const auto field = tail.substr(dot + 1);
-            auto& e = c.lane.events[static_cast<std::size_t>(k)];
-            if (c.lane.count <= k)
-                c.lane.count = static_cast<std::uint8_t>(k + 1);
-            if (field == "op") { if (asInt(n)) e.operation = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 255)); }
-            else if (field == "enabled") asBool(e.enabled);
-            else if (field == "onset") { if (asInt(n)) e.onsetTicks = static_cast<std::int32_t>(std::clamp<long long>(n, 0, 1966080)); }
-            else if (field == "duration") { if (asInt(n)) e.durationTicks = static_cast<std::int32_t>(std::clamp<long long>(n, 1, 1966080)); }
+            auto& e = pendingEvents[idx][static_cast<std::size_t>(k)];
+            auto& seen = pendingSeen[idx][static_cast<std::size_t>(k)];
+            if (field == "op") { if (asInt(n)) { if (n >= 0 && n < static_cast<long long>(operationCount)) { e.operation = static_cast<std::uint8_t>(n); seen |= 1u; } else note(std::string(fullKey) + " names an unknown operation; event dropped"); } }
+            else if (field == "enabled") { bool v = true; if (asBool(v)) e.enabled = v; }
+            else if (field == "onset") { if (asInt(n)) { e.onsetTicks = static_cast<std::int32_t>(std::clamp<long long>(n, 0, 1966080)); seen |= 2u; } }
+            else if (field == "duration") { if (asInt(n)) { e.durationTicks = static_cast<std::int32_t>(std::clamp<long long>(n, 1, 1966080)); seen |= 4u; } }
             else if (field == "depth") asFloat(e.depth);
-            else known = false;
+            else if (field == "slice") asFloat(e.sliceBeats);
+            else if (field == "priority") { if (asInt(n)) e.priority = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 100)); }
+            else if (field == "restart") { bool v = false; if (asBool(v)) e.restartCycle = v; }
+            return; // committed in finish()
         }
         else if (rest.starts_with("perm.op."))
         {
@@ -304,12 +345,19 @@ std::string SceneSerializer::serialize(const SceneBank& bank)
             line(ep + "onset", std::to_string(e.onsetTicks));
             line(ep + "duration", std::to_string(e.durationTicks));
             line(ep + "depth", formatFloat(e.depth));
+            line(ep + "slice", formatFloat(e.sliceBeats));
+            line(ep + "priority", std::to_string(e.priority));
+            line(ep + "restart", e.restartCycle ? "1" : "0");
         }
         for (std::size_t op = 0; op < operationCount; ++op)
         {
             line(prefix + "perm.op." + std::to_string(op), std::to_string(c.permissions.operationLocks[op]));
             line(prefix + "activity.prio." + std::to_string(op), std::to_string(c.activity.priority[op]));
         }
+        for (std::size_t op = 0; op < operationCount; ++op)
+            line(prefix + "lane.loop." + std::to_string(op), std::to_string(c.lane.loopBeats[op]));
+        line(prefix + "activity.spacing", formatFloat(c.activity.minSpacingBeats));
+        line(prefix + "activity.coverage", formatFloat(c.activity.maxCoverage));
         line(prefix + "perm.placement", c.permissions.placementLocked ? "1" : "0");
         line(prefix + "activity.enabled", c.activity.enabled ? "1" : "0");
         line(prefix + "activity.max", std::to_string(c.activity.maxConcurrent));
@@ -357,6 +405,7 @@ LoadResult SceneSerializer::deserialize(std::string_view text) noexcept
             }
             parser.apply(line.substr(0, eq), line.substr(eq + 1));
         }
+        parser.finish();
         return std::move(parser.result);
     }
     catch (const std::exception&)

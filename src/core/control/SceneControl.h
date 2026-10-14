@@ -40,6 +40,9 @@ struct LaneEvent
     std::int32_t onsetTicks = 0;      // [0, phraseTicks)
     std::int32_t durationTicks = ticksPerBeat; // [1, phraseTicks]
     float depth = 1.0f;               // multiplies the operation depth, [0,1]
+    float sliceBeats = 0.0f;          // 0 = use the operation's slice; else [1/16,4] meter beats
+    std::uint8_t priority = 50;       // 0..100, higher survives the activity limit
+    bool restartCycle = false;        // true: the effect's beat grid restarts at the event onset
 };
 
 struct EventLane
@@ -47,6 +50,9 @@ struct EventLane
     bool explicitEvents = false; // false: legacy uniform (operations active whole phrase)
     std::uint8_t count = 0;
     std::array<LaneEvent, maxLaneEvents> events{};
+    // F06 polyrhythm: loop length of each operation's events in meter beats (0 = the phrase).
+    // Events of an operation repeat every loopBeats[op] beats, independent of the phrase.
+    std::array<std::uint8_t, laneCount> loopBeats{};
 };
 
 // Field lock bits per operation row (C03).
@@ -70,6 +76,8 @@ struct ActivityConfig
     bool enabled = false;
     std::uint8_t maxConcurrent = 5; // 1..5 operations scheduled at once
     std::array<std::uint8_t, laneCount> priority{50, 50, 50, 50, 50}; // 0..100, higher wins
+    float minSpacingBeats = 0.0f; // 0..4: minimum distance between event starts (Reduce action)
+    float maxCoverage = 1.0f;     // 0..1: maximum union of event durations as a phrase fraction
 };
 
 struct SceneControl
@@ -97,7 +105,26 @@ bool removeEvent(EventLane& lane, std::size_t index) noexcept;
 [[nodiscard]] bool eventsOverlap(const LaneEvent& a, const LaneEvent& b,
                                  std::int64_t phraseTicks) noexcept;
 
+// C06 Analyze/Reduce (explicit action, never automatic). Greedy and deterministic: events of
+// operations whose Events lock bit is set are mandatory and kept first; the rest are ordered by
+// priority (high first, then index). An event is kept only if every kept start is at least
+// minSpacingBeats away (circular) and the union of kept durations stays within maxCoverage.
+enum class ReduceStatus : std::uint8_t { Valid, ConflictLocked };
+struct ReduceReport
+{
+    ReduceStatus status = ReduceStatus::Valid;
+    std::uint8_t kept = 0;
+    std::uint8_t dropped = 0;
+    float coverage = 0.0f; // union of kept enabled events / phrase, after reduction
+    std::uint8_t peakConcurrent = 0;
+};
+// Returns the report; `lane` is modified only on Valid when apply is true.
+ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
+                          const PermissionConfig& permissions, std::int64_t phraseTicks,
+                          bool apply) noexcept;
+
 // Explicit command: one full-phrase event per operation in `enabledMask`. Returns events added.
 std::size_t convertLegacyToEvents(EventLane& lane, std::uint32_t enabledMask,
-                                  std::int64_t phraseTicks) noexcept;
+                                  std::int64_t phraseTicks,
+                                  const std::array<std::uint8_t, laneCount>* priorities = nullptr) noexcept;
 } // namespace groovemorph::core::control

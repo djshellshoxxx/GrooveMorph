@@ -15,6 +15,9 @@ struct RhythmTiming
     double samplesPerBeat = 0.0;   // samples per meter beat; <= 0 or non-finite = no timing
     double beatAtBlockStart = 0.0; // meter-beat position of the first sample in the block
     bool isPlaying = false;
+    // Optional per-operation beat-grid origin (meter beats). The operation's slice grid is
+    // measured from this value instead of the shared grid; all zeros = legacy shared grid.
+    std::array<double, operationCount> phaseOffsetBeats{};
 };
 
 // Real-time-safe rhythmic transformation engine (GM-FR-003, GM-FR-005, GM-QR-001,

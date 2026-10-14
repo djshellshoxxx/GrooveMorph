@@ -3,6 +3,7 @@
 #include "core/scene/SceneBank.h"
 #include "core/variation/CandidateBuilder.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <string_view>
@@ -111,6 +112,24 @@ int main()
         DemoSource::render(jc, 1, 4, std::nan(""), 24000.0, 48000.0);
         DemoSource::render(jc, 1, 4, 0.0, 0.0, 48000.0);
         expect("invalid timing leaves buffer", junk[0] == 1.0f);
+    }
+
+
+    // Demo output is a pure function of the absolute position, including negative pre-roll.
+    {
+        const double spb = 24000.0;
+        std::vector<float> whole(2048), split(2048);
+        float* w[1] = {whole.data()};
+        DemoSource::render(w, 1, 2048, -2.3, spb, 48000.0);
+        for (int part = 0; part < 2048; part += 256)
+        {
+            float* s2[1] = {split.data() + part};
+            DemoSource::render(s2, 1, 256, -2.3 + static_cast<double>(part) / spb, spb, 48000.0);
+        }
+        double worst = 0.0;
+        for (std::size_t i = 0; i < 2048; ++i)
+            worst = std::max(worst, static_cast<double>(std::abs(whole[i] - split[i])));
+        expect("demo identical when rendered in different block splits (incl. negative positions)", worst < 1e-4);
     }
 
     if (failures == 0)
