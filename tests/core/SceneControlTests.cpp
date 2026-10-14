@@ -358,6 +358,26 @@ int main()
         expect("v1.1 fields round-trip", loaded.report.status == LoadStatus::Ok && loaded.bank == bank);
     }
 
+
+    // C03 manual edits: locks hold while the lock configuration itself stays editable.
+    {
+        VariationSettings stored;
+        stored.operations[1] = {true, 0.5f, 0.25f};
+        stored.control.permissions.operationLocks[1] = lock::depth;
+        VariationSettings edited = stored;
+        edited.operations[1].depth = 0.9f;            // locked: must be restored
+        edited.operations[1].sliceBeats = 1.0f;       // not locked: kept
+        edited.control.permissions.operationLocks[1] = 0; // user unlocking in the same edit: kept
+        const auto restored = enforcePermissions(stored, edited, true);
+        expect("manual edit restores the locked field only", restored == 1 && edited.operations[1].depth == 0.5f
+                                                                 && edited.operations[1].sliceBeats == 1.0f);
+        expect("lock configuration edit survives", edited.control.permissions.operationLocks[1] == 0);
+        VariationSettings again = stored;
+        again.operations[1].depth = 0.1f;
+        enforcePermissions(stored, again, false);
+        expect("generation path restores the stored permissions", again.control.permissions.operationLocks[1] == lock::depth);
+    }
+
     if (failures == 0)
         std::cout << "SceneControlTests passed\n";
     return failures == 0 ? 0 : 1;

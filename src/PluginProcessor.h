@@ -7,7 +7,10 @@
 #include "core/control/PlacementEvaluator.h"
 #include "core/control/VariationBlend.h"
 #include "core/TransportResolver.h"
+#include "core/control/GestureLane.h"
 #include "core/dsp/DemoSource.h"
+#include "core/dsp/LoopSource.h"
+#include "core/variation/CandidateBuilder.h"
 #include "core/dsp/OnsetDetector.h"
 #include "core/dsp/RhythmEngine.h"
 #include "core/scene/AuditionSession.h"
@@ -135,10 +138,42 @@ public:
     // realigns it to the sounding variation. Never called from the audio thread (host
     // notification). Public so tests can drive it without a message loop.
     void syncHostVariationParameter();
-    // Standalone evaluation aid: replaces the input with a synthetic drum loop while the transport
-    // is playing. Not a host parameter and not saved in project state.
-    void setDemoSourceEnabled(bool enabled) noexcept { demoEnabled.store(enabled, std::memory_order_relaxed); }
-    bool isDemoSourceEnabled() const noexcept { return demoEnabled.load(std::memory_order_relaxed); }
+    // Input source (F09): 0 = live input, 1 = built-in demo drum loop, 2 = captured/imported loop.
+    // The demo and loop sources replace the input while the transport is playing. Not a host
+    // parameter and not saved in project state.
+    void setSourceMode(int mode) noexcept { sourceMode.store(juce::jlimit(0, 2, mode), std::memory_order_relaxed); }
+    int getSourceMode() const noexcept { return sourceMode.load(std::memory_order_relaxed); }
+    void setDemoSourceEnabled(bool enabled) noexcept { setSourceMode(enabled ? 1 : 0); }
+    bool isDemoSourceEnabled() const noexcept { return getSourceMode() == 1; }
+    // Loop capture/import (message thread). Capture records the pre-effect signal for N bars starting
+    // on the next bar line while the transport plays; pollLoopCapture() (timer) publishes it.
+    bool armLoopCapture(int bars);
+    void cancelLoopCapture() noexcept { loopCapture.cancel(); }
+    groovemorph::core::LoopCapture::State getLoopCaptureState() const noexcept { return loopCapture.state(); }
+    // Loads an audio file (WAV/AIFF/FLAC/...; up to 20 s) as a loop spanning `bars` bars.
+    juce::Result importLoopFile(const juce::File& file, int bars);
+    void clearLoop() noexcept { loopSource.clear(); loopSeconds.store(0.0, std::memory_order_relaxed); }
+    bool hasLoop() const noexcept { return loopSource.hasLoop(); }
+    double getLoopSeconds() const noexcept { return loopSeconds.load(std::memory_order_relaxed); }
+    void pollLoopCapture();
+    // Gesture lane (F11, message thread): records one phrase of movement of a macro parameter (0 Morph
+    // amount, 1 Intensity, 2 Dry/Wet) and plays it back by phrase position at timer rate (~20 Hz).
+    void setGestureTarget(int target) noexcept { gestureTarget = juce::jlimit(0, 2, target); }
+    void setGestureRecording(bool record);
+    void setGesturePlaying(bool play);
+    void clearGesture();
+    bool isGestureRecording() const noexcept { return gestureRecording; }
+    bool isGesturePlaying() const noexcept { return gesturePlaying; }
+    int getGestureFill() const noexcept { return gesture.filledBins(); }
+    void updateGesture();
+    // Phrase evolution (F05): every N phrases the chosen scene is replaced, for sounding only, by a
+    // deterministic candidate generated from its stored settings. Stored scenes and saved state are
+    // never changed, and the sequence is reproducible from the seed.
+    void setEvolution(bool enabled, std::size_t scene, int everyPhrases, float distance, int style,
+                      std::uint64_t seed);
+    bool isEvolving() const;
+    std::uint32_t getEvolutionStep() const;
+    void updateEvolution();
     // Grid used by the phrase editor: the audio thread's resolved meter/phrase when available,
     // otherwise the manual parameters.
     groovemorph::core::control::GridContext getGridContext() const noexcept;
@@ -198,7 +233,14 @@ private:
         bool auditioning = false;
     };
 
-    void timerCallback() override { syncHostVariationParameter(); applyMidiMacros(); }
+    void timerCallback() override
+    {
+        syncHostVariationParameter();
+        applyMidiMacros();
+        pollLoopCapture();
+        updateGesture();
+        updateEvolution();
+    }
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     groovemorph::core::HostTransport readHostTransport() const;
     groovemorph::core::TransitionMode currentTransitionMode() const noexcept;
@@ -306,7 +348,22 @@ private:
     std::atomic<std::uint32_t> midiNoteEvents{0};
     std::atomic<int> paramSeenByAudio{-1};  // variation parameter value the audio thread last read
     std::atomic<int> autoReturnTargetStatus{-1};
-    std::atomic<bool> demoEnabled{false};
+    std::atomic<int> sourceMode{0};
+    groovemorph::core::LoopSource loopSource;
+    groovemorph::core::LoopCapture loopCapture;
+    std::atomic<double> loopSeconds{0.0};
+    std::atomic<double> phraseFractionStatus{0.0};
+    std::atomic<std::int64_t> phraseIndexStatus{0};
+    groovemorph::core::control::GestureLane gesture;
+    int gestureTarget = 0;
+    bool gestureRecording = false, gesturePlaying = false;
+    // Evolution state (guarded by modelMutex).
+    bool evolutionOn = false;
+    std::size_t evolutionScene = 0;
+    int evolutionEvery = 1;
+    groovemorph::core::variation::GeneratorSettings evolutionSettings;
+    std::uint32_t evolutionStep = 0;
+    std::int64_t lastEvolutionPhrase = -1;
     std::atomic<bool> midiMacros{false};
     std::array<std::atomic<float>, 3> ccValue{};
     std::atomic<unsigned> ccDirty{0};

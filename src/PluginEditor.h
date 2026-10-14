@@ -52,9 +52,10 @@ private:
     groovemorph::core::scene::Variation editedVariation;
     bool refreshing = false, comparingStored = false, draggingMidi = false;
     void timerCallback() override;
-    static constexpr int inspectorWidth = 420;
+    static constexpr int inspectorWidth = 470;
     int contentWidth() const noexcept { return getWidth() - inspectorWidth; }
-    void applySceneSettings(const groovemorph::core::VariationSettings& settings);
+    void applySceneSettings(groovemorph::core::VariationSettings settings);
+    juce::uint32 lockNoticeUntil = 0;
     void previewCandidate(const groovemorph::core::VariationSettings& settings);
     void refreshSceneControls();
     void editOperation(std::size_t index);

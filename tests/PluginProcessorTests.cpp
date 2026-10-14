@@ -889,6 +889,154 @@ int main()
         processor.setPlayHead(nullptr);
     }
 
+
+    // ---- Alpha 2: capture a loop and play it back beat-locked (F09) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        const int blockSize = 480;
+        processor.prepareToPlay(48000.0, blockSize);
+        setParameter(processor, "masterIntensity", 0.0f); // dry path: output == the (replaced) input exactly
+        expect("capture arms", processor.armLoopCapture(1));
+        std::vector<float> recorded;
+        std::int64_t sample = 5 * blockSize; // start mid-bar: capture waits for the next bar line
+        const auto signal = [](std::int64_t i) { return 0.5f * static_cast<float>(std::sin(0.002 * static_cast<double>(i))); };
+        while (processor.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Done && sample < 96000 * 4)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                buffer.setSample(0, i, signal(sample + i));
+                buffer.setSample(1, i, signal(sample + i));
+            }
+            setTransport(playHead, sample);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            sample += blockSize;
+        }
+        expect("capture completed", processor.getLoopCaptureState() == groovemorph::core::LoopCapture::State::Done);
+        processor.pollLoopCapture();
+        expect("loop published", processor.hasLoop() && std::abs(processor.getLoopSeconds() - 2.0) < 1e-3);
+        processor.setSourceMode(2);
+        bool exact = true;
+        for (std::int64_t pos = 96000 * 3; pos < 96000 * 3 + 4800; pos += blockSize)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            buffer.clear();
+            setTransport(playHead, pos);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                // The capture started on the bar line at sample 96000, so the loop is the signal
+                // from [96000, 192000) repeated every bar (96000 samples).
+                const float want = signal(96000 + ((pos + i) % 96000));
+                exact = exact && std::abs(buffer.getSample(0, i) - want) < 1e-3f;
+            }
+        }
+        expect("loop plays back locked to the bar grid", exact);
+        processor.clearLoop();
+        expect("loop cleared", !processor.hasLoop());
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha 2: file import validation (F09) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        processor.prepareToPlay(48000.0, 256);
+        expect("missing file rejected", processor.importLoopFile(juce::File("/nonexistent/none.wav"), 2).failed());
+        const auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm-import-test.wav");
+        {
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::FileOutputStream> stream(tmp.createOutputStream());
+            std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(stream.get(), 44100.0, 1, 16, {}, 0));
+            if (writer != nullptr)
+            {
+                stream.release();
+                juce::AudioBuffer<float> data(1, 44100);
+                for (int i = 0; i < 44100; ++i)
+                    data.setSample(0, i, 0.3f * std::sin(0.05f * static_cast<float>(i)));
+                writer->writeFromAudioSampleBuffer(data, 0, 44100);
+            }
+        }
+        expect("bad bar count rejected", processor.importLoopFile(tmp, 0).failed());
+        expect("wav imports", processor.importLoopFile(tmp, 2).wasOk() && processor.hasLoop()
+                                  && std::abs(processor.getLoopSeconds() - 1.0) < 1e-3);
+        tmp.deleteFile();
+        const auto text = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm-not-audio.wav");
+        text.replaceWithText("not audio");
+        expect("non-audio file rejected", processor.importLoopFile(text, 1).failed());
+        text.deleteFile();
+    }
+
+    // ---- Alpha 2: gesture record/playback (F11) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        processor.setGestureTarget(0); // morph amount
+        const auto atPhrase = [&](double fraction) {
+            setTransport(playHead, static_cast<std::int64_t>(fraction * 384000.0)); // 4-bar phrase
+            processSilence(processor, 256);
+        };
+        processor.setGestureRecording(true);
+        for (int step = 0; step < 8; ++step)
+        {
+            const double fraction = step / 8.0;
+            atPhrase(fraction);
+            setParameter(processor, "morphAmount", static_cast<float>(step) / 7.0f);
+            processor.updateGesture();
+        }
+        expect("gesture recorded", processor.getGestureFill() >= 8);
+        processor.setGestureRecording(false);
+        setParameter(processor, "morphAmount", 0.0f);
+        processor.setGesturePlaying(true);
+        atPhrase(5.0 / 8.0);
+        processor.updateGesture();
+        const float played = processor.parameters.getRawParameterValue("morphAmount")->load();
+        expect("gesture plays back the recorded value", std::abs(played - 5.0f / 7.0f) < 0.05f);
+        processor.clearGesture();
+        expect("gesture cleared", processor.getGestureFill() == 0 && !processor.isGesturePlaying());
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- Alpha 2: phrase evolution never touches stored scenes (F05) ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        processor.prepareToPlay(48000.0, 256);
+        const auto stored = processor.getSceneBank();
+        processor.setEvolution(true, 0, 1, 1.0f, 2, 1234);
+        std::int64_t sample = 0;
+        const auto advanceTo = [&](std::int64_t target) {
+            while (sample < target)
+            {
+                setTransport(playHead, sample);
+                processSilence(processor, 256);
+                processor.updateEvolution();
+                sample += 256;
+            }
+        };
+        advanceTo(10000);
+        expect("no evolution step within the first phrase", processor.getEvolutionStep() == 0);
+        advanceTo(384000 + 2560);
+        expect("evolves at the phrase boundary", processor.getEvolutionStep() == 1);
+        advanceTo(2 * 384000 + 2560);
+        expect("and again next phrase", processor.getEvolutionStep() == 2);
+        expect("stored scene is untouched", processor.getSceneBank() == stored);
+        juce::MemoryBlock state;
+        processor.getStateInformation(state);
+        GrooveMorphAudioProcessor restored;
+        restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        expect("evolution is not saved into project state", restored.getSceneBank() == stored);
+        processor.setEvolution(false, 0, 1, 1.0f, 2, 1234);
+        expect("evolution off", !processor.isEvolving());
+        processor.setPlayHead(nullptr);
+    }
+
     if (failures == 0)
         std::cout << "PluginProcessorTests: all checks passed\n";
     return failures == 0 ? 0 : 1;
