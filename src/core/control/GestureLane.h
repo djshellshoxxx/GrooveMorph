@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <string>
+#include <string_view>
 
 namespace groovemorph::core::control
 {
@@ -19,6 +21,12 @@ public:
     // Interpolated value at the phrase position (wrapping between the nearest recorded bins);
     // negative when nothing has been recorded.
     [[nodiscard]] float sample(double phraseFraction) const noexcept;
+
+    // Text form for project state: space-separated "bin:value" pairs of the recorded bins.
+    [[nodiscard]] std::string serialize() const;
+    // Replaces the lane from serialize() output. Malformed or out-of-range items are skipped (never
+    // trusted); returns the number of bins restored. Input longer than 16 KiB is ignored.
+    std::size_t deserialize(std::string_view text) noexcept;
 
 private:
     std::array<float, binCount> values{};

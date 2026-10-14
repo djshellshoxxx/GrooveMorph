@@ -14,6 +14,8 @@ namespace
 constexpr auto stateType = "GrooveMorphState";
 constexpr auto sceneTreeType = "SceneBank";
 constexpr auto sceneDataProperty = "data";
+constexpr auto gestureTreeType = "Gesture";
+constexpr auto evolutionTreeType = "Evolution";
 constexpr int meterDenominators[] = {1, 2, 4, 8, 16};
 constexpr int maxProcessedChannels = 2;
 
@@ -1077,6 +1079,27 @@ void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
                           nullptr);
     state.removeChild(state.getChildWithName(sceneTreeType), nullptr);
     state.appendChild(sceneTree, nullptr);
+
+    // Gesture lane (F11) and phrase evolution (F05) settings travel with the project.
+    juce::ValueTree gestureTree(gestureTreeType);
+    {
+        const std::lock_guard<std::mutex> lock(gestureMutex);
+        gestureTree.setProperty("target", gestureTarget, nullptr);
+        gestureTree.setProperty("bins", juce::String(gesture.serialize()), nullptr);
+    }
+    juce::ValueTree evolutionTree(evolutionTreeType);
+    {
+        const std::lock_guard<std::mutex> lock(modelMutex);
+        evolutionTree.setProperty("enabled", evolutionOn, nullptr);
+        evolutionTree.setProperty("scene", static_cast<int>(evolutionScene), nullptr);
+        evolutionTree.setProperty("every", evolutionEvery, nullptr);
+        evolutionTree.setProperty("distance", static_cast<double>(evolutionSettings.distance), nullptr);
+        evolutionTree.setProperty("style", static_cast<int>(evolutionSettings.style), nullptr);
+    }
+    for (const char* type : {gestureTreeType, evolutionTreeType})
+        state.removeChild(state.getChildWithName(type), nullptr);
+    state.appendChild(gestureTree, nullptr);
+    state.appendChild(evolutionTree, nullptr);
     if (const auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -1104,6 +1127,20 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
         sceneText = sceneTree.getProperty(sceneDataProperty).toString().toStdString();
         restoredState.removeChild(sceneTree, nullptr);
     }
+    // Gesture and evolution are optional (absent in older projects) and parsed defensively.
+    const auto gestureTree = restoredState.getChildWithName(gestureTreeType);
+    const auto evolutionTree = restoredState.getChildWithName(evolutionTreeType);
+    const juce::String gestureBins = gestureTree.isValid() ? gestureTree.getProperty("bins").toString() : juce::String();
+    const int gestureTargetRestored = gestureTree.isValid() ? static_cast<int>(gestureTree.getProperty("target", 0)) : 0;
+    const bool evolutionRestored = evolutionTree.isValid();
+    const bool evolutionEnabled = evolutionRestored && static_cast<bool>(evolutionTree.getProperty("enabled", false));
+    const int evolutionSceneRestored = evolutionRestored ? static_cast<int>(evolutionTree.getProperty("scene", 0)) : 0;
+    const int evolutionEveryRestored = evolutionRestored ? static_cast<int>(evolutionTree.getProperty("every", 1)) : 1;
+    const double evolutionDistance = evolutionRestored ? static_cast<double>(evolutionTree.getProperty("distance", 0.3)) : 0.3;
+    const int evolutionStyle = evolutionRestored ? static_cast<int>(evolutionTree.getProperty("style", 0)) : 0;
+    for (const char* type : {gestureTreeType, evolutionTreeType})
+        if (const auto child = restoredState.getChildWithName(type); child.isValid())
+            restoredState.removeChild(child, nullptr);
     // Pre-selector projects always used Automatic. Restore that behavior even
     // when an older preset is loaded into an instance currently using Sample Clock.
     if (!restoredState.getChildWithProperty("id", timingModeId).isValid())
@@ -1134,6 +1171,17 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
         lastLoadReport = std::move(result.report);
         publishSceneLocked();
     }
+    {
+        const std::lock_guard<std::mutex> lock(gestureMutex);
+        gesture.clear();
+        gestureRecording = gesturePlaying = false;
+        gestureTarget = juce::jlimit(0, 2, gestureTargetRestored);
+        const auto text = gestureBins.toStdString();
+        gesture.deserialize(text);
+    }
+    setEvolution(evolutionEnabled, static_cast<std::size_t>(juce::jmax(0, evolutionSceneRestored)),
+                 evolutionEveryRestored, std::isfinite(evolutionDistance) ? static_cast<float>(evolutionDistance) : 0.3f,
+                 evolutionStyle, 0x47524F4F56ull);
     activeVariation.store(active, std::memory_order_relaxed);
     queuedVariation.store(-1, std::memory_order_relaxed);
     samplesUntilSwitch.store(-1, std::memory_order_relaxed);
@@ -1206,6 +1254,7 @@ juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, i
 
 void GrooveMorphAudioProcessor::setGestureTarget(int target)
 {
+    const std::lock_guard<std::mutex> lock(gestureMutex);
     target = juce::jlimit(0, 2, target);
     if (target != gestureTarget)
     {
@@ -1224,6 +1273,7 @@ GrooveMorphAudioProcessor::EvolutionSettings GrooveMorphAudioProcessor::getEvolu
 
 void GrooveMorphAudioProcessor::setGestureRecording(bool record)
 {
+    const std::lock_guard<std::mutex> lock(gestureMutex);
     gestureRecording = record;
     if (record)
         gesturePlaying = false;
@@ -1231,6 +1281,7 @@ void GrooveMorphAudioProcessor::setGestureRecording(bool record)
 
 void GrooveMorphAudioProcessor::setGesturePlaying(bool play)
 {
+    const std::lock_guard<std::mutex> lock(gestureMutex);
     gesturePlaying = play && gesture.hasData();
     if (gesturePlaying)
         gestureRecording = false;
@@ -1238,12 +1289,14 @@ void GrooveMorphAudioProcessor::setGesturePlaying(bool play)
 
 void GrooveMorphAudioProcessor::clearGesture()
 {
+    const std::lock_guard<std::mutex> lock(gestureMutex);
     gesture.clear();
     gestureRecording = gesturePlaying = false;
 }
 
 void GrooveMorphAudioProcessor::updateGesture()
 {
+    const std::lock_guard<std::mutex> lock(gestureMutex);
     if ((!gestureRecording && !gesturePlaying) || !transportPlaying.load(std::memory_order_relaxed))
         return;
     static constexpr const char* ids[] = {morphAmountId, masterIntensityId, dryWetId};

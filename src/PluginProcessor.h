@@ -372,6 +372,7 @@ private:
     mutable std::mutex loopServiceMutex; // message-thread loop services vs prepareToPlay; never taken by the audio thread
     std::atomic<double> phraseFractionStatus{0.0};
     std::atomic<std::int64_t> phraseIndexStatus{0};
+    mutable std::mutex gestureMutex; // gesture lane state: message thread and host state calls, never the audio thread
     groovemorph::core::control::GestureLane gesture;
     int gestureTarget = 0;
     bool gestureRecording = false, gesturePlaying = false;

@@ -1,5 +1,6 @@
 #include "core/control/AutoReturn.h"
 #include "core/control/PlacementEvaluator.h"
+#include "core/control/GestureLane.h"
 #include "core/control/SceneControl.h"
 #include "core/control/VariationBlend.h"
 #include "core/scene/SceneSerializer.h"
@@ -7,6 +8,7 @@
 #include <cmath>
 #include <iostream>
 #include <optional>
+#include <string>
 #include <string_view>
 
 using namespace groovemorph::core;
@@ -509,6 +511,22 @@ int main()
         EventLane plain = looped;
         plain.loopBeats[0] = 0;
         expect("without a loop the same event is fine", addEvent(plain, second, phrase) == EditStatus::Ok);
+    }
+
+
+    // Gesture lane persistence: round trip and hostile input.
+    {
+        using groovemorph::core::control::GestureLane;
+        GestureLane a;
+        a.record(0.0, 0.25f);
+        a.record(0.5, 0.75f);
+        a.record(0.999, 1.0f);
+        GestureLane b;
+        expect("gesture restores every bin", b.deserialize(a.serialize()) == 3 && b.serialize() == a.serialize());
+        GestureLane c;
+        expect("hostile gesture text is skipped, not trusted",
+               c.deserialize("999:0.5 -3:0.1 x:y 7:nan 8:inf 9 :4 10:0.5abc 12:0.4") == 1 && c.filledBins() == 1);
+        expect("oversized gesture text is ignored", c.deserialize(std::string(20000, '1')) == 0 && !c.hasData());
     }
 
     if (failures == 0)

@@ -378,6 +378,23 @@ int main()
         processor.setPlayHead(nullptr);
     }
 
+    // Gesture target and evolution settings travel with the project state; garbage restores safely.
+    {
+        GrooveMorphAudioProcessor source;
+        source.setGestureTarget(2);
+        source.setEvolution(true, 3, 4, 0.6f, 2, 7);
+        juce::MemoryBlock block;
+        source.getStateInformation(block);
+        GrooveMorphAudioProcessor restored;
+        restored.setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+        const auto evolution = restored.getEvolutionSettings();
+        expect("gesture target restored", restored.getGestureTarget() == 2);
+        expect("evolution restored", evolution.enabled && evolution.scene == 3 && evolution.everyPhrases == 4
+                                         && std::abs(evolution.distance - 0.6f) < 1e-5f && evolution.style == 2);
+        GrooveMorphAudioProcessor fresh;
+        expect("a fresh processor has no evolution", !fresh.getEvolutionSettings().enabled && fresh.getGestureTarget() == 0);
+    }
+
     // GM-FR-008: MIDI note-ons switch at their sample position or queue.
     {
         GrooveMorphAudioProcessor processor;
