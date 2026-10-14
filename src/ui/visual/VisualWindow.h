@@ -5,7 +5,9 @@
 #include "core/scene/SceneBank.h"
 #include "core/trace/TraceFrame.h"
 #include "ui/visual/LedgerView.h"
+#include "ui/visual/RingsView.h"
 #include "ui/visual/StationsView.h"
+#include "core/viz/LapRecorder.h"
 #include "ui/visual/WeaveView.h"
 
 #include <functional>
@@ -39,7 +41,10 @@ private:
     GrooveMorphAudioProcessor& processor;
     WeaveView weaveView;
     LedgerView ledgerView;
+    RingsView ringsView;
     StationsView stationsView;
+    groovemorph::core::viz::LapRecorder lapRecorder;
+    int lastPhraseBeats = 0;
     SceneOrbitView orbitView;
     std::vector<groovemorph::core::trace::TraceFrame> frameBuffer;
     groovemorph::core::scene::SceneBank cachedBank;

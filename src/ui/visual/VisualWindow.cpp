@@ -7,6 +7,7 @@
 #include "core/viz/Ledger.h"
 #include "core/viz/PlanBuilder.h"
 #include "core/viz/StageModel.h"
+#include "core/control/PlacementEvaluator.h"
 
 #include <algorithm>
 #include <cmath>
@@ -29,6 +30,7 @@ VisualContent::VisualContent(GrooveMorphAudioProcessor& p) : processor(p), frame
     setTitle("GrooveMorph visual feedback");
     addAndMakeVisible(weaveView);
     addAndMakeVisible(ledgerView);
+    addAndMakeVisible(ringsView);
     addAndMakeVisible(stationsView);
     addAndMakeVisible(orbitView);
 }
@@ -63,15 +65,24 @@ void VisualContent::paint(juce::Graphics& g)
 void VisualContent::resized()
 {
     auto area = getLocalBounds().reduced(14);
-    const int ledgerWidth = juce::jlimit(260, 340, area.getWidth() / 4);
+    const int ledgerWidth = juce::jlimit(250, 300, area.getWidth() / 4);
     ledgerView.setBounds(area.removeFromRight(ledgerWidth));
     area.removeFromRight(12);
     const int bottomHeight = juce::jlimit(170, 230, area.getHeight() / 3);
     auto bottom = area.removeFromBottom(bottomHeight);
     area.removeFromBottom(12);
     weaveView.setBounds(area);
-    orbitView.setBounds(bottom.removeFromRight(juce::jlimit(240, 320, bottom.getWidth() / 3)));
+    // Bottom row: [rings | stations | orbit]. The rings need a roughly square space; below about 900 px of
+    // row width they are hidden rather than squeezing the stations.
+    const bool showRings = bottom.getWidth() >= 900;
+    orbitView.setBounds(bottom.removeFromRight(juce::jlimit(230, 280, bottom.getWidth() / 4)));
     bottom.removeFromRight(12);
+    ringsView.setVisible(showRings);
+    if (showRings)
+    {
+        ringsView.setBounds(bottom.removeFromLeft(juce::jlimit(200, 240, bottom.getHeight() + 30)));
+        bottom.removeFromLeft(12);
+    }
     stationsView.setBounds(bottom);
 }
 
@@ -181,7 +192,89 @@ void VisualContent::refresh()
     }
     weaveView.setData(std::move(data));
 
-    // 5. Chain stations and scene orbit.
+    // 5. Phrase rings: laps from measured frames, placement wedge from evaluate(), planned rest of the lap.
+    {
+        const double phraseBeats = static_cast<double>(grid.beatsPerBar) * static_cast<double>(grid.phraseBars);
+        if (static_cast<int>(phraseBeats) != lastPhraseBeats)
+        {
+            lapRecorder.reset(); // a different phrase length makes earlier laps incomparable
+            lastPhraseBeats = static_cast<int>(phraseBeats);
+        }
+        lapRecorder.feed(window.frames, window.count, phraseBeats);
+        RingsView::Data rings;
+        rings.phraseBars = grid.phraseBars;
+        rings.timed = timed;
+        rings.lapCount = std::min<std::size_t>(rings.laps.size(), lapRecorder.lapCount());
+        for (std::size_t i = 0; i < rings.lapCount; ++i)
+            if (const auto* lap = lapRecorder.lapAt(i))
+                rings.laps[i] = *lap;
+        if (rings.lapCount >= 2)
+        {
+            auto d = viz::lapDiff(rings.laps[0], rings.laps[1]);
+            for (std::size_t c = 0; c < viz::lapCells; ++c) // only cells that have data in both laps
+                if (rings.laps[0].cells[c].frames == 0 || rings.laps[1].cells[c].frames == 0)
+                    d.mask[c] = 0;
+            rings.diffNewest = d;
+        }
+        rings.planned.fill(255);
+        rings.allowed.fill(true);
+        rings.placementActive = groovemorph::core::control::isActive(scene.control);
+        if (timed)
+        {
+            const double nowLap = std::floor(params.nowBeat / phraseBeats);
+            rings.lapIndex = static_cast<std::int64_t>(nowLap);
+            rings.nowFraction = (params.nowBeat - nowLap * phraseBeats) / phraseBeats;
+            std::uint32_t enabledMask = 0;
+            for (std::size_t i = 0; i < groovemorph::core::operationCount; ++i)
+                if (scene.operations[i].enabled)
+                    enabledMask |= 1u << i;
+            for (std::size_t c = 0; c < viz::lapCells; ++c)
+            {
+                const double beat = (nowLap + (static_cast<double>(c) + 0.5) / static_cast<double>(viz::lapCells)) * phraseBeats;
+                if (rings.placementActive)
+                {
+                    const auto t = groovemorph::core::control::evaluate(scene.control, grid, beat, enabledMask);
+                    bool any = !t.gated;
+                    for (std::size_t i = 0; i < groovemorph::core::operationCount; ++i)
+                        any = any || (t.gated && t.active[i] && scene.operations[i].enabled);
+                    rings.allowed[c] = any;
+                }
+            }
+
+            // Pencil arcs for the rest of this lap, from the committed scene (the plan starts a little before
+            // now because stages read into the past). Cells the plan cannot cover stay empty.
+            const double lapEnd = (nowLap + 1.0) * phraseBeats;
+            std::vector<viz::PlanSegment> lapSegments(256);
+            lapSegments.resize(viz::buildPlanSegments(scene, grid, params.nowBeat - 4.0, lapEnd + 0.01, lapSegments.data(), lapSegments.size()));
+            const auto* intensityParam = processor.parameters.getRawParameterValue("masterIntensity");
+            const auto* dryWetParam = processor.parameters.getRawParameterValue("dryWet");
+            viz::PlanContext lapCtx;
+            lapCtx.segments = lapSegments.data();
+            lapCtx.segmentCount = lapSegments.size();
+            lapCtx.intensity = juce::jlimit(0.0f, 1.0f, (intensityParam != nullptr ? intensityParam->load() : 1.0f)
+                                                             * (dryWetParam != nullptr ? dryWetParam->load() : 1.0f));
+            lapCtx.samplesPerBeat = static_cast<double>(last->samplesPerBeat);
+            lapCtx.historySamples = static_cast<std::size_t>(std::ceil(groovemorph::core::RhythmEngine::maxHistorySeconds * status.sampleRate));
+            const std::size_t fromCell = static_cast<std::size_t>(rings.nowFraction * static_cast<double>(viz::lapCells));
+            for (std::size_t c = fromCell; c < viz::lapCells; ++c)
+            {
+                const double beat = (nowLap + (static_cast<double>(c) + 0.5) / static_cast<double>(viz::lapCells)) * phraseBeats;
+                const auto planned = viz::planThread(lapCtx, beat);
+                if (!planned.valid)
+                    continue;
+                viz::Effect e = viz::Effect::Live;
+                if (planned.wetMask & (1u << static_cast<unsigned>(groovemorph::core::OperationType::TapeStop))) e = viz::Effect::TapeStop;
+                else if (planned.wetMask & (1u << static_cast<unsigned>(groovemorph::core::OperationType::HalfTime))) e = viz::Effect::HalfTime;
+                else if (planned.wetMask & (1u << static_cast<unsigned>(groovemorph::core::OperationType::ReverseSlice))) e = viz::Effect::Reverse;
+                else if (planned.wetMask & (1u << static_cast<unsigned>(groovemorph::core::OperationType::Repeat))) e = viz::Effect::Repeat;
+                else if (planned.gateFactor < 0.25f) e = viz::Effect::Gate;
+                rings.planned[c] = static_cast<std::uint8_t>(e);
+            }
+        }
+        ringsView.setData(std::move(rings));
+    }
+
+    // 6. Chain stations and scene orbit.
     {
         std::array<std::uint8_t, groovemorph::core::operationCount> locks{};
         for (std::size_t i = 0; i < locks.size(); ++i)
@@ -203,7 +296,7 @@ VisualWindow::VisualWindow(GrooveMorphAudioProcessor& processor, std::function<v
     setUsingNativeTitleBar(true);
     setResizable(true, true);
     setResizeLimits(720, 480, 2600, 1600);
-    centreWithSize(1100, 680);
+    centreWithSize(1280, 720);
 }
 
 VisualWindow::~VisualWindow()

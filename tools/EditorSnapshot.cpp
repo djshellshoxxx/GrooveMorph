@@ -129,6 +129,13 @@ int main(int argc, char** argv)
         busy.operations[4] = {true, 0.9f, 1.0f};
         visualShot("visual-halftime-tapestop-gate.png", busy, 1100, 680);
         visualShot("visual-small.png", plain, 800, 500);
+        // Placement window + event lane scene at the default window size: rings show lap structure.
+        groovemorph::core::VariationSettings placed = busy;
+        placed.control.placement.enabled = true;
+        placed.control.placement.window = ctl::WindowMode::Custom;
+        placed.control.placement.startPhase = 0.25f;
+        placed.control.placement.spanPhase = 0.5f;
+        visualShot("visual-wide.png", placed, 1280, 720);
     }
     processor.setPlayHead(nullptr);
     return 0;
