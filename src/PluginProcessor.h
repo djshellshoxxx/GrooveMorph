@@ -9,6 +9,7 @@
 #include "core/TransportResolver.h"
 #include "core/control/GestureLane.h"
 #include "core/dsp/DemoSource.h"
+#include "core/MidiLinks.h"
 #include "core/dsp/LoopSource.h"
 #include "core/variation/CandidateBuilder.h"
 #include "core/dsp/OnsetDetector.h"
@@ -148,6 +149,24 @@ public:
     void setSourceMode(int mode) noexcept { sourceMode.store(juce::jlimit(0, 2, mode), std::memory_order_relaxed); }
     int getSourceMode() const noexcept { return sourceMode.load(std::memory_order_relaxed); }
 
+    // ---- MIDI learn: link any control to a MIDI CC ----
+    // Targets: "p:<parameterId>" or "s:<effect 0-4>:<depth|slice|enabled>" (the sounding scene). Message thread.
+    void beginMidiLearn(const juce::String& target);   // the next CC that moves is linked to the target
+    void cancelMidiLearn();
+    juce::String getMidiLearnTarget() const;            // empty when not learning
+    int getMidiLinkCc(const juce::String& target) const; // -1 when not linked
+    bool linkMidi(int cc, const juce::String& target);
+    void unlinkMidi(const juce::String& target);
+    void clearMidiLinks();
+    // Applies controller movement received since the last call (the processor's timer calls this ~20x/s).
+    void servicePendingControllers() { applyMidiLinks(); }
+    // Live scene edit for controllers: no undo entry per move, refused while a preview is active.
+    void setOperationSettingsLive(std::size_t index, groovemorph::core::OperationType op,
+                                  const groovemorph::core::OperationSettings& settings);
+
+    // Restores every setting to its factory default (confirmation is the caller's job). Message thread.
+    void resetToDefaults();
+
     // ---- Internal transport (Standalone, or Sample Clock when the host reports no play state) ----
     // Play continues from the current position; Stop halts and rewinds to the start. When a host decides
     // play/stop, isInternalTransportActive() is false and these requests have no effect on the audio.
@@ -271,6 +290,7 @@ private:
     {
         syncHostVariationParameter();
         applyMidiMacros();
+        applyMidiLinks();
         pollLoopCapture();
         updateGesture();
         updateEvolution();
@@ -411,6 +431,13 @@ private:
     groovemorph::core::variation::GeneratorSettings evolutionSettings;
     std::uint32_t evolutionStep = 0;
     std::int64_t lastEvolutionPhrase = -1;
+    // MIDI links: the audio thread only pushes CC values into the inbox; links are applied by the timer.
+    groovemorph::core::CcInbox ccInbox;
+    mutable std::mutex midiLinkMutex;
+    groovemorph::core::MidiLinkTable midiLinks;
+    juce::String midiLearnTarget;
+    void applyMidiLinks();
+    void applyLinkedValue(const std::string& target, float normalised);
     std::atomic<bool> midiMacros{false};
     std::array<std::atomic<float>, 3> ccValue{};
     std::atomic<unsigned> ccDirty{0};

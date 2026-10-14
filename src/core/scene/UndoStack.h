@@ -17,6 +17,9 @@ public:
     // Records the current state for undo, makes `next` current and clears redo.
     // A commit equal to the current state is a no-op.
     void commit(const SceneBank& next);
+    // Replaces the current state WITHOUT recording history (live performance moves such as MIDI controllers,
+    // which would otherwise flood the undo list). Redo history is left alone.
+    void amend(const SceneBank& next) { state = next; }
     bool undo(); // false when nothing to undo
     bool redo(); // false when nothing to redo
     void reset(const SceneBank& state); // clears all history

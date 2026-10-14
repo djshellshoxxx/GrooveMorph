@@ -8,6 +8,7 @@ namespace viz = groovemorph::core::viz;
 
 WeaveView::WeaveView()
 {
+    setTooltip("Warp Weave: each thread ties a moment of what you are hearing (top) to the moment of input it came from (bottom). Straight = live, fan-in = repeat, crossing = reverse, spreading = slower, dotted = gate closed. The triangle is now: left is heard, right is planned.");
     setOpaque(false);
     setTitle("Warp Weave");
     setDescription("Each thread ties a moment of what you hear, on the top row, to the moment of input it came from, on the bottom row.");

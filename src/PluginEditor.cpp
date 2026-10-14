@@ -38,20 +38,22 @@ void configureSlider(juce::Slider& slider, const juce::String& name)
 }
 }
 
-void GrooveMorphAudioProcessorEditor::addSlider(juce::Slider& slider,
+void GrooveMorphAudioProcessorEditor::addSlider(groovemorph::ui::MenuSlider& slider,
     const juce::String& parameter, const juce::String& name)
 {
     configureSlider(slider, name);
+    slider.info() = {&audioProcessor, name, "p:" + parameter, {}};
     addAndMakeVisible(slider);
     sliderAttachments.push_back(std::make_unique<SliderAttachment>(audioProcessor.parameters, parameter, slider));
 }
 
-void GrooveMorphAudioProcessorEditor::addCombo(juce::ComboBox& combo,
+void GrooveMorphAudioProcessorEditor::addCombo(groovemorph::ui::MenuComboBox& combo,
     const juce::String& parameter, const juce::StringArray& choices, const juce::String& name)
 {
     combo.addItemList(choices, 1);
     combo.setName(name);
     combo.setTooltip(name);
+    combo.info() = {&audioProcessor, name, "p:" + parameter, {}};
     addAndMakeVisible(combo);
     comboAttachments.push_back(std::make_unique<ComboAttachment>(audioProcessor.parameters, parameter, combo));
 }
@@ -79,10 +81,32 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     timingMode.setTooltip("Automatic prefers host PPQ and falls back to samples. Host PPQ holds scheduled switches when PPQ is missing. Sample Clock free-runs without a host; a stopped host stays stopped.");
     addCombo(transitionMode, "transitionMode", {"Immediate", "Next Beat", "Next Bar", "Next Phrase", "Manual"}, "Transition");
     addCombo(denominator, "manualMeterDenominator", {"1", "2", "4", "8", "16"}, "Manual beat unit");
+    intensitySlider.setTooltip("How strongly the rhythm effects are applied: 0 = none (you hear the unprocessed sound), 1 = full. Same control as the Intensity macro in the Perform tab.");
+    dryWetSlider.setTooltip("Mix between the unprocessed sound (0) and the processed sound (1). Intensity and Dry/wet multiply, so either one at 0 gives the dry sound.");
+    tempoSlider.setTooltip("Tempo in beats per minute (20-300), used when the host does not provide one and in Standalone. Changing it keeps the current position (no jump). Imported loops follow it: they play at original speed when it equals the loop's own tempo.");
+    meterSlider.setTooltip("Beats per bar (1-16) used when the host does not provide a time signature. 4 means 4/4 or 4/8, 3 means 3/4 and so on. The beat unit box sets the note value of one beat.");
+    denominator.setTooltip("Note value of one beat for the manual time signature: 4 = quarter note, 8 = eighth note, and so on. Used only when the host provides no time signature.");
+    phraseSlider.setTooltip("Length of one phrase in bars (1-16). Scene changes can wait for a phrase boundary; placement windows, the phrase rings and morph/return timing follow this length.");
+    transitionMode.setTooltip("When a scene change takes effect: Immediate, on the Next Beat, Next Bar, Next Phrase, or Manual (waits until you press Trigger queued).");
+    bypassButton.setTooltip("Bypass: passes the sound through unchanged (a short fade avoids clicks). Host-automatable.");
     addAndMakeVisible(bypassButton);
     demoButton.onClick = [this] { audioProcessor.setDemoSourceEnabled(demoButton.getToggleState()); };
     demoButton.setTooltip("Switches the input source between live input and the built-in drum loop (kick, snare, hat) so the effects can be heard without external audio. Captured/imported loops are in the Input tab. Not saved with the project.");
     addAndMakeVisible(demoButton);
+    playButton.setTooltip("Starts the internal transport from the beginning (Standalone, or Sample Clock timing without a host play state). Shortcut: Space.");
+    stopButton.setTooltip("Stops the internal transport and returns to the beginning. Effects, the demo loop and loaded loops stop with it. Shortcut: Space.");
+    resetButton.setTooltip("Resets everything to the factory defaults: all settings, the four scenes (effects, names, placement, MIDI notes), MIDI links, loaded loops, evolution and gestures. Asks first.");
+    playButton.setClickingTogglesState(false);
+    stopButton.setClickingTogglesState(false);
+    playButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff2e8b57));
+    stopButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xff9a5a2a));
+    playButton.onClick = [this] { audioProcessor.startInternalTransport(); updateTransportButtons(); };
+    stopButton.onClick = [this] { audioProcessor.stopInternalTransport(); updateTransportButtons(); };
+    resetButton.onClick = [this] { confirmReset(); };
+    for (auto* b : {&playButton, &stopButton, &resetButton})
+        addAndMakeVisible(*b);
+    phraseStripTip.setTooltip("The phrase: one box per bar. The cyan line is the current position inside the phrase.");
+    addAndMakeVisible(phraseStripTip);
     visualButton.setTooltip("Opens or closes the separate Visual window: a live picture of what the plugin is doing to the sound (which past audio you are hearing, what is planned next, gate, scenes) with the numbers behind it. Tracing only runs while the window is open.");
     visualButton.onClick = [this] {
         if (visualButton.getToggleState())
@@ -100,19 +124,24 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     };
     addAndMakeVisible(visualButton);
     bypassAttachment = std::make_unique<ButtonAttachment>(audioProcessor.parameters, "bypass", bypassButton);
+    bypassButton.info() = {&audioProcessor, "Bypass", "p:bypass", {}};
+    tempoSlider.info().unit = "BPM";
 
     for (std::size_t i = 0; i < variationButtons.size(); ++i)
     {
         auto& button = variationButtons[i];
         button.onClick = [this, i] { audioProcessor.requestVariation(i); };
-        button.setTooltip("Queue variation using the selected transition policy");
+        button.setTooltip("Switch to this scene (A-D). It takes effect according to the Transition setting: now, next beat, bar, phrase, or when you press Trigger queued. Shows which scene is sounding, queued and being edited.");
         addAndMakeVisible(button);
     }
+    triggerButton.setTooltip("Fires the queued scene change now. It only affects changes that were queued while Transition was set to Manual.");
+    cancelButton.setTooltip("Cancels the queued scene change so the current scene keeps sounding.");
     triggerButton.onClick = [this] { audioProcessor.triggerManualSwitch(); };
     cancelButton.onClick = [this] { audioProcessor.cancelQueuedSwitch(); };
     editVariation.addItemList({"Edit A", "Edit B", "Edit C", "Edit D"}, 1);
     editVariation.setSelectedId(1, juce::dontSendNotification);
     editVariation.setName("Variation to edit");
+    editVariation.setTooltip("Which scene (A-D) the controls below edit. It does not change what is playing. Locked while a preview is running: apply or revert the preview first.");
     editVariation.onChange = [this]
     {
         if (refreshing) return;
@@ -126,6 +155,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
         refreshSceneControls();
     };
     addAndMakeVisible(editVariation);
+    variationName.setTooltip("Name of the scene being edited (shown on its button).");
     copyActiveFxButton.setTooltip(
         "Copy effect settings from the currently playing variation into the variation "
         "selected for editing. Keeps the target's name/MIDI note; one Undo restores it.");
@@ -147,6 +177,21 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
         row.enabled.setButtonText(names[static_cast<int>(i)]);
         configureSlider(row.depth, names[static_cast<int>(i)] + " depth");
         configureSlider(row.slice, names[static_cast<int>(i)] + " slice (meter beats)");
+        row.enabled.info() = {&audioProcessor, names[static_cast<int>(i)] + " on/off (sounding scene)", "s:" + juce::String(static_cast<int>(i)) + ":enabled", {}};
+        row.depth.info() = {&audioProcessor, names[static_cast<int>(i)] + " depth (sounding scene)", "s:" + juce::String(static_cast<int>(i)) + ":depth", {}};
+        row.slice.info() = {&audioProcessor, names[static_cast<int>(i)] + " slice (sounding scene)", "s:" + juce::String(static_cast<int>(i)) + ":slice", "beats"};
+        row.depth.setDoubleClickReturnValue(true, 1.0);
+        row.slice.setDoubleClickReturnValue(true, 0.25);
+        {
+            static const char* effectInfo[] = {
+                "Repeat / stutter: repeats a short slice of the sound again and again.",
+                "Reverse slice: plays the previous slice backwards.",
+                "Gate: chops the sound on and off in time (open for the first half of each slice, closed for the second half).",
+                "Half-time: plays each slice at half speed for a slowed, heavier feel (pitch drops with it).",
+                "Tape stop: slows each slice down to a stop, like a turntable or tape machine losing power."};
+            row.enabled.setTooltip(juce::String(effectInfo[i]) + " Tick to switch it on for the scene being edited.");
+            row.depth.setTooltip(names[static_cast<int>(i)] + " depth: how much of the effect is mixed in for the scene being edited (0 = none, 1 = full).");
+        }
         row.depth.setRange(0, 1, 0.01);
         row.depth.setNumDecimalPlacesToDisplay(2);
         row.slice.setNumDecimalPlacesToDisplay(3);
@@ -163,6 +208,12 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
         addAndMakeVisible(row.depth);
         addAndMakeVisible(row.slice);
     }
+    previewButton.setTooltip("Audition the scene being edited without saving it: you hear your edits live, and nothing changes until you press Apply preview.");
+    compareButton.setTooltip("While previewing, switches between your edited version and the stored scene so you can compare them by ear.");
+    applyButton.setTooltip("Keeps the previewed edit as the scene (one Undo step).");
+    revertButton.setTooltip("Throws the previewed edit away and returns to the stored scene.");
+    undoButton.setTooltip("Undoes the last scene edit (effects, names, MIDI notes, generated variations).");
+    redoButton.setTooltip("Redoes the scene edit you just undid.");
     previewButton.onClick = [this]
     {
         editName();
@@ -185,6 +236,8 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
                          &applyButton, &revertButton, &undoButton, &redoButton})
         addAndMakeVisible(*button);
     configureSlider(midiNoteSlider, "MIDI note for edited variation (0-127)");
+    returnOnNoteOff.setTooltip("When on, letting go of a scene's MIDI note returns to the scene that was sounding before it (applies to all four scenes). When off, releasing a note does nothing.");
+    midiNoteSlider.setTooltip("MIDI note (0-127; 60 = middle C) that switches to the scene being edited. Each scene has its own note.");
     midiNoteSlider.setRange(0, 127, 1);
     midiNoteSlider.setNumDecimalPlacesToDisplay(0);
     midiNoteSlider.onDragStart = [this] { draggingMidi = true; };
@@ -205,6 +258,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     refreshSceneControls();
     setResizable(true, true);
     setResizeLimits(1230, 700, 1900, 1100);
+    groovemorph::ui::finishControlMenus(*this, audioProcessor);
     setSize(1290, 740);
     startTimerHz(10);
 }
@@ -315,6 +369,7 @@ void GrooveMorphAudioProcessorEditor::finishPreview(bool apply)
 
 void GrooveMorphAudioProcessorEditor::timerCallback()
 {
+    updateTransportButtons();
     timingLabel.setText(describeTiming(audioProcessor), juce::dontSendNotification);
     const auto bank = audioProcessor.getSceneBank();
     const auto active = audioProcessor.getActiveVariation();
@@ -444,7 +499,11 @@ void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
 void GrooveMorphAudioProcessorEditor::resized()
 {
     const int width = contentWidth() - 40, column = width / 2;
-    titleLabel.setBounds(20, 12, width - 340, 36);
+    titleLabel.setBounds(20, 12, 160, 36);
+    playButton.setBounds(184, 16, 62, 30);
+    stopButton.setBounds(250, 16, 62, 30);
+    resetButton.setBounds(322, 16, 70, 30);
+    phraseStripTip.setBounds(20, 265, width, 26);
     bypassButton.setBounds(contentWidth() - 120, 16, 100, 30);
     demoButton.setBounds(contentWidth() - 240, 16, 110, 30);
     visualButton.setBounds(contentWidth() - 340, 16, 90, 30);
@@ -485,6 +544,59 @@ void GrooveMorphAudioProcessorEditor::resized()
     midiNoteSlider.setBounds(140, 626, 240, 30);
     returnOnNoteOff.setBounds(400, 626, width - 380, 30);
     midiLabel.setBounds(20, 658, width, 26);
+}
+
+void GrooveMorphAudioProcessorEditor::updateTransportButtons()
+{
+    const bool internal = audioProcessor.isInternalTransportActive();
+    const bool playing = audioProcessor.isTransportPlaying();
+    playButton.setToggleState(playing, juce::dontSendNotification);
+    stopButton.setToggleState(!playing, juce::dontSendNotification);
+    playButton.setEnabled(internal);
+    stopButton.setEnabled(internal);
+    if (!internal)
+    {
+        const juce::String why = "The host controls play and stop here; these buttons only show its transport state ("
+                                 + juce::String(playing ? "playing" : "stopped") + "). Use the host's transport, or choose Timing method = Sample Clock without a host play state to use them.";
+        playButton.setTooltip(why);
+        stopButton.setTooltip(why);
+    }
+}
+
+void GrooveMorphAudioProcessorEditor::confirmReset()
+{
+    juce::Component::SafePointer<GrooveMorphAudioProcessorEditor> safe(this);
+    juce::AlertWindow::showAsync(
+        juce::MessageBoxOptions::makeOptionsOkCancel(
+            juce::MessageBoxIconType::WarningIcon, "Reset everything?",
+            "This puts every setting back to its factory default: all controls, the four scenes (effects, names, placement, MIDI notes), "
+            "MIDI links, loaded loops, evolution and gestures. Your current scenes will be replaced.",
+            "Reset", "Cancel", this),
+        [safe](int result) {
+            if (safe == nullptr || result != 1)
+                return;
+            safe->audioProcessor.resetToDefaults();
+            safe->editingIndex = 0;
+            safe->comparingStored = false;
+            safe->editVariation.setSelectedId(1, juce::dontSendNotification);
+            safe->demoButton.setToggleState(false, juce::dontSendNotification);
+            safe->refreshSceneControls();
+            safe->updateTransportButtons();
+        });
+}
+
+bool GrooveMorphAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::spaceKey && audioProcessor.isInternalTransportActive())
+    {
+        if (audioProcessor.isInternalPlaying())
+            audioProcessor.stopInternalTransport();
+        else
+            audioProcessor.startInternalTransport();
+        updateTransportButtons();
+        return true;
+    }
+    return false;
 }
 
 juce::AudioProcessorEditor* GrooveMorphAudioProcessor::createEditor()

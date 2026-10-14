@@ -11,7 +11,7 @@ namespace groovemorph::ui::visual
 {
 // The Warp Weave: every thread ties a moment of what is heard (top) to the moment it was played (bottom).
 // Draws only geometry produced by core/viz; planned threads are pencil, heard threads are ink.
-class WeaveView final : public juce::Component
+class WeaveView final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     struct Data

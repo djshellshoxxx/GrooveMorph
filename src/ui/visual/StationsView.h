@@ -9,7 +9,7 @@
 namespace groovemorph::ui::visual
 {
 // The real signal path, left to right, with what each stage is doing right now.
-class StationsView final : public juce::Component
+class StationsView final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     StationsView();
@@ -22,7 +22,7 @@ private:
 };
 
 // Scenes A to D: sounding, queued (with countdown), morph and the way back.
-class SceneOrbitView final : public juce::Component
+class SceneOrbitView final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     SceneOrbitView();

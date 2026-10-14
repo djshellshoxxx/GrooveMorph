@@ -11,7 +11,7 @@ namespace groovemorph::ui::visual
 // One ring per lap of the phrase (newest outermost). Angle = position in the phrase, so repeated material
 // lines up radially and a change shows as a break in the pattern. Everything is measured, except the
 // pencil arcs for the rest of the current lap (from the planner).
-class RingsView final : public juce::Component
+class RingsView final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     struct Data

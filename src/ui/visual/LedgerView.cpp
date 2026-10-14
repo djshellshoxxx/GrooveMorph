@@ -4,6 +4,7 @@ namespace groovemorph::ui::visual
 {
 LedgerView::LedgerView()
 {
+    setTooltip("Change Ledger: the numbers behind the pictures (how far back you are hearing, reading speed, gate, levels, history, timing, position, scene). Copy as text (C) copies them all.");
     setOpaque(false);
     setTitle("Change ledger");
     setDescription("Numbers describing what the plugin is doing to the sound right now.");

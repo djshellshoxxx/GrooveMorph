@@ -32,6 +32,7 @@ void arc(juce::Graphics& g, float cx, float cy, float r, float f0, float f1, flo
 
 RingsView::RingsView()
 {
+    setTooltip("Phrase Rings: one ring per lap of the phrase, newest outermost, bar 1 at the top. Repeats line up; ticks outside mark where this lap differs from the previous one.");
     setTitle("Phrase rings");
     setDescription("One ring per lap of the phrase, newest outermost: repeats line up, changes break the pattern.");
 }

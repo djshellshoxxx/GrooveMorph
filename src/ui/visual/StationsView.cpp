@@ -27,6 +27,7 @@ void drawPanel(juce::Graphics& g, juce::Rectangle<float> b, const juce::String& 
 
 StationsView::StationsView()
 {
+    setTooltip("Chain Stations: the five effects in signal order, with how much each is applied now and whether it is active, held off by placement or limits, stopped, or bypassed.");
     setTitle("Chain stations");
     setDescription("The five effects in signal order and what each is doing now.");
 }
@@ -107,6 +108,7 @@ void StationsView::paint(juce::Graphics& g)
 
 SceneOrbitView::SceneOrbitView()
 {
+    setTooltip("Scene Orbit: scenes A-D. Filled = sounding, ring = queued (with beats left), bead on a line = morph amount, dashed line = automatic return target.");
     setTitle("Scene orbit");
     setDescription("Scenes A to D: which is sounding, which is queued, morph and return.");
 }

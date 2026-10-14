@@ -13,6 +13,7 @@ namespace
 constexpr auto stateType = "GrooveMorphState";
 constexpr auto sceneTreeType = "SceneBank";
 constexpr auto sceneDataProperty = "data";
+constexpr auto midiLinkTreeType = "MidiLinks";
 constexpr int meterDenominators[] = {1, 2, 4, 8, 16};
 constexpr int maxProcessedChannels = 2;
 
@@ -278,6 +279,8 @@ void GrooveMorphAudioProcessor::handleMidi(const juce::uint8* data, int numBytes
     if (data == nullptr || numBytes < 2)
         return;
     const int status = data[0] & 0xf0;
+    if (status == 0xB0 && numBytes >= 3)
+        ccInbox.push(data[1] & 0x7f, data[2] & 0x7f); // for MIDI links / learn; applied on the message thread
     if (midiMacros.load(std::memory_order_relaxed))
     {
         if (status == 0xC0 && data[1] < core::variationCount) // program change -> scene
@@ -319,6 +322,128 @@ void GrooveMorphAudioProcessor::applyMidiMacros()
         if ((dirty & (1u << slot)) != 0)
             if (auto* parameter = parameters.getParameter(ids[slot]))
                 parameter->setValueNotifyingHost(ccValue[slot].load(std::memory_order_relaxed));
+}
+
+void GrooveMorphAudioProcessor::beginMidiLearn(const juce::String& target)
+{
+    if (!core::MidiLinkTable::validTarget(target.toStdString()))
+        return;
+    ccInbox.discardPending(); // only controller movement from now on counts
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    midiLearnTarget = target;
+}
+
+void GrooveMorphAudioProcessor::cancelMidiLearn()
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    midiLearnTarget = {};
+}
+
+juce::String GrooveMorphAudioProcessor::getMidiLearnTarget() const
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    return midiLearnTarget;
+}
+
+int GrooveMorphAudioProcessor::getMidiLinkCc(const juce::String& target) const
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    return midiLinks.ccFor(target.toStdString());
+}
+
+bool GrooveMorphAudioProcessor::linkMidi(int cc, const juce::String& target)
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    return midiLinks.link(cc, target.toStdString());
+}
+
+void GrooveMorphAudioProcessor::unlinkMidi(const juce::String& target)
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    midiLinks.unlink(target.toStdString());
+}
+
+void GrooveMorphAudioProcessor::clearMidiLinks()
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    midiLinks.clear();
+    midiLearnTarget = {};
+}
+
+void GrooveMorphAudioProcessor::applyMidiLinks()
+{
+    core::CcInbox::Change changes[64];
+    const auto count = ccInbox.collect(changes, 64);
+    if (count == 0)
+        return;
+    std::vector<core::MidiLink> links;
+    {
+        const std::lock_guard<std::mutex> lock(midiLinkMutex);
+        if (midiLearnTarget.isNotEmpty())
+        {
+            // Learn: the first controller that moved is linked to the waiting control and is not applied this time.
+            midiLinks.link(changes[0].cc, midiLearnTarget.toStdString());
+            midiLearnTarget = {};
+            return;
+        }
+        links = midiLinks.links();
+    }
+    for (std::size_t i = 0; i < count; ++i)
+        for (const auto& link : links)
+            if (link.cc == changes[i].cc)
+                applyLinkedValue(link.target, static_cast<float>(changes[i].value) / 127.0f);
+}
+
+void GrooveMorphAudioProcessor::applyLinkedValue(const std::string& target, float normalised)
+{
+    if (target.starts_with("p:"))
+    {
+        if (auto* parameter = parameters.getParameter(juce::String(target.substr(2))))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost(normalised);
+            parameter->endChangeGesture();
+        }
+        return;
+    }
+    if (target.starts_with("s:") && target.size() > 4)
+    {
+        const auto effect = static_cast<std::size_t>(target[2] - '0');
+        if (effect >= core::operationCount)
+            return;
+        const auto field = target.substr(4);
+        const auto sounding = static_cast<std::size_t>(activeVariation.load(std::memory_order_relaxed));
+        auto settings = getSceneBank().variation(std::min(sounding, core::variationCount - 1)).settings.operations[effect];
+        if (field == "depth")
+            settings.depth = normalised;
+        else if (field == "slice")
+            settings.sliceBeats = 0.0625f * std::pow(64.0f, normalised); // 1/16 .. 4 beats, logarithmic
+        else if (field == "enabled")
+            settings.enabled = normalised >= 0.5f;
+        setOperationSettingsLive(std::min(sounding, core::variationCount - 1), static_cast<core::OperationType>(effect), settings);
+    }
+}
+
+void GrooveMorphAudioProcessor::setOperationSettingsLive(std::size_t index, core::OperationType op,
+                                                         const core::OperationSettings& settings)
+{
+    if (index >= core::variationCount || op >= core::OperationType::Count)
+        return;
+    const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return;
+    auto bank = undoStack.current();
+    auto variation = bank.variation(index).settings;
+    const auto locks = variation.control.permissions.operationLocks[static_cast<std::size_t>(op)];
+    const auto before = variation;
+    variation[op] = settings;
+    core::control::enforcePermissions(before, variation, false); // locks apply to controllers too
+    (void) locks;
+    bank.setVariationSettings(index, variation);
+    if (bank == undoStack.current())
+        return;
+    undoStack.amend(bank);
+    publishSceneLocked();
 }
 
 core::VariationSettings GrooveMorphAudioProcessor::effectiveSettings(std::size_t variation) const noexcept
@@ -858,6 +983,8 @@ void GrooveMorphAudioProcessor::setVariationSettings(std::size_t index, const co
     if (index >= core::variationCount)
         return;
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     bank.setVariationSettings(index, settings);
     commitBankLocked(bank);
@@ -924,6 +1051,8 @@ void GrooveMorphAudioProcessor::setOperationSettings(std::size_t index, core::Op
     if (index >= core::variationCount || op >= core::OperationType::Count)
         return;
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     auto variation = bank.variation(index).settings;
     variation[op] = settings;
@@ -936,6 +1065,8 @@ void GrooveMorphAudioProcessor::setVariationName(std::size_t index, std::string_
     if (index >= core::variationCount)
         return;
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     bank.setVariationName(index, name);
     commitBankLocked(bank);
@@ -944,6 +1075,8 @@ void GrooveMorphAudioProcessor::setVariationName(std::size_t index, std::string_
 void GrooveMorphAudioProcessor::setMidiNoteMap(const scene::MidiNoteMap& map)
 {
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     bank.setMidiNoteMap(map);
     commitBankLocked(bank);
@@ -952,6 +1085,8 @@ void GrooveMorphAudioProcessor::setMidiNoteMap(const scene::MidiNoteMap& map)
 void GrooveMorphAudioProcessor::setSceneSeed(std::uint64_t seed)
 {
     const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
     bank.setSeed(seed);
     commitBankLocked(bank);
@@ -1074,6 +1209,15 @@ void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
                           nullptr);
     state.removeChild(state.getChildWithName(sceneTreeType), nullptr);
     state.appendChild(sceneTree, nullptr);
+    {
+        juce::ValueTree linkTree(midiLinkTreeType);
+        {
+            const std::lock_guard<std::mutex> lock(midiLinkMutex);
+            linkTree.setProperty(sceneDataProperty, juce::String(midiLinks.serialize()), nullptr);
+        }
+        state.removeChild(state.getChildWithName(midiLinkTreeType), nullptr);
+        state.appendChild(linkTree, nullptr);
+    }
     if (const auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -1110,10 +1254,33 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
         clockState.setProperty("value", 0.0f, nullptr);
         restoredState.appendChild(clockState, nullptr);
     }
-    parameters.replaceState(restoredState);
-
-    // Missing or malformed scene data yields defaults plus a recovery report.
+    // Decide about the scenes BEFORE touching anything, so one bad blob cannot leave a half-applied state:
+    // a project without scene data (older projects) gets factory scenes, but a scene blob that is present
+    // and unreadable (corrupt or from a newer version) keeps the scenes you already have.
     auto result = scene::SceneSerializer::deserialize(sceneText);
+    const bool unreadableScenes = !sceneText.empty() && result.report.status == scene::LoadStatus::Defaulted;
+    juce::String linkText;
+    if (const auto linkTree = restoredState.getChildWithName(midiLinkTreeType); linkTree.isValid())
+    {
+        linkText = linkTree.getProperty(sceneDataProperty).toString();
+        restoredState.removeChild(linkTree, nullptr);
+    }
+    parameters.replaceState(restoredState);
+    {
+        const std::lock_guard<std::mutex> lock(midiLinkMutex);
+        midiLinks = core::MidiLinkTable::deserialize(linkText.toStdString());
+        midiLearnTarget = {};
+    }
+
+    if (unreadableScenes)
+    {
+        const std::lock_guard<std::mutex> lock(modelMutex);
+        lastLoadReport = std::move(result.report);
+        lastLoadReport.messages.push_back("current scenes kept");
+        publishSceneLocked();
+        uiResyncParam.store(true, std::memory_order_release);
+        return;
+    }
     const auto active = result.bank.activeIndex();
     {
         const std::lock_guard<std::mutex> lock(modelMutex);
@@ -1129,6 +1296,48 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
     uiTrigger.store(false, std::memory_order_relaxed);
     uiResyncParam.store(true, std::memory_order_release);
     uiReset.store(static_cast<int>(active), std::memory_order_release);
+}
+
+void GrooveMorphAudioProcessor::resetToDefaults()
+{
+    // Message thread. Every host parameter back to its default, factory scenes (names, effects, placement,
+    // MIDI notes, seed), no preview, no loop, live input, no evolution or gesture, transport at the start.
+    for (auto* parameter : getParameters())
+    {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter))
+        {
+            ranged->beginChangeGesture();
+            ranged->setValueNotifyingHost(ranged->getDefaultValue());
+            ranged->endChangeGesture();
+        }
+    }
+    {
+        const std::lock_guard<std::mutex> lock(modelMutex);
+        audition.revert();
+        undoStack.reset(scene::SceneBank{});
+        lastLoadReport = {};
+        publishSceneLocked();
+    }
+    setEvolution(false, 0, 1, 0.5f, 1, evolutionSettings.seed);
+    setGestureRecording(false);
+    setGesturePlaying(false);
+    clearGesture();
+    clearLoop();
+    clearMidiLinks();
+    setSourceMode(0);
+    {
+        const std::lock_guard<std::mutex> lock(loopServiceMutex);
+        loopCapture.cancel();
+    }
+    internalPlaying.store(true, std::memory_order_relaxed);
+    internalRewind.store(true, std::memory_order_relaxed);
+    activeVariation.store(0, std::memory_order_relaxed);
+    queuedVariation.store(-1, std::memory_order_relaxed);
+    samplesUntilSwitch.store(-1, std::memory_order_relaxed);
+    uiRequest.store(-1, std::memory_order_relaxed);
+    uiTrigger.store(false, std::memory_order_relaxed);
+    uiResyncParam.store(true, std::memory_order_release);
+    uiReset.store(0, std::memory_order_release);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

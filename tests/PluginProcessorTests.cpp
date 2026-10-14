@@ -505,7 +505,8 @@ int main()
         juce::MemoryBlock bad;
         juce::AudioProcessor::copyXmlToBinary(*xml, bad);
         restored.setStateInformation(bad.getData(), static_cast<int>(bad.getSize()));
-        expect("malformed scene defaults", restored.getSceneBank() == scene::SceneBank{});
+        expect("unreadable scene blob keeps the current scenes", restored.getSceneBank() == source.getSceneBank());
+        expect("and reports it", restored.getLastSceneLoadReport().status == scene::LoadStatus::Defaulted);
         expect("malformed scene reported", restored.getLastSceneLoadReport().status != scene::LoadStatus::Ok);
     }
 
@@ -1330,6 +1331,146 @@ int main()
             expect("a playing loop source makes sound", peak > 0.0f);
         }
         wav.deleteFile();
+    }
+
+    // MIDI learn and links: learn on first movement, apply to parameters and to scene effects without undo flooding,
+    // persist with the project, clear on reset, respect previews.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        auto sendCc = [](GrooveMorphAudioProcessor& p, int cc, int value) {
+            juce::AudioBuffer<float> buf(2, 64);
+            buf.clear();
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, cc, value), 0);
+            p.processBlock(buf, midi);
+        };
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 64);
+        sendCc(p, 30, 10); // movement before learning must not be taken as the answer
+        p.servicePendingControllers();
+        p.beginMidiLearn("p:masterIntensity");
+        expect("learning", p.getMidiLearnTarget() == "p:masterIntensity");
+        p.servicePendingControllers();
+        expect("old movement does not complete learning", p.getMidiLinkCc("p:masterIntensity") == -1);
+        sendCc(p, 31, 100);
+        p.servicePendingControllers();
+        expect("first moving controller is linked", p.getMidiLinkCc("p:masterIntensity") == 31 && p.getMidiLearnTarget().isEmpty());
+        sendCc(p, 31, 127);
+        p.servicePendingControllers();
+        expect("linked controller drives the parameter (max)", std::abs(p.parameters.getRawParameterValue("masterIntensity")->load() - 1.0f) < 1.0e-4f);
+        sendCc(p, 31, 0);
+        p.servicePendingControllers();
+        expect("linked controller drives the parameter (min)", p.parameters.getRawParameterValue("masterIntensity")->load() < 1.0e-4f);
+        expect("bad target is refused", !p.linkMidi(5, "nonsense") && !p.linkMidi(200, "p:dryWet"));
+
+        p.beginMidiLearn("p:dryWet");
+        p.cancelMidiLearn();
+        expect("learning can be cancelled", p.getMidiLearnTarget().isEmpty());
+
+        // Scene effect link: depth of effect 1 (ReverseSlice) of the sounding scene, no undo entry per move.
+        expect("scene link", p.linkMidi(40, "s:1:depth"));
+        const auto before = p.getSceneBank();
+        sendCc(p, 40, 64);
+        p.servicePendingControllers();
+        const auto active = p.getActiveVariation();
+        expect("scene depth follows the controller", std::abs(p.getSceneBank().variation(active).settings.operations[1].depth - 64.0f / 127.0f) < 1.0e-3f);
+        const bool couldUndoBefore = p.canUndoSceneEdit();
+        sendCc(p, 40, 100); p.servicePendingControllers();
+        sendCc(p, 40, 20); p.servicePendingControllers();
+        expect("controller moves add no undo entries", p.canUndoSceneEdit() == couldUndoBefore);
+        expect("scene bank really changed", !(p.getSceneBank() == before));
+        p.linkMidi(41, "s:1:slice");
+        sendCc(p, 41, 127); p.servicePendingControllers();
+        expect("slice maps to the top of its range", std::abs(p.getSceneBank().variation(active).settings.operations[1].sliceBeats - 4.0f) < 1.0e-3f);
+        sendCc(p, 41, 0); p.servicePendingControllers();
+        expect("slice maps to the bottom of its range", std::abs(p.getSceneBank().variation(active).settings.operations[1].sliceBeats - 0.0625f) < 1.0e-4f);
+        p.linkMidi(42, "s:1:enabled");
+        sendCc(p, 42, 127); p.servicePendingControllers();
+        expect("enable follows the controller", p.getSceneBank().variation(active).settings.operations[1].enabled);
+        sendCc(p, 42, 0); p.servicePendingControllers();
+        expect("disable follows the controller", !p.getSceneBank().variation(active).settings.operations[1].enabled);
+
+        // A preview owns the scene: controllers do not touch it.
+        p.beginAudition(active);
+        const auto during = p.getSceneBank();
+        sendCc(p, 40, 127); p.servicePendingControllers();
+        expect("no controller edits during a preview", p.getSceneBank() == during);
+        p.revertAudition();
+
+        // Persistence and reset.
+        juce::MemoryBlock state;
+        p.getStateInformation(state);
+        GrooveMorphAudioProcessor q;
+        q.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        expect("links survive a project save and load", q.getMidiLinkCc("p:masterIntensity") == 31 && q.getMidiLinkCc("s:1:depth") == 40);
+        p.resetToDefaults();
+        expect("reset clears the links", p.getMidiLinkCc("p:masterIntensity") == -1 && p.getMidiLinkCc("s:1:depth") == -1);
+    }
+
+    // Reset to defaults: parameters, scenes, source, loop, transport.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 256);
+        setParameter(p, "masterIntensity", 0.25f);
+        setParameter(p, "dryWet", 0.4f);
+        setParameter(p, "manualTempo", 175.0f);
+        setParameter(p, "phraseBars", 8.0f);
+        setParameter(p, "transitionMode", 3.0f);
+        setParameter(p, "bypass", 1.0f);
+        auto edited = p.getSceneBank().variation(2);
+        edited.name = "Mine";
+        edited.settings.operations[0] = {true, 0.3f, 2.0f};
+        p.setVariationName(2, "Mine");
+        p.setVariationSettings(2, edited.settings);
+        p.setSourceMode(1);
+        p.stopInternalTransport();
+        const auto defaultBank = groovemorph::core::scene::SceneBank{};
+        p.resetToDefaults();
+        expect("reset: intensity", std::abs(p.parameters.getRawParameterValue("masterIntensity")->load() - p.parameters.getParameter("masterIntensity")->convertFrom0to1(p.parameters.getParameter("masterIntensity")->getDefaultValue())) < 1.0e-4f);
+        expect("reset: dry/wet", std::abs(p.parameters.getRawParameterValue("dryWet")->load() - p.parameters.getParameter("dryWet")->convertFrom0to1(p.parameters.getParameter("dryWet")->getDefaultValue())) < 1.0e-4f);
+        expect("reset: tempo is back to 120", std::abs(p.parameters.getRawParameterValue("manualTempo")->load() - 120.0f) < 0.01f);
+        expect("reset: phrase bars", std::abs(p.parameters.getRawParameterValue("phraseBars")->load() - p.parameters.getParameter("phraseBars")->convertFrom0to1(p.parameters.getParameter("phraseBars")->getDefaultValue())) < 1.0e-4f);
+        expect("reset: bypass off", p.parameters.getRawParameterValue("bypass")->load() < 0.5f);
+        expect("reset: scenes are factory", p.getSceneBank() == defaultBank);
+        expect("reset: live input source", p.getSourceMode() == 0 && !p.hasLoop());
+        expect("reset: transport plays again", p.isInternalPlaying());
+        expect("reset: undo history is empty", !p.canUndoSceneEdit());
+    }
+
+    // Every interactive control in the editor (including the inspector tabs) explains itself with a tooltip.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 256);
+        std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor());
+        editor->setSize(1290, 740);
+        std::vector<juce::String> missing;
+        std::function<void(juce::Component&)> walk = [&](juce::Component& c) {
+            for (auto* child : c.getChildren())
+            {
+                const bool interactive = dynamic_cast<juce::Slider*>(child) != nullptr || dynamic_cast<juce::ComboBox*>(child) != nullptr
+                                         || dynamic_cast<juce::Button*>(child) != nullptr || dynamic_cast<juce::TextEditor*>(child) != nullptr;
+                // Skip a slider's own text box and other internals that sit inside a control.
+                const bool insideControl = dynamic_cast<juce::Slider*>(&c) != nullptr || dynamic_cast<juce::ComboBox*>(&c) != nullptr;
+                if (interactive && !insideControl)
+                {
+                    auto* client = dynamic_cast<juce::TooltipClient*>(child);
+                    const auto tip = client != nullptr ? client->getTooltip() : juce::String();
+                    if (tip.trim().length() < 12)
+                    {
+                        juce::String text = child->getName();
+                        if (auto* b = dynamic_cast<juce::Button*>(child)) text << " '" << b->getButtonText() << "'";
+                        missing.push_back(juce::String(typeid(*child).name()) + " " + text);
+                    }
+                }
+                walk(*child);
+            }
+        };
+        walk(*editor);
+        for (const auto& m : missing)
+            std::cout << "no tooltip: " << m << "\n";
+        expect("every control has a tooltip", missing.empty());
     }
 
     if (failures == 0)

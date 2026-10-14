@@ -7,7 +7,7 @@
 namespace groovemorph::ui::visual
 {
 // The numbers behind the pictures, as text. Also the accessibility value and the copy-as-text source.
-class LedgerView final : public juce::Component
+class LedgerView final : public juce::Component, public juce::SettableTooltipClient
 {
 public:
     LedgerView();
