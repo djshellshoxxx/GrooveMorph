@@ -62,6 +62,28 @@ int main()
     expect("name sanitized", bank.variation(0).name == "a_b");
     expect("oob index safe", bank.variation(42) == bank.variation(3));
 
+    // Copy feature: FX settings only, not target name, MIDI map, active or seed.
+    {
+        SceneBank copied;
+        copied.setVariationName(1, "Target name");
+        copied.setSeed(901);
+        copied.setActiveIndex(2);
+        auto original = copied;
+        expect("copy separate settings", copied.copyVariationSettings(0, 1));
+        expect("copy settings match source",
+               sameSettings(copied.variation(0).settings, copied.variation(1).settings));
+        expect("copy preserves target name", copied.variation(1).name == "Target name");
+        expect("copy does not change source", copied.variation(0) == original.variation(0));
+        expect("copy leaves other variation alone", copied.variation(2) == original.variation(2));
+        expect("copy leaves active/seed/MIDI intact",
+               copied.activeIndex() == 2 && copied.seed() == 901 &&
+               copied.midiNoteMap() == original.midiNoteMap());
+        expect("copy already identical does nothing", !copied.copyVariationSettings(0, 1));
+        expect("copy to same scene does nothing", !copied.copyVariationSettings(0, 0));
+        expect("copy invalid source rejected", !copied.copyVariationSettings(99, 1));
+        expect("copy invalid destination rejected", !copied.copyVariationSettings(0, 99));
+    }
+
     // Snapshot
     bank.setSeed(1234);
     const SceneSnapshot snap = bank.snapshot();

@@ -106,6 +106,15 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
         refreshSceneControls();
     };
     addAndMakeVisible(editVariation);
+    copyActiveFxButton.setTooltip(
+        "Copy effect settings from the currently playing variation into the variation "
+        "selected for editing. Keeps the target's name/MIDI note; one Undo restores it.");
+    copyActiveFxButton.onClick = [this]
+    {
+        if (audioProcessor.copyVariationSettings(audioProcessor.getActiveVariation(), editingIndex))
+            refreshSceneControls();
+    };
+    addAndMakeVisible(copyActiveFxButton);
     variationName.setName("Variation name");
     variationName.setInputRestrictions(static_cast<int>(groovemorph::core::scene::maxVariationNameLength));
     variationName.onReturnKey = [this] { editName(); };
@@ -291,6 +300,7 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
     applyButton.setEnabled(preview);
     revertButton.setEnabled(preview);
     editVariation.setEnabled(!preview);
+    copyActiveFxButton.setEnabled(!preview && active != editingIndex);
     undoButton.setEnabled(!preview && audioProcessor.canUndoSceneEdit());
     redoButton.setEnabled(!preview && audioProcessor.canRedoSceneEdit());
     midiNoteSlider.setEnabled(!preview);
@@ -376,6 +386,8 @@ void GrooveMorphAudioProcessorEditor::resized()
         variationButtons[i].setBounds(20 + static_cast<int>(i) * buttonWidth, 300, buttonWidth - 6, 34);
     editVariation.setBounds(20, 342, 150, 30);
     variationName.setBounds(180, 342, 200, 30);
+    // Fits the minimum 760px layout without overlapping the queued-action buttons.
+    copyActiveFxButton.setBounds(387, 342, 78, 30);
     triggerButton.setBounds(getWidth() - 290, 342, 132, 30);
     cancelButton.setBounds(getWidth() - 150, 342, 130, 30);
     const int operationWidth = (width - 204) / 2;

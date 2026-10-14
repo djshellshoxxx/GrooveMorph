@@ -114,6 +114,9 @@ public:
     // ---- Scene bank editing (message thread) ----
     groovemorph::core::scene::SceneBank getSceneBank() const;
     void setVariationSettings(std::size_t index, const groovemorph::core::VariationSettings& settings);
+    // One undoable settings-only copy, performed under the model lock off the audio thread.
+    // Disallowed while auditioning to keep preview/apply ownership unambiguous.
+    [[nodiscard]] bool copyVariationSettings(std::size_t source, std::size_t destination);
     void setOperationSettings(std::size_t index, groovemorph::core::OperationType op,
                               const groovemorph::core::OperationSettings& settings);
     void setVariationName(std::size_t index, std::string_view name);
