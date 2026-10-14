@@ -184,6 +184,26 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
             candLane = merged;
         }
     }
+    // Loop lengths and the explicit-events switch decide how protected events sound; keep them too.
+    if (anyProtected)
+    {
+        for (std::uint8_t op = 0; op < laneCount; ++op)
+        {
+            bool opProtected = opEventsLocked(op);
+            for (std::size_t k = 0; k < srcLane.count && k < maxLaneEvents && !opProtected; ++k)
+                opProtected = srcLane.events[k].operation == op && srcLane.events[k].locked;
+            if (opProtected && candLane.loopBeats[op] != srcLane.loopBeats[op])
+            {
+                candLane.loopBeats[op] = srcLane.loopBeats[op];
+                ++restored;
+            }
+        }
+        if (srcLane.explicitEvents && !candLane.explicitEvents)
+        {
+            candLane.explicitEvents = true;
+            ++restored;
+        }
+    }
     auto placementWithoutGrid = [](PlacementConfig p) { p.subdivision = 4; return p; };
     if (perms.placementLocked && !sameControl(SceneControl{placementWithoutGrid(source.control.placement), {}, {}, {}},
                                               SceneControl{placementWithoutGrid(candidate.control.placement), {}, {}, {}}))

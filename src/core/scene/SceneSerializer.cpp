@@ -194,7 +194,13 @@ private:
         else if (rest == "placement.origin") { if (asInt(n)) c.placement.originTicks = static_cast<std::int32_t>(std::clamp<long long>(n, -1966080, 1966080)); }
         else if (rest == "placement.subdiv") { if (asInt(n)) c.placement.subdivision = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 255)); }
         else if (rest == "placement.protect") asFloat(c.placement.downbeatProtectBeats);
-        else if (rest == "placement.regions") { if (asInt(n)) c.placement.regionCount = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, static_cast<long long>(control::maxProtectedRegions))); }
+        else if (rest == "placement.regions")
+        {
+            // Not sanitised here: the region lines that follow fill in the lengths (sanitize would flag them).
+            if (asInt(n)) c.placement.regionCount = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, static_cast<long long>(control::maxProtectedRegions)));
+            result.bank.setVariationSettings(idx, settings);
+            return;
+        }
         else if (rest.starts_with("region."))
         {
             // region.K.start / region.K.length (K < maxProtectedRegions)

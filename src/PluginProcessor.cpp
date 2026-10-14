@@ -262,7 +262,7 @@ core::control::GridContext GrooveMorphAudioProcessor::getGridContext() const noe
         grid.beatsPerBar = static_cast<int>(loadParameter(cached.manualMeterNumerator, 4.0f));
         grid.phraseBars = static_cast<int>(loadParameter(cached.phraseBars, 4.0f));
     }
-    grid.beatsPerBar = juce::jlimit(1, 16, grid.beatsPerBar);
+    grid.beatsPerBar = juce::jlimit(1, 32, grid.beatsPerBar); // matches the audio-side meter limit
     grid.phraseBars = juce::jlimit(1, 64, grid.phraseBars);
     return grid;
 }
@@ -496,7 +496,10 @@ void GrooveMorphAudioProcessor::applyScenePhase(const std::optional<core::Resolv
     grid.beatsPerBar = t.grid.meterNumerator;
     grid.phraseBars = t.grid.phraseBars;
     const double position = t.positionInBeats();
-    phaseShiftBeats = std::isfinite(position) ? core::control::resolvePhaseShift(config, position, grid) : 0.0;
+    const double newShift = std::isfinite(position) ? core::control::resolvePhaseShift(config, position, grid) : 0.0;
+    if (std::abs(newShift - phaseShiftBeats) > 1.0e-9)
+        engine.startTraceEpoch(); // the pattern beat axis jumps: visual consumers need monotonic beats per epoch
+    phaseShiftBeats = newShift;
 }
 
 void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, int numChannels,
@@ -841,6 +844,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         freeRunOrigin = 0;
         freeRunSamplesPerBeat = 0.0L;
         engine.resetHistory();
+        phaseNeedsReset = true; // a rewound clock restarts at the Preserve phase
         autoReturn.disarm();
     }
     auto internalGrid = manualGrid;

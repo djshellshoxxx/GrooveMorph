@@ -248,7 +248,8 @@ void VisualContent::refresh()
         // Planned threads read back into the past (up to 4 slice-lengths), so the plan starts before the view.
         std::vector<viz::PlanSegment> segments(256);
         segments.resize(viz::buildPlanSegments(scene, grid, params.viewStartBeat - params.leadBeats - 4.0,
-                                               params.viewStartBeat + params.spanBeats + 0.05, segments.data(), segments.size()));
+                                               params.viewStartBeat + params.spanBeats + 0.05, segments.data(), segments.size(),
+                                               processor.getPhaseShiftBeats()));
         const auto* intensityParam = processor.parameters.getRawParameterValue("masterIntensity");
         const auto* dryWetParam = processor.parameters.getRawParameterValue("dryWet");
         viz::PlanContext ctx;
@@ -317,7 +318,8 @@ void VisualContent::refresh()
                 const double beat = (nowLap + (static_cast<double>(c) + 0.5) / static_cast<double>(viz::lapCells)) * phraseBeats;
                 if (rings.placementActive)
                 {
-                    const auto t = groovemorph::core::control::evaluate(scene.control, grid, beat, enabledMask);
+                    const auto t = groovemorph::core::control::evaluate(scene.control, grid, beat, enabledMask,
+                                                                         beat - processor.getPhaseShiftBeats());
                     bool any = !t.gated;
                     for (std::size_t i = 0; i < groovemorph::core::operationCount; ++i)
                         any = any || (t.gated && t.active[i] && scene.operations[i].enabled);
@@ -329,7 +331,8 @@ void VisualContent::refresh()
             // now because stages read into the past). Cells the plan cannot cover stay empty.
             const double lapEnd = (nowLap + 1.0) * phraseBeats;
             std::vector<viz::PlanSegment> lapSegments(256);
-            lapSegments.resize(viz::buildPlanSegments(scene, grid, params.nowBeat - 4.0, lapEnd + 0.01, lapSegments.data(), lapSegments.size()));
+            lapSegments.resize(viz::buildPlanSegments(scene, grid, params.nowBeat - 4.0, lapEnd + 0.01, lapSegments.data(), lapSegments.size(),
+                                                      processor.getPhaseShiftBeats()));
             const auto* intensityParam = processor.parameters.getRawParameterValue("masterIntensity");
             const auto* dryWetParam = processor.parameters.getRawParameterValue("dryWet");
             viz::PlanContext lapCtx;

@@ -167,6 +167,53 @@ int main()
         expect("a new event elsewhere is kept", elsewhere.control.lane.count == 2);
     }
 
+    // Full-audit regressions.
+    {
+        // A position a hair short of a window boundary counts as being on it.
+        SceneControl c;
+        c.placement.enabled = true;
+        c.placement.window = WindowMode::Custom;
+        c.placement.startPhase = 0.5f;
+        c.placement.spanPhase = 0.25f;
+        const auto justBefore = evaluate(c, grid44, 8.0 - 1.0e-12);
+        const auto atBoundary = evaluate(c, grid44, 8.0);
+        expect("boundary snap: just before == at the boundary", justBefore.active[0] == atBoundary.active[0]);
+
+        // Locks cannot be bypassed through loop lengths or the explicit-events switch.
+        VariationSettings source;
+        source.control.lane.explicitEvents = true;
+        source.control.lane.count = 1;
+        source.control.lane.events[0] = LaneEvent{0, true, 0, 480, 1.0f, 0.0f, 50, false, true};
+        VariationSettings candidate = source;
+        candidate.control.lane.explicitEvents = false;
+        candidate.control.lane.loopBeats[0] = 3;
+        const auto restored = enforcePermissions(source, candidate);
+        expect("explicit switch and loop length restored for a locked event",
+               restored > 0 && candidate.control.lane.explicitEvents && candidate.control.lane.loopBeats[0] == 0);
+
+        // A disabled event must not make Reduce drop an audible one.
+        EventLane lane;
+        lane.explicitEvents = true;
+        lane.count = 2;
+        lane.events[0] = LaneEvent{0, false, 0, 100, 1.0f, 0.0f, 90, false, false};
+        lane.events[1] = LaneEvent{1, true, 480, 100, 1.0f, 0.0f, 10, false, false};
+        ActivityConfig activity;
+        activity.minSpacingBeats = 1.0f;
+        const auto report = reduceEvents(lane, activity, PermissionConfig{}, 16 * ticksPerBeat, true);
+        expect("reduce keeps the audible event next to a disabled one", report.dropped == 0);
+
+        // Protected regions round-trip as a lossless load.
+        scene::SceneBank bank;
+        auto v = bank.variation(0);
+        v.settings.control.placement.regionCount = 2;
+        v.settings.control.placement.regions[0] = {0, 480};
+        v.settings.control.placement.regions[1] = {960, 480};
+        bank.setVariation(0, v);
+        const auto loaded = scene::SceneSerializer::deserialize(scene::SceneSerializer::serialize(bank));
+        expect("regions load without a recovery warning", loaded.report.status == scene::LoadStatus::Ok
+                                                              && loaded.report.messages.empty() && loaded.bank == bank);
+    }
+
     if (failures == 0)
         std::cout << "PhaseResolverTests passed\n";
     return failures == 0 ? 0 : 1;

@@ -116,6 +116,11 @@ void RhythmEngine::process(float* const* channels,
     const double spb = timing.samplesPerBeat;
     const bool timingOk = timing.isPlaying && std::isfinite(spb) && spb > 0.0
                           && std::isfinite(timing.beatAtBlockStart);
+    if (timingOk != traceLastTimingOk)
+    {
+        traceLastTimingOk = timingOk;
+        ++traceEpoch; // frames while stopped carry beat 0; keep each epoch's beat axis monotonic
+    }
 
     std::array<float, operationCount> targets{};
     std::array<double, operationCount> sliceBeats{};

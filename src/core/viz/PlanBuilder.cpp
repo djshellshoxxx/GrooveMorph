@@ -6,7 +6,7 @@
 namespace groovemorph::core::viz
 {
 std::size_t buildPlanSegments(const VariationSettings& scene, const control::GridContext& grid, double fromBeat,
-                              double toBeat, PlanSegment* out, std::size_t capacity) noexcept
+                              double toBeat, PlanSegment* out, std::size_t capacity, double phaseShiftBeats) noexcept
 {
     if (out == nullptr || capacity == 0 || !std::isfinite(fromBeat) || !std::isfinite(toBeat) || !(toBeat > fromBeat))
         return 0;
@@ -27,7 +27,8 @@ std::size_t buildPlanSegments(const VariationSettings& scene, const control::Gri
     double beat = fromBeat;
     while (beat < toBeat && n < capacity)
     {
-        const auto targets = control::evaluate(scene.control, grid, beat, enabledMask);
+        const auto targets = control::evaluate(scene.control, grid, beat, enabledMask,
+                                                   std::isfinite(phaseShiftBeats) ? beat - phaseShiftBeats : beat);
         PlanSegment seg;
         seg.startBeat = beat;
         seg.settings = scene;

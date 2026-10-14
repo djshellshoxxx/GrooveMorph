@@ -68,6 +68,8 @@ public:
     // Negative history times are treated as silence until fresh audio fills each window.
     // Preserve parameter ramps so a timeline jump does not restart automation smoothing.
     void resetHistory() noexcept;
+    // Starts a new trace epoch without touching audio state (the trace beat axis jumped, e.g. a C04 phase shift).
+    void startTraceEpoch() noexcept { ++traceEpoch; }
     // After resetHistory() each history operation passes the dry signal until the fresh history covers
     // its read delay (then it crossfades in), instead of replaying silence from an emptied buffer.
 
@@ -133,5 +135,6 @@ private:
     std::uint32_t traceEpoch = 0; // increments on reset()/resetHistory()
     float traceInPeak = 0.0f;     // peak accumulators over the current hop window
     float traceOutPeak = 0.0f;
+    bool traceLastTimingOk = true; // a stop/start of timing starts a new epoch (beat is 0 while stopped)
 };
 } // namespace groovemorph::core

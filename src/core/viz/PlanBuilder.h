@@ -15,5 +15,7 @@ namespace groovemorph::core::viz
 // as invalid rather than guessing). Allocation-free.
 [[nodiscard]] std::size_t buildPlanSegments(const VariationSettings& scene, const control::GridContext& grid,
                                             double fromBeat, double toBeat, PlanSegment* out,
-                                            std::size_t capacity) noexcept;
+                                            std::size_t capacity, double phaseShiftBeats = 0.0) noexcept;
+// phaseShiftBeats: the processor's C04 pattern shift. Beats here are pattern beats; phrase cadence and
+// bar-start protection follow the transport beat (pattern beat minus the shift), as in the render loop.
 } // namespace groovemorph::core::viz
