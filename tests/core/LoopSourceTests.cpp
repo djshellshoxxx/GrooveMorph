@@ -72,7 +72,6 @@ int main()
         expect("no double arm", !capture.arm(1, 4));
         const double spb = 24000.0;
         std::vector<float> block(480);
-        std::int64_t position = 0;
         const double startBeat = 0.9; // not on a bar line: capture must wait for beat 4
         double beat = startBeat;
         int blocks = 0;
@@ -84,7 +83,6 @@ int main()
             const float* ch[1] = {block.data()};
             capture.process(ch, 1, 480, beat, spb, true);
             beat += 480.0 / spb;
-            position += 480;
         }
         expect("capture finished", capture.state() == LoopCapture::State::Done);
         expect("exact length", capture.recordedSamples() == 96000);

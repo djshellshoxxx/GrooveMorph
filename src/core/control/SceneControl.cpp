@@ -255,7 +255,7 @@ std::uint8_t peakConcurrent(const EventLane& lane, std::uint32_t mask, std::int6
         }
         std::uint8_t c = 0;
         for (bool b : on)
-            c += b ? 1 : 0;
+            c = static_cast<std::uint8_t>(c + (b ? 1 : 0));
         peak = std::max(peak, c);
     }
     return peak;
