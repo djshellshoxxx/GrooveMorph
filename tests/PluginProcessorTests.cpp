@@ -67,6 +67,11 @@ int main()
         GrooveMorphAudioProcessor processor;
         processor.prepareToPlay(48000.0, 256);
         expect("zero latency", processor.getLatencySamples() == 0);
+        // Repeat/reverse/rate effects can emit causal history after the source
+        // falls silent. Tell DAWs to retain their render tail without introducing PDC.
+        expect("history effects advertise their bounded render tail",
+               processor.getTailLengthSeconds() >= 4.0 &&
+               processor.getTailLengthSeconds() <= 4.02);
 
         auto layout = processor.getBusesLayout();
         expect("stereo layout supported", processor.checkBusesLayoutSupported(layout));
