@@ -78,7 +78,8 @@ anti-resemblance review (VF-07) signed off by the user. Items not verified nativ
 | S3 engine sink + processor ring | done | `TraceEngineTests` (bit-exact with null/inactive/active sink at block sizes 1/7/64/128/513; frames identical across splits except `beat` within 1e-9; truthful lag/rate/gate; epochs; idle frames); `PluginProcessorTests` VF-T10; full native Linux build 19/19 under xvfb; ASan/UBSan clean |
 | S4 PathResolver + WeaveLayout | done | `PathResolverTests` (impulse through the real engine reappears and resolves to its source for Repeat, Reverse and Repeat→Reverse; dominant-branch rule at 0.49/0.50/0.51; no-data; stopped transport; monotonic), `WeaveLayoutTests` (live/repeat/reverse/half-time/tape-stop/gate shapes on real frames, shared scale, capacity, ink front); core 20/20 |
 | S5 PlannedPath | done | `PlannedPathTests`: planner vs real-engine trace agreement over 682 sampled moments per fixture: source within 0.01 beat 96.3-100 % (misses cluster at slice boundaries), weight within 0.05 for 91-100 % (gate ramp edges); phase offsets; segments; tentative flag. `effectiveSlice` shared with the engine (golden hashes unchanged); resolver now reports the gate factor on the traced path |
-| S6 to S12 | not started | |
+| S6 Ledger | done | `LedgerTests`: exact strings for every row, units, scene queue/countdown, preview/idle/invalid/no-data banners, copy-as-text |
+| S7 to S12 | not started | |
 
 Measured (offline, this container, GCC -O2, 60 s of stereo audio at 64-sample blocks, all five effects, best of five):
 no sink 526 ms (0.88 % of real time), inactive sink 487 ms (0.81 %), active sink 483 ms (0.81 %): tracing overhead is below measurement noise.

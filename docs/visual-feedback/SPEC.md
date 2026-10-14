@@ -127,7 +127,7 @@ history ruler with fill, lap diff list, trace health (frames/s, dropped/torn cou
 ## 9. Ledger fields (exact text)
 
 `Hearing audio from` (`beats ago`, ms), `Reading speed` (×, direction), `Gate` (dB, % of bar closed), `Wet / intensity` (%),
-`Added vs input` (dB, `20·log10(RMS(out)/RMS(in))` over the last 100 ms of frames, `—` below −90 dB), `History` (`s / 4.0 s`), `Reported tail` (s),
+`Added vs input` (dB, `20·log10(max outPeak / max inPeak)` over the last 100 ms of frames: a **peak** comparison because frames carry peaks, not RMS; `-` with note `input silent` when the input peak is below 1e-4), `History` (`s / 4.0 s`), `Reported tail` (s),
 `Timing` (`Host PPQ|Sample Clock|Manual`, valid/invalid + reason), `Position` (bar/beat), `Scene` (sounding/queued/preview), `Trace health`.
 Idle states: transport stopped → "Bypassed: transport stopped"; invalid timing → reason string; preview → "PREVIEW: not the committed scene".
 
