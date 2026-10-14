@@ -11,5 +11,6 @@ Ranked by severity.
 7. **Generation history is session-only** (not saved with the project).
 8. **Block-observed controls apply on slider release** for scene sliders (depth/slice/placement), to keep one undo step per drag.
 9. **Help pages** under `help/` predate the new controls.
-10. **Linux UI screenshots only.** Screenshots in `docs/alpha/screenshots/` were rendered by the project's own snapshot tool (software rendering of the real editor), not captured from a Windows desktop.
-11. Spec-only / absent features are listed in ALPHA-FEATURE-STATUS.md.
+10. **Window larger than small screens.** Default 1240x740, minimum 1180x700. On the 1024x768 CI desktop the window is cropped (confirmed in the Windows screenshot). Use a display of at least about 1280x800, or drag the window to the top-left; a compact layout is not done.
+11. **Linux-rendered UI screenshots plus one Windows startup screenshot.** Screenshots in `docs/alpha/screenshots/` were rendered by the project's own snapshot tool (software rendering of the real editor); the only Windows capture is the startup screenshot from CI.
+12. Spec-only / absent features are listed in ALPHA-FEATURE-STATUS.md.

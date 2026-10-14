@@ -12,8 +12,22 @@ Only checks that were actually run are listed. Dates 2026-10-14.
 | Linux Standalone launched under Xvfb | stayed alive for the 10 s timeout (no audio device in the container, ALSA seq warning only) |
 | Editor rendered by `tools/EditorSnapshot.cpp` (software rendering of the real editor) | PNGs in `docs/alpha/screenshots/` (placement, generator, scenes, morph, limits, status, minimum size) |
 
-## Windows (GitHub Actions `windows-alpha.yml`, windows-2022)
-See BUILD-MANIFEST.md in the ZIP and the workflow run linked in the final report for the actual compile, `ctest`, startup-smoke and screenshot results of the exact commit.
+## Windows (GitHub Actions, windows-2022, MSVC, Release)
+Alpha build: [run 38497756566](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38497756566) on `main` @ `4042b61`
+(release `v0.1.0-alpha.3`). PR head `33c927b` checks, all passed: Windows + Linux portable core, JUCE plugin/standalone build,
+Windows + Linux pluginval (pinned, strictness 5), Linux ASan/UBSan, Windows Standalone smoke.
+
+| Check | Result |
+|---|---|
+| Compile + link `GrooveMorph.exe` (PE32+ GUI x86-64) | passed (an earlier commit failed on a `var` name clash with `juce::var` under MSVC; fixed in `33c927b`) |
+| `ctest` on Windows | 12/12 passed (`ctest-windows.log` in the ZIP) |
+| Standalone startup | process still alive after 8 s on a runner with no audio device |
+| Desktop screenshot | captured on the runner (`docs/alpha/screenshots/windows-ci-desktop-1024x768.png`) |
+| ZIP | SHA-256 `3737447f...cca9` matches the `.sha256` asset; contains exe, docs, manifest, ctest log, screenshot |
+
+What the real screenshot shows (and does not): the real Windows rendering of the editor at 1024x768. The 1240x740 window is cropped by that
+small desktop (see KNOWN-ISSUES), the status line reads "audio not running" (no audio device on the runner), and JUCE's yellow
+"input muted to avoid feedback loop" banner is shown. It is a startup screenshot only; no controls were operated on Windows.
 
 ## Not performed
 DAW hosting (REAPER or other), VST3 validator run on the new build, audio-device playback, listening/quality evaluation,
