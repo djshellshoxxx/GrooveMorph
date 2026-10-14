@@ -198,6 +198,43 @@ int main()
         }
         expect("intensity 0 null test", identical);
 
+        // Audit regression: the same null holds with the band split active, including after a NaN block.
+        for (const float mode : {1.0f, 2.0f})
+        {
+            GrooveMorphAudioProcessor split;
+            setParameter(split, "masterIntensity", 0.0f);
+            setParameter(split, "bandMode", mode);
+            split.prepareToPlay(48000.0, 256);
+            FakePlayHead splitHead;
+            split.setPlayHead(&splitHead);
+            juce::Random rng(99);
+            bool exact = true, finite = true;
+            for (int block = 0; block < 30; ++block)
+            {
+                setTransport(splitHead, block * 256);
+                juce::AudioBuffer<float> buffer(2, 256);
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 256; ++i)
+                        buffer.setSample(c, i, rng.nextFloat() * 2.0f - 1.0f);
+                if (block == 3)
+                    buffer.setSample(0, 5, std::nanf(""));
+                juce::AudioBuffer<float> input(buffer);
+                juce::MidiBuffer midi;
+                split.processBlock(buffer, midi);
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 256; ++i)
+                    {
+                        const float in = input.getSample(c, i);
+                        const float out = buffer.getSample(c, i);
+                        if (block > 3)
+                            finite = finite && std::isfinite(out);
+                        if (block != 3 && std::isfinite(in))
+                            exact = exact && std::memcmp(&in, &out, sizeof(float)) == 0;
+                    }
+            }
+            expect("band split at wet 0 is bit-exact and survives NaN", exact && finite);
+        }
+
         // Nonzero intensity actually transforms (sanity check that the null test is meaningful).
         setParameter(processor, "masterIntensity", 1.0f);
         float maxDiff = 0.0f;

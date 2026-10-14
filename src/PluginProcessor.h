@@ -325,6 +325,7 @@ private:
     float bandCoefficient = 0.0f;
     std::array<float, 2> bandLowState{};
     juce::AudioBuffer<float> bandBypass;
+    juce::AudioBuffer<float> bandPart; // the band handed to the engine, to detect an unchanged signal
     std::array<groovemorph::core::OnsetDetector, 2> onsetDetectors;
     int audioTriggerSel = 0;      // 0 off, 1 next scene, 2 trigger queued
     float audioTriggerSensitivity = 0.5f;

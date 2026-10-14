@@ -187,6 +187,15 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     inspector = std::make_unique<groovemorph::ui::InspectorPanel>(audioProcessor, std::move(access));
     addAndMakeVisible(*inspector);
     refreshSceneControls();
+    // Small displays (e.g. 1024x768): shrink the whole editor to fit instead of cropping it.
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+    {
+        const auto area = display->userArea;
+        const float fit = juce::jmin(1.0f, static_cast<float>(area.getWidth() - 40) / 1290.0f,
+                                     static_cast<float>(area.getHeight() - 100) / 740.0f);
+        if (fit < 1.0f && fit > 0.0f)
+            setScaleFactor(juce::jmax(0.5f, fit));
+    }
     setResizable(true, true);
     setResizeLimits(1230, 700, 1900, 1100);
     setSize(1290, 740);

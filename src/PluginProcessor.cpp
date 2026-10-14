@@ -160,6 +160,7 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     engine.prepare(currentSampleRate, maxBlock, maxProcessedChannels);
     dryBuffer.setSize(maxProcessedChannels, maxBlock, false, true, false);
     bandBypass.setSize(maxProcessedChannels, maxBlock, false, true, false);
+    bandPart.setSize(maxProcessedChannels, maxBlock, false, true, false);
     {
         const std::lock_guard<std::mutex> lock(loopServiceMutex);
         loopSource.prepare(currentSampleRate);
@@ -431,7 +432,7 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
         }
 
         const bool needDry = bypassGain > 0.0f || bypassTarget > 0.0f;
-        if (needDry)
+        if (needDry || bandModeSel != 0) // dryBuffer also keeps the unsplit input for band-split exactness
             for (int c = 0; c < numChannels; ++c)
                 dryBuffer.copyFrom(c, 0, buffer, c, offset, n);
 
@@ -443,14 +444,20 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
             {
                 float* x = channels[static_cast<std::size_t>(c)];
                 float* bypass = bandBypass.getWritePointer(c);
+                float* part = bandPart.getWritePointer(c);
                 float state = bandLowState[static_cast<std::size_t>(c)];
+                if (!std::isfinite(state))
+                    state = 0.0f;
                 for (int i = 0; i < n; ++i)
                 {
-                    state += bandCoefficient * (x[i] - state);
+                    // A non-finite sample must not poison the filter state for every later block.
+                    const float in = std::isfinite(x[i]) ? x[i] : 0.0f;
+                    state += bandCoefficient * (in - state);
                     const float low = state;
-                    const float high = x[i] - low;
+                    const float high = in - low;
                     if (bandModeSel == 1) { bypass[i] = low; x[i] = high; }
                     else { bypass[i] = high; x[i] = low; }
+                    part[i] = x[i];
                 }
                 bandLowState[static_cast<std::size_t>(c)] = state;
             }
@@ -463,8 +470,10 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
             {
                 float* x = channels[static_cast<std::size_t>(c)];
                 const float* bypass = bandBypass.getReadPointer(c);
+                const float* part = bandPart.getReadPointer(c);
+                const float* original = dryBuffer.getReadPointer(c);
                 for (int i = 0; i < n; ++i)
-                    x[i] += bypass[i];
+                    x[i] = x[i] == part[i] ? original[i] : x[i] + bypass[i]; // untouched band: exact dry
             }
 
         if (needDry)
@@ -619,6 +628,8 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     {
         engine.resetHistory();
         autoReturn.disarm(); // a seek/loop cancels a transient automatic return
+        if (loopCapture.state() == core::LoopCapture::State::Recording)
+            loopCapture.abort(); // a recording spanning a seek would not be contiguous audio
     }
     previousHostSamplePosition = hostTransport.timeInSamples;
     previousHostPpqPosition = timing ? timing->ppqPosition : std::nullopt;
