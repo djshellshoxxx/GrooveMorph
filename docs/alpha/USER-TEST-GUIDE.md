@@ -8,7 +8,8 @@ audio import/capture, gesture recording, CLAP. See ALPHA-FEATURE-STATUS.md. The 
 1. Unzip; run `GrooveMorph.exe` (no installer). Windows SmartScreen may warn: the build is unsigned.
 2. In the Standalone window use **Options > Audio/MIDI Settings**: choose your output device. Pick an input only if you want live input (beware feedback; mute the monitor or use headphones).
 3. Tick **Demo loop** (top bar) to replace the input with a built-in drum loop. In Standalone, *Timing method: Automatic* behaves as a free-running clock at the Manual tempo (default 120 BPM, 4/4, 4-bar phrase).
-4. Raise **Intensity** (default 0.5; 1.0 = full effect, 0 = dry). Keep the volume low at first.
+4. JUCE Standalone shows a yellow banner that audio input is muted to avoid a feedback loop. That is expected; the Demo loop replaces the input anyway. Use a display of at least about 1280x800: the window is 1240x740 by default.
+5. Raise **Intensity** (default 0.5; 1.0 = full effect, 0 = dry). Keep the volume low at first.
 
 ## Try the main effects
 - Scene **A** repeats, **B** gates, **C** reverses + half-time, **D** tape-stops. Click a scene button to queue it using **Transition** (Immediate/Next Beat/Next Bar/Next Phrase/Manual). Green = sounding, amber = queued, "[editing]" = the scene the left panel edits.
