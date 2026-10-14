@@ -440,10 +440,17 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         meterDenominators[denominatorIndex],
         static_cast<int>(loadParameter(cached.phraseBars, 4.0f)),
         0};
-    const auto hostTransport = readHostTransport();
+    // The JUCE Standalone wrapper's play head reports only a sample counter, and
+    // AudioPlayHead::PositionInfo::getIsPlaying() is then false, which would look like a host
+    // that is explicitly stopped and bypass every effect forever. In Standalone, ignore the
+    // wrapper's transport and let Automatic mean the free-running Sample Clock.
+    const bool standaloneWrapper = wrapperType == wrapperType_Standalone;
+    const auto hostTransport = standaloneWrapper ? core::HostTransport{} : readHostTransport();
+    auto timingModeSelection = static_cast<core::TimingMode>(loadIndex(cached.timingMode, 2));
+    if (timingModeSelection == core::TimingMode::Automatic && standaloneWrapper)
+        timingModeSelection = core::TimingMode::SampleClock;
     const auto timing = core::TransportResolver::resolve(
-        hostTransport, manualGrid, freeRunSample, currentSampleRate,
-        static_cast<core::TimingMode>(loadIndex(cached.timingMode, 2)));
+        hostTransport, manualGrid, freeRunSample, currentSampleRate, timingModeSelection);
 
     // Sample position is authoritative for detecting host seeks/loop wraps. For
     // PPQ-only hosts compare against the prior block's tempo, and suspend this

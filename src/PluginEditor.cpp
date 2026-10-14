@@ -79,6 +79,11 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     addCombo(transitionMode, "transitionMode", {"Immediate", "Next Beat", "Next Bar", "Next Phrase", "Manual"}, "Transition");
     addCombo(denominator, "manualMeterDenominator", {"1", "2", "4", "8", "16"}, "Manual beat unit");
     addAndMakeVisible(bypassButton);
+    demoButton.setTooltip("Standalone evaluation aid: replaces the audio input with a built-in drum loop "
+                          "(kick, snare, hat) while the transport runs, so the effects can be heard without "
+                          "external audio. Not saved with the project. Use headphones; the level is moderate.");
+    demoButton.onClick = [this] { audioProcessor.setDemoSourceEnabled(demoButton.getToggleState()); };
+    addAndMakeVisible(demoButton);
     bypassAttachment = std::make_unique<ButtonAttachment>(audioProcessor.parameters, "bypass", bypassButton);
 
     for (std::size_t i = 0; i < variationButtons.size(); ++i)
@@ -173,10 +178,19 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     returnOnNoteOff.onClick = [this] { editMidiMap(); };
     addAndMakeVisible(midiNoteSlider);
     addAndMakeVisible(returnOnNoteOff);
+    groovemorph::ui::SceneEditAccess access;
+    access.editingIndex = [this] { return editingIndex; };
+    access.settings = [this] { return editedVariation.settings; };
+    access.setSettings = [this](const groovemorph::core::VariationSettings& settings) { applySceneSettings(settings); };
+    access.storedSettings = [this] { return audioProcessor.getSceneBank().variation(editingIndex).settings; };
+    access.previewCandidate = [this](const groovemorph::core::VariationSettings& settings) { previewCandidate(settings); };
+    access.previewing = [this] { return audioProcessor.isAuditioning(); };
+    inspector = std::make_unique<groovemorph::ui::InspectorPanel>(audioProcessor, std::move(access));
+    addAndMakeVisible(*inspector);
     refreshSceneControls();
     setResizable(true, true);
-    setResizeLimits(760, 690, 1400, 1000);
-    setSize(820, 720);
+    setResizeLimits(1180, 700, 1900, 1100);
+    setSize(1240, 740);
     startTimerHz(10);
 }
 
@@ -205,6 +219,30 @@ void GrooveMorphAudioProcessorEditor::refreshSceneControls()
     returnOnNoteOff.setToggleState(bank.midiNoteMap().noteOffPolicy ==
         groovemorph::core::scene::NoteOffPolicy::ReturnToPrevious, juce::dontSendNotification);
     timerCallback();
+    if (inspector != nullptr) inspector->refresh();
+}
+
+void GrooveMorphAudioProcessorEditor::applySceneSettings(const groovemorph::core::VariationSettings& settings)
+{
+    if (refreshing) return;
+    editedVariation.settings = settings;
+    if (audioProcessor.isAuditioning()) audioProcessor.setAuditionEdit(editedVariation);
+    else audioProcessor.setVariationSettings(editingIndex, settings);
+    refreshSceneControls();
+}
+
+void GrooveMorphAudioProcessorEditor::previewCandidate(const groovemorph::core::VariationSettings& settings)
+{
+    if (!audioProcessor.isAuditioning())
+    {
+        editName();
+        audioProcessor.beginAudition(editingIndex);
+        editedVariation = audioProcessor.getSceneBank().variation(editingIndex);
+        comparingStored = false;
+    }
+    editedVariation.settings = settings;
+    audioProcessor.setAuditionEdit(editedVariation);
+    refreshSceneControls();
 }
 
 void GrooveMorphAudioProcessorEditor::editOperation(std::size_t index)
@@ -257,12 +295,18 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
     {
         juce::String text = juce::String::charToString(static_cast<juce::juce_wchar>('A' + i));
         text << ": " << juce::String(bank.variation(i).name);
-        if (i == active) text << " [active]";
+        if (i == active) text << " [sounding]";
         if (static_cast<int>(i) == queued) text << " [queued]";
+        if (i == editingIndex) text << " [editing]";
         variationButtons[i].setButtonText(text);
+        variationButtons[i].setColour(juce::TextButton::buttonColourId,
+            i == active ? juce::Colour(0xff2e7d32)
+                        : static_cast<int>(i) == queued ? juce::Colour(0xff8d6e00) : juce::Colour(0xff3a4658));
+        variationButtons[i].setColour(juce::TextButton::textColourOffId, juce::Colours::white);
     }
     juce::String status = audioProcessor.isTransportPlaying() ? "Playing" : "Stopped";
-    status << " | bar " << juce::String(audioProcessor.getBarInPhrase() + 1.0, 2)
+    status << " | editing " << juce::String::charToString(static_cast<juce::juce_wchar>('A' + editingIndex))
+           << (editingIndex == active ? " (sounding)" : " (not sounding)") << " | bar " << juce::String(audioProcessor.getBarInPhrase() + 1.0, 2)
            << " | beat " << juce::String(audioProcessor.getBeatInBar() + 1.0, 2);
     if (queued >= 0)
     {
@@ -331,6 +375,7 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
             juce::dontSendNotification);
         midiLabel.setTooltip("Incoming MIDI note events from the host");
     }
+    if (inspector != nullptr && !refreshing) inspector->refresh();
     repaint();
 }
 
@@ -338,7 +383,7 @@ void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
 {
     graphics.fillAll(juce::Colour(0xff151b24));
     graphics.setColour(juce::Colours::white);
-    const auto width = getWidth() - 40;
+    const auto width = contentWidth() - 40;
     const auto column = width / 2;
     const juce::StringArray left{"Intensity", "Timing method", "Manual tempo", "Beats / beat unit"};
     const juce::StringArray right{"Dry / wet", "Transition", "Phrase bars", ""};
@@ -368,9 +413,11 @@ void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
 
 void GrooveMorphAudioProcessorEditor::resized()
 {
-    const int width = getWidth() - 40, column = width / 2;
-    titleLabel.setBounds(20, 12, width - 120, 36);
-    bypassButton.setBounds(getWidth() - 120, 16, 100, 30);
+    const int width = contentWidth() - 40, column = width / 2;
+    titleLabel.setBounds(20, 12, width - 240, 36);
+    bypassButton.setBounds(contentWidth() - 120, 16, 100, 30);
+    demoButton.setBounds(contentWidth() - 240, 16, 110, 30);
+    if (inspector != nullptr) inspector->setBounds(contentWidth(), 8, inspectorWidth - 8, getHeight() - 16);
     intensitySlider.setBounds(144, 56, column - 124, 30);
     dryWetSlider.setBounds(20 + column + 110, 56, column - 110, 30);
     timingMode.setBounds(144, 94, column - 134, 30);
@@ -388,8 +435,8 @@ void GrooveMorphAudioProcessorEditor::resized()
     variationName.setBounds(180, 342, 200, 30);
     // Fits the minimum 760px layout without overlapping the queued-action buttons.
     copyActiveFxButton.setBounds(387, 342, 78, 30);
-    triggerButton.setBounds(getWidth() - 290, 342, 132, 30);
-    cancelButton.setBounds(getWidth() - 150, 342, 130, 30);
+    triggerButton.setBounds(contentWidth() - 290, 342, 132, 30);
+    cancelButton.setBounds(contentWidth() - 150, 342, 130, 30);
     const int operationWidth = (width - 204) / 2;
     for (std::size_t i = 0; i < operations.size(); ++i)
     {

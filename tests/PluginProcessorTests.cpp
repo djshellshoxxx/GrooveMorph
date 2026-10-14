@@ -718,6 +718,29 @@ int main()
                && processor.parameters.getParameter("autoReturnTarget") != nullptr);
     }
 
+
+    // ---- Alpha: Standalone wrapper supplies no play state; Automatic must still run ----
+    {
+        FakePlayHead playHead;
+        playHead.info.setTimeInSamples(0); // what JUCE's standalone player reports: samples only
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Standalone);
+        {
+            GrooveMorphAudioProcessor standalone;
+            standalone.setPlayHead(&playHead);
+            standalone.prepareToPlay(48000.0, 256);
+            processSilence(standalone, 256);
+            expect("standalone Automatic free-runs", standalone.isTransportPlaying());
+            standalone.setPlayHead(nullptr);
+        }
+        juce::AudioProcessor::setTypeOfNextNewPlugin(juce::AudioProcessor::wrapperType_Undefined);
+        GrooveMorphAudioProcessor plugin;
+        plugin.setPlayHead(&playHead);
+        plugin.prepareToPlay(48000.0, 256);
+        processSilence(plugin, 256);
+        expect("plugin host without play state stays stopped", !plugin.isTransportPlaying());
+        plugin.setPlayHead(nullptr);
+    }
+
     if (failures == 0)
         std::cout << "PluginProcessorTests: all checks passed\n";
     return failures == 0 ? 0 : 1;

@@ -56,6 +56,7 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
     target_sources(GrooveMorphPlugin PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
+        src/ui/InspectorPanel.cpp
     )
     target_include_directories(GrooveMorphPlugin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(GrooveMorphPlugin PRIVATE
@@ -84,5 +85,16 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         )
         target_link_libraries(GrooveMorphPluginTests PRIVATE GrooveMorphPlugin)
         add_test(NAME GrooveMorphPluginTests COMMAND GrooveMorphPluginTests)
+
+        # Developer tool (not a CTest): renders the real editor, software-rendered, to PNG files.
+        add_executable(GrooveMorphEditorSnapshot tools/EditorSnapshot.cpp)
+        target_include_directories(GrooveMorphEditorSnapshot PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            $<TARGET_PROPERTY:GrooveMorphPlugin,INCLUDE_DIRECTORIES>
+        )
+        target_compile_definitions(GrooveMorphEditorSnapshot PRIVATE
+            $<TARGET_PROPERTY:GrooveMorphPlugin,COMPILE_DEFINITIONS>
+        )
+        target_link_libraries(GrooveMorphEditorSnapshot PRIVATE GrooveMorphPlugin)
     endif()
 endif()
