@@ -961,7 +961,8 @@ int main()
                 writer->writeFromAudioSampleBuffer(data, 0, 44100);
             }
         }
-        expect("bad bar count rejected", processor.importLoopFile(tmp, 0).failed());
+        expect("bad bar count rejected", processor.importLoopFile(tmp, 17).failed() && processor.importLoopFile(tmp, -1).failed());
+        expect("bad loop tempo rejected", processor.importLoopFile(tmp, 0, 5.0).failed() && processor.importLoopFile(tmp, 0, 900.0).failed());
         expect("wav imports", processor.importLoopFile(tmp, 2).wasOk() && processor.hasLoop()
                                   && std::abs(processor.getLoopSeconds() - 1.0) < 1e-3);
         tmp.deleteFile();
@@ -1211,6 +1212,124 @@ int main()
         processSilence(processor, 256);
         expect("no frames while the window is closed", processor.getTraceRing().pushedCount() == frames);
         processor.setPlayHead(nullptr);
+    }
+
+    // Internal clock (explicit Sample Clock, no host): tempo changes keep the musical position continuous,
+    // Stop holds and rewinds, Play resumes, and an imported loop plays at the right speed.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        auto frames = [](GrooveMorphAudioProcessor& p) {
+            std::vector<groovemorph::core::trace::TraceFrame> f(8192);
+            f.resize(p.getTraceRing().copyLatest(f.data(), f.size()));
+            return f;
+        };
+        auto run = [](GrooveMorphAudioProcessor& p, int blocks, std::vector<float>* capture = nullptr) {
+            for (int b = 0; b < blocks; ++b)
+            {
+                juce::AudioBuffer<float> buf(2, 256);
+                buf.clear();
+                juce::MidiBuffer midi;
+                p.processBlock(buf, midi);
+                if (capture)
+                    for (int i = 0; i < 256; ++i) capture->push_back(buf.getSample(0, i));
+            }
+        };
+        {
+            GrooveMorphAudioProcessor p;
+            setParameter(p, "timingMode", 2.0f); // Sample Clock
+            setParameter(p, "manualTempo", 120.0f);
+            p.prepareToPlay(48000.0, 256);
+            p.getTraceRing().setActive(true);
+            run(p, 400);
+            const auto before = frames(p).back();
+            expect("internal clock decides transport", p.isInternalTransportActive() && p.isInternalPlaying());
+            setParameter(p, "manualTempo", 140.0f);
+            run(p, 1);
+            const auto after = frames(p).back();
+            const double expectedStep = 256.0 / 48000.0 * 140.0 / 60.0; // one block at the new tempo
+            expect("tempo change does not make the position jump",
+                   std::abs((after.beat - before.beat) - (expectedStep + 256.0 / 48000.0 * 120.0 / 60.0)) < 0.02);
+            run(p, 400);
+            const auto a = frames(p); const auto& x = a[a.size() - 300]; const auto& y = a.back();
+            const double bps = (y.beat - x.beat) / (static_cast<double>(y.sample - x.sample) / 48000.0);
+            expect("beats per second follow the tempo (140 BPM)", std::abs(bps - 140.0 / 60.0) < 0.01);
+
+            p.stopInternalTransport();
+            run(p, 4);
+            const auto stopped = frames(p).back();
+            expect("stopped: transport reports stopped", !p.isTransportPlaying() && (stopped.flags & groovemorph::core::trace::TimingOk) == 0);
+            run(p, 50);
+            expect("stopped: position stays at the start", p.getBarInPhrase() == 0.0 && p.getBeatInBar() == 0.0);
+            p.startInternalTransport();
+            run(p, 100); // about one beat at 140 BPM
+            expect("play resumes from the start", p.isTransportPlaying() && p.getBarInPhrase() > 0.0 && p.getBarInPhrase() < 1.0);
+        }
+        // A 4-bar loop at 140 BPM (ramp 0..0.9), imported with automatic bars at the default 120 BPM.
+        const double secs = 16.0 * 60.0 / 140.0;
+        const int sr = 48000;
+        const int n = static_cast<int>(secs * sr);
+        const juce::File wav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm_ramp_test.wav");
+        {
+            wav.deleteFile();
+            juce::WavAudioFormat fmt;
+            std::unique_ptr<juce::FileOutputStream> os(wav.createOutputStream());
+            std::unique_ptr<juce::AudioFormatWriter> w(fmt.createWriterFor(os.get(), sr, 1, 24, {}, 0));
+            if (w)
+            {
+                os.release();
+                juce::AudioBuffer<float> r(1, n);
+                for (int i = 0; i < n; ++i) r.setSample(0, i, static_cast<float>(i) / static_cast<float>(n) * 0.9f);
+                w->writeFromAudioSampleBuffer(r, 0, n);
+            }
+        }
+        // Plays the imported loop and returns how fast its content advances (1.0 = original speed).
+        auto loopSpeed = [&](double tempo, int bars, double nativeBpm, double* impliedBpm = nullptr) {
+            GrooveMorphAudioProcessor p;
+            setParameter(p, "timingMode", 2.0f);
+            setParameter(p, "manualTempo", static_cast<float>(tempo));
+            setParameter(p, "masterIntensity", 0.0f);
+            p.prepareToPlay(48000.0, 256);
+            const auto r = p.importLoopFile(wav, bars, nativeBpm);
+            expect("loop import succeeds", r.wasOk());
+            if (impliedBpm != nullptr) *impliedBpm = p.getLoopBpm();
+            p.setSourceMode(2);
+            std::vector<float> out;
+            run(p, 400, &out);
+            const int a = 20000, z = 90000;
+            return ((out[z] - out[a]) / (static_cast<double>(z - a) / 48000.0)) * secs / 0.9;
+        };
+        {
+            double implied = 0.0;
+            const double at120 = loopSpeed(120.0, 0, 0.0, &implied);
+            expect("auto detects the loop's own tempo (140 BPM)", std::abs(implied - 140.0) < 0.5);
+            expect("at 120 BPM the 140 BPM loop plays slower (pitch follows tempo)", std::abs(at120 - 120.0 / 140.0) < 0.02);
+            expect("at 140 BPM the loop plays at its original speed", std::abs(loopSpeed(140.0, 0, 0.0) - 1.0) < 0.02);
+            expect("explicit loop tempo gives the same", std::abs(loopSpeed(140.0, 0, 140.0) - 1.0) < 0.02);
+            expect("explicit bars gives the same for the right bar count", std::abs(loopSpeed(140.0, 4, 0.0) - 1.0) < 0.02);
+            expect("the wrong bar count plays too fast, which is why auto/BPM exist", loopSpeed(140.0, 2, 0.0) > 1.9);
+
+            GrooveMorphAudioProcessor p;
+            setParameter(p, "timingMode", 2.0f);
+            p.prepareToPlay(48000.0, 256);
+            expect("match tempo needs a loop", !p.matchTempoToLoop());
+            expect("import ok", p.importLoopFile(wav, 0, 0.0).wasOk());
+            expect("match tempo succeeds", p.matchTempoToLoop());
+            expect("manual tempo is now the loop tempo", std::abs(p.parameters.getRawParameterValue("manualTempo")->load() - 140.0f) < 0.6f);
+            p.setSourceMode(2);
+            p.stopInternalTransport();
+            std::vector<float> out;
+            run(p, 40, &out);
+            float peak = 0.0f;
+            for (float v : out) peak = std::max(peak, std::abs(v));
+            expect("a stopped loop source is silent", peak == 0.0f);
+            p.startInternalTransport();
+            out.clear();
+            run(p, 40, &out);
+            peak = 0.0f;
+            for (float v : out) peak = std::max(peak, std::abs(v));
+            expect("a playing loop source makes sound", peak > 0.0f);
+        }
+        wav.deleteFile();
     }
 
     if (failures == 0)

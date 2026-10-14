@@ -147,6 +147,18 @@ public:
     // parameter and not saved in project state.
     void setSourceMode(int mode) noexcept { sourceMode.store(juce::jlimit(0, 2, mode), std::memory_order_relaxed); }
     int getSourceMode() const noexcept { return sourceMode.load(std::memory_order_relaxed); }
+
+    // ---- Internal transport (Standalone, or Sample Clock when the host reports no play state) ----
+    // Play continues from the current position; Stop halts and rewinds to the start. When a host decides
+    // play/stop, isInternalTransportActive() is false and these requests have no effect on the audio.
+    void startInternalTransport() noexcept { internalPlaying.store(true, std::memory_order_relaxed); }
+    void stopInternalTransport() noexcept
+    {
+        internalPlaying.store(false, std::memory_order_relaxed);
+        internalRewind.store(true, std::memory_order_relaxed);
+    }
+    bool isInternalPlaying() const noexcept { return internalPlaying.load(std::memory_order_relaxed); }
+    bool isInternalTransportActive() const noexcept { return internalClockActive.load(std::memory_order_relaxed); }
     void setDemoSourceEnabled(bool enabled) noexcept { setSourceMode(enabled ? 1 : 0); }
     bool isDemoSourceEnabled() const noexcept { return getSourceMode() == 1; }
     // Loop capture/import (message thread). Capture records the pre-effect signal for N bars starting
@@ -157,8 +169,21 @@ public:
     // Why the last capture produced no loop: 0 none, 1 longer than 20 s, 2 transport stopped.
     int getLoopCaptureFailure() const noexcept { return loopCapture.failure(); }
     // Loads an audio file (WAV/AIFF/FLAC/...; up to 20 s) as a loop spanning `bars` bars.
-    juce::Result importLoopFile(const juce::File& file, int bars);
-    void clearLoop() noexcept { loopSource.clear(); loopSeconds.store(0.0, std::memory_order_relaxed); }
+    // bars: 1..16, or 0 = automatic. nativeBpm: the loop's own tempo, or 0 = unknown. nativeBpm wins over bars
+    // (see core/dsp/LoopImport.h). The file is resampled to the device rate. The result is readable through
+    // getLoopBeats()/getLoopBpm() for the UI to report what was decided.
+    juce::Result importLoopFile(const juce::File& file, int bars, double nativeBpm = 0.0);
+    double getLoopBeats() const noexcept { return loopBeatsStatus.load(std::memory_order_relaxed); }
+    double getLoopBpm() const noexcept { return loopBpmStatus.load(std::memory_order_relaxed); }
+    // Sets the manual tempo parameter to the loop's native tempo. False when there is no loop or the tempo is out of range.
+    bool matchTempoToLoop();
+    void clearLoop() noexcept
+    {
+        loopSource.clear();
+        loopSeconds.store(0.0, std::memory_order_relaxed);
+        loopBeatsStatus.store(0.0, std::memory_order_relaxed);
+        loopBpmStatus.store(0.0, std::memory_order_relaxed);
+    }
     bool hasLoop() const noexcept { return loopSource.hasLoop(); }
     double getLoopSeconds() const noexcept { return loopSeconds.load(std::memory_order_relaxed); }
     void pollLoopCapture();
@@ -314,7 +339,14 @@ private:
     juce::AudioBuffer<float> dryBuffer;
     int maxBlock = 0;
     double currentSampleRate = 0.0;
+    // Internal (Standalone / Sample Clock) transport. freeRunSample counts samples played; the grid origin is
+    // re-based when tempo or meter change so the musical position stays continuous (never jumps).
     std::int64_t freeRunSample = 0;
+    std::int64_t freeRunOrigin = 0;
+    long double freeRunSamplesPerBeat = 0.0L;
+    std::atomic<bool> internalPlaying{true};
+    std::atomic<bool> internalRewind{false};
+    std::atomic<bool> internalClockActive{false}; // audio thread: the internal transport is what decides play/stop
     std::optional<std::int64_t> previousHostSamplePosition;
     std::optional<double> previousHostPpqPosition;
     double previousHostTempo = 120.0;
@@ -363,6 +395,8 @@ private:
     groovemorph::core::LoopSource loopSource;
     groovemorph::core::LoopCapture loopCapture;
     std::atomic<double> loopSeconds{0.0};
+    std::atomic<double> loopBeatsStatus{0.0};
+    std::atomic<double> loopBpmStatus{0.0};
     std::atomic<double> sampleRateStatus{48000.0};
     mutable std::mutex loopServiceMutex; // message-thread loop services vs prepareToPlay; never taken by the audio thread
     std::atomic<double> phraseFractionStatus{0.0};
