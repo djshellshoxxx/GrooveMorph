@@ -104,6 +104,10 @@ public:
 
     juce::AudioProcessorValueTreeState parameters;
 
+    // ---- Visual window telemetry (audio thread -> UI) ----
+    // The ring records nothing until the Visual window activates it (setActive(true)).
+    groovemorph::core::trace::TraceRing& getTraceRing() noexcept { return traceRing; }
+
     // ---- Timing status (audio thread -> UI) ----
     groovemorph::core::TimingSource getTimingSource() const noexcept
     {
@@ -303,6 +307,8 @@ private:
 
     // Audio-thread state.
     groovemorph::core::Scheduler scheduler;
+    // Telemetry for the Visual window; written by the engine only while active (see TraceRing).
+    groovemorph::core::trace::TraceRing traceRing;
     groovemorph::core::RhythmEngine engine;
     groovemorph::core::scene::MidiTriggerState midiTrigger;
     juce::AudioBuffer<float> dryBuffer;

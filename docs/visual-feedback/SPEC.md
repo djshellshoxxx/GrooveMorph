@@ -68,7 +68,7 @@ Single audio-thread writer, single UI reader, overwrite-oldest, fixed capacity, 
 - In `process()`: members `inAcc`, `outAcc` (peak accumulators). Per sample: `inAcc = max(inAcc, |dry|)` over channels, after writing `data[n]` `outAcc = max(outAcc, |y|)`.
   At the end of the per-sample iteration, if `sink && sink->active() && (now % hopSamples == hopSamples-1)`: build a frame from current state
   (`now`, `epoch`, `beat`, `spb`, `smoothedIntensity`, `amounts`, per-voice `now - prevR` when `valid && amount>0` else 0, `prevRate`, `gateGain`, `inAcc`, `outAcc`),
-  `push`, reset accumulators. Frame cadence is on the **absolute engine clock** so it is identical for every block split (VF-01 test).
+  `push`, reset accumulators. Frame cadence is on the **absolute engine clock**, so frames are identical for every block split except `beat`, which matches within 1e-9 beats (it is block-start + n/spb, so rounding differs by split) (VF-T02).
 - `epoch` increments in `reset()` and `resetHistory()`. Frame emission never alters engine state.
 
 ## 5. Net-path composition (`src/core/viz/PathResolver.h/.cpp`, pure)

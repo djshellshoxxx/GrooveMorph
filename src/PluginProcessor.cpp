@@ -157,6 +157,7 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     currentSampleRate = sampleRate > 0.0 && std::isfinite(sampleRate) ? sampleRate : 48000.0;
     maxBlock = juce::jmax(1, samplesPerBlock);
     engine.prepare(currentSampleRate, maxBlock, maxProcessedChannels);
+    engine.setTraceSink(&traceRing);
     dryBuffer.setSize(maxProcessedChannels, maxBlock, false, true, false);
     bandBypass.setSize(maxProcessedChannels, maxBlock, false, true, false);
     {

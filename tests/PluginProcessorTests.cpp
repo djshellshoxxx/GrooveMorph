@@ -1106,6 +1106,47 @@ int main()
         processor.revertAudition();
     }
 
+    // VF-T10: the Visual window's trace ring never changes the processed audio, and records only while active.
+    {
+        GrooveMorphAudioProcessor traced, plain;
+        for (auto* p : {&traced, &plain})
+        {
+            setParameter(*p, "masterIntensity", 1.0f);
+            p->prepareToPlay(48000.0, 256);
+        }
+        FakePlayHead headA, headB;
+        traced.setPlayHead(&headA);
+        plain.setPlayHead(&headB);
+        traced.getTraceRing().setActive(true);
+        juce::Random random(99);
+        bool identical = true;
+        for (int block = 0; block < 120; ++block)
+        {
+            setTransport(headA, block * 256);
+            setTransport(headB, block * 256);
+            juce::AudioBuffer<float> a(2, 256);
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < 256; ++i)
+                    a.setSample(c, i, random.nextFloat() * 1.6f - 0.8f);
+            juce::AudioBuffer<float> b(a);
+            juce::MidiBuffer midiA, midiB;
+            traced.processBlock(a, midiA);
+            plain.processBlock(b, midiB);
+            for (int c = 0; c < 2; ++c)
+                identical = identical && std::memcmp(a.getReadPointer(c), b.getReadPointer(c), sizeof(float) * 256) == 0;
+        }
+        expect("trace ring does not change processed audio", identical);
+        expect("active ring recorded frames", traced.getTraceRing().pushedCount() == 120u * 256u / 128u);
+        expect("inactive ring recorded nothing", plain.getTraceRing().pushedCount() == 0);
+        traced.getTraceRing().setActive(false);
+        const auto before = traced.getTraceRing().pushedCount();
+        setTransport(headA, 120 * 256);
+        processSilence(traced, 256);
+        expect("deactivated ring stops recording", traced.getTraceRing().pushedCount() == before);
+        traced.setPlayHead(nullptr);
+        plain.setPlayHead(nullptr);
+    }
+
     if (failures == 0)
         std::cout << "PluginProcessorTests: all checks passed\n";
     return failures == 0 ? 0 : 1;

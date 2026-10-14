@@ -56,12 +56,18 @@ void RhythmEngine::reset() noexcept
     amounts.fill(0.0f);
     voices.fill(Voice{});
     gateGain = 1.0f;
+    ++traceEpoch;
+    traceInPeak = 0.0f;
+    traceOutPeak = 0.0f;
 }
 
 void RhythmEngine::resetHistory() noexcept
 {
     now = 0;
     voices.fill(Voice{});
+    ++traceEpoch;
+    traceInPeak = 0.0f;
+    traceOutPeak = 0.0f;
 }
 
 double RhythmEngine::maxSliceSamples(OperationType type) const noexcept
@@ -141,6 +147,7 @@ void RhythmEngine::process(float* const* channels,
         return static_cast<std::size_t>(t % static_cast<std::int64_t>(capacity));
     };
 
+    const bool tracing = traceSink != nullptr && traceSink->active();
     std::array<double, historyStageCount> newR{};
     const float fadeNorm = 1.0f / static_cast<float>(fadeSamples + 1);
 
@@ -214,6 +221,8 @@ void RhythmEngine::process(float* const* channels,
             if (data == nullptr)
                 continue;
             const float dry = data[n];
+            if (tracing)
+                traceInPeak = std::max(traceInPeak, std::abs(dry));
             float x = dry;
             for (std::size_t op = 0; op < operationCount; ++op)
             {
@@ -256,6 +265,8 @@ void RhythmEngine::process(float* const* channels,
                     y = 0.0f;
             }
             data[n] = y;
+            if (tracing)
+                traceOutPeak = std::max(traceOutPeak, std::abs(y));
         }
 
         for (auto& v : voices)
@@ -271,6 +282,39 @@ void RhythmEngine::process(float* const* channels,
                 v.taps[0] = v.taps[1];
                 --v.tapCount;
             }
+        }
+
+        if (tracing && (now & (trace::hopSamples - 1)) == trace::hopSamples - 1)
+        {
+            trace::TraceFrame f;
+            f.sample = now;
+            f.epoch = traceEpoch;
+            f.flags = (timingOk ? trace::TimingOk : 0u);
+            f.beat = timingOk ? timing.beatAtBlockStart + static_cast<double>(n) / spb : 0.0;
+            f.samplesPerBeat = timingOk ? static_cast<float>(spb) : 0.0f;
+            f.intensity = smoothedIntensity;
+            for (std::size_t op = 0; op < operationCount; ++op)
+            {
+                f.amount[op] = amounts[op];
+                const int slot = historySlot(op);
+                if (slot < 0)
+                    continue;
+                const Voice& v = voices[static_cast<std::size_t>(slot)];
+                if (v.tapCount > 0)
+                    f.flags |= trace::Crossfading;
+                if (amounts[op] > 0.0f && v.valid)
+                {
+                    const double lag = static_cast<double>(now) - v.prevR;
+                    f.lagSamples[slot] = std::isfinite(lag) ? static_cast<float>(std::clamp(lag, 0.0, static_cast<double>(capacity))) : 0.0f;
+                    f.rate[slot] = std::isfinite(v.prevRate) ? static_cast<float>(v.prevRate) : 1.0f;
+                }
+            }
+            f.gateGain = gateGain;
+            f.inPeak = traceInPeak;
+            f.outPeak = traceOutPeak;
+            traceSink->push(f);
+            traceInPeak = 0.0f;
+            traceOutPeak = 0.0f;
         }
         ++now;
     }
