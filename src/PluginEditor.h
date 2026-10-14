@@ -58,7 +58,7 @@ private:
     juce::uint32 lockNoticeUntil = 0;
     void previewCandidate(const groovemorph::core::VariationSettings& settings);
     void refreshSceneControls();
-    void editOperation(std::size_t index);
+    void editOperation(std::size_t index, int field); // 0 enable, 1 depth, 2 slice
     void editName();
     void editMidiMap();
     void finishPreview(bool apply);

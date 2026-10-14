@@ -150,6 +150,8 @@ public:
     bool armLoopCapture(int bars);
     void cancelLoopCapture() noexcept { loopCapture.cancel(); }
     groovemorph::core::LoopCapture::State getLoopCaptureState() const noexcept { return loopCapture.state(); }
+    // Why the last capture produced no loop: 0 none, 1 longer than 20 s, 2 transport stopped.
+    int getLoopCaptureFailure() const noexcept { return loopCapture.failure(); }
     // Loads an audio file (WAV/AIFF/FLAC/...; up to 20 s) as a loop spanning `bars` bars.
     juce::Result importLoopFile(const juce::File& file, int bars);
     void clearLoop() noexcept { loopSource.clear(); loopSeconds.store(0.0, std::memory_order_relaxed); }
@@ -158,7 +160,8 @@ public:
     void pollLoopCapture();
     // Gesture lane (F11, message thread): records one phrase of movement of a macro parameter (0 Morph
     // amount, 1 Intensity, 2 Dry/Wet) and plays it back by phrase position at timer rate (~20 Hz).
-    void setGestureTarget(int target) noexcept { gestureTarget = juce::jlimit(0, 2, target); }
+    void setGestureTarget(int target);
+    int getGestureTarget() const noexcept { return gestureTarget; }
     void setGestureRecording(bool record);
     void setGesturePlaying(bool play);
     void clearGesture();
@@ -169,6 +172,8 @@ public:
     // Phrase evolution (F05): every N phrases the chosen scene is replaced, for sounding only, by a
     // deterministic candidate generated from its stored settings. Stored scenes and saved state are
     // never changed, and the sequence is reproducible from the seed.
+    struct EvolutionSettings { bool enabled; std::size_t scene; int everyPhrases; float distance; int style; };
+    EvolutionSettings getEvolutionSettings() const;
     void setEvolution(bool enabled, std::size_t scene, int everyPhrases, float distance, int style,
                       std::uint64_t seed);
     bool isEvolving() const;
@@ -352,6 +357,8 @@ private:
     groovemorph::core::LoopSource loopSource;
     groovemorph::core::LoopCapture loopCapture;
     std::atomic<double> loopSeconds{0.0};
+    std::atomic<double> sampleRateStatus{48000.0};
+    mutable std::mutex loopServiceMutex; // message-thread loop services vs prepareToPlay; never taken by the audio thread
     std::atomic<double> phraseFractionStatus{0.0};
     std::atomic<std::int64_t> phraseIndexStatus{0};
     groovemorph::core::control::GestureLane gesture;

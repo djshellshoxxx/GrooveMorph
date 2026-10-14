@@ -12,9 +12,9 @@ void LoopSource::prepare(double sampleRate)
     rate = sampleRate > 0.0 && std::isfinite(sampleRate) ? sampleRate : 48000.0;
     capacity = static_cast<std::int64_t>(std::ceil(maxSeconds * rate));
     active.store(-1, std::memory_order_release);
+    lastPublished = -1;
     for (auto& d : data)
         d.assign(static_cast<std::size_t>(capacity) * maxChannels, 0.0f);
-    counterAtPublish = renderCounter.load(std::memory_order_acquire);
 }
 
 bool LoopSource::load(const float* const* channels, int numChannels, std::int64_t numSamples,
@@ -23,13 +23,12 @@ bool LoopSource::load(const float* const* channels, int numChannels, std::int64_
     if (capacity <= 0 || channels == nullptr || numChannels < 1 || numSamples < 16
         || !(loopBeats > 0.0) || !std::isfinite(loopBeats) || !std::isfinite(originBeats))
         return false;
-    // Wait (bounded) until the audio thread has finished any block that began with the buffer we
-    // are about to overwrite. With no audio running the counter never moves and we proceed.
-    for (int i = 0; i < 200 && renderCounter.load(std::memory_order_acquire) == counterAtPublish
-                    && active.load(std::memory_order_acquire) >= 0; ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    const int current = active.load(std::memory_order_acquire);
-    const int idle = current == 0 ? 1 : 0;
+    // Write the buffer that was not last published, once the audio thread is not reading it.
+    const int idle = lastPublished == 0 ? 1 : 0;
+    for (int i = 0; i < 500 && reading.load(std::memory_order_seq_cst) == idle; ++i)
+        std::this_thread::sleep_for(std::chrono::microseconds(200));
+    if (reading.load(std::memory_order_seq_cst) == idle)
+        return false; // the audio thread is stuck on this buffer; refuse rather than race
     const std::int64_t n = std::min(numSamples, capacity);
     auto& buffer = data[idle];
     for (int c = 0; c < maxChannels; ++c)
@@ -42,8 +41,8 @@ bool LoopSource::load(const float* const* channels, int numChannels, std::int64_
     length[idle].store(n, std::memory_order_relaxed);
     beats[idle].store(loopBeats, std::memory_order_relaxed);
     origin[idle].store(std::fmod(originBeats, loopBeats), std::memory_order_relaxed);
-    counterAtPublish = renderCounter.load(std::memory_order_acquire);
-    active.store(idle, std::memory_order_release);
+    lastPublished = idle;
+    active.store(idle, std::memory_order_seq_cst);
     return true;
 }
 
@@ -55,7 +54,16 @@ void LoopSource::clear() noexcept
 bool LoopSource::render(float* const* channels, int numChannels, int numSamples, double beatAtStart,
                         double samplesPerBeat) noexcept
 {
-    const int index = active.load(std::memory_order_acquire);
+    int index = active.load(std::memory_order_seq_cst);
+    if (index >= 0)
+    {
+        reading.store(index, std::memory_order_seq_cst);
+        if (active.load(std::memory_order_seq_cst) != index) // republished meanwhile: back off
+        {
+            reading.store(-1, std::memory_order_seq_cst);
+            index = -1;
+        }
+    }
     bool rendered = false;
     if (index >= 0 && channels != nullptr && numSamples > 0 && samplesPerBeat > 0.0
         && std::isfinite(samplesPerBeat) && std::isfinite(beatAtStart))
@@ -86,7 +94,8 @@ bool LoopSource::render(float* const* channels, int numChannels, int numSamples,
             rendered = true;
         }
     }
-    renderCounter.fetch_add(1, std::memory_order_release);
+    if (index >= 0)
+        reading.store(-1, std::memory_order_seq_cst);
     return rendered;
 }
 
@@ -104,6 +113,7 @@ bool LoopCapture::arm(int bars, int beatsPerBar)
     if (capacity <= 0 || bars < 1 || bars > 16 || beatsPerBar < 1 || beatsPerBar > 16
         || state() != State::Idle)
         return false;
+    failureReason.store(0, std::memory_order_relaxed);
     requestedBars.store(bars, std::memory_order_relaxed);
     requestedBeatsPerBar.store(beatsPerBar, std::memory_order_relaxed);
     stateValue.store(static_cast<int>(State::Armed), std::memory_order_release);
@@ -112,7 +122,14 @@ bool LoopCapture::arm(int bars, int beatsPerBar)
 
 void LoopCapture::cancel() noexcept
 {
-    stateValue.store(static_cast<int>(State::Idle), std::memory_order_release);
+    stateValue.store(static_cast<int>(State::Idle), std::memory_order_seq_cst);
+}
+
+void LoopCapture::abort() noexcept
+{
+    int expected = static_cast<int>(State::Recording);
+    if (stateValue.compare_exchange_strong(expected, static_cast<int>(State::Idle), std::memory_order_seq_cst))
+        failureReason.store(2, std::memory_order_relaxed);
 }
 
 void LoopCapture::process(const float* const* channels, int numChannels, int numSamples,
@@ -134,11 +151,21 @@ void LoopCapture::process(const float* const* channels, int numChannels, int num
         if (first >= numSamples)
             return;
         const double beats = static_cast<double>(requestedBars.load(std::memory_order_relaxed)) * bar;
-        target = std::min(capacity, static_cast<std::int64_t>(std::llround(beats * samplesPerBeat)));
+        const auto wanted = static_cast<std::int64_t>(std::llround(beats * samplesPerBeat));
+        if (wanted > capacity)
+        {
+            failureReason.store(1, std::memory_order_relaxed); // would not fit: refuse instead of truncating
+            int armedState = static_cast<int>(State::Armed);
+            stateValue.compare_exchange_strong(armedState, static_cast<int>(State::Idle), std::memory_order_seq_cst);
+            return;
+        }
+        target = wanted;
         written = 0;
         recordBeats.store(beats, std::memory_order_relaxed);
         startBeatValue.store(nextBar, std::memory_order_relaxed);
-        stateValue.store(static_cast<int>(State::Recording), std::memory_order_release);
+        int expected = static_cast<int>(State::Armed);
+        if (!stateValue.compare_exchange_strong(expected, static_cast<int>(State::Recording), std::memory_order_seq_cst))
+            return; // cancelled or re-armed while this block was being prepared
     }
     const int count = static_cast<int>(std::min<std::int64_t>(numSamples - first, target - written));
     for (int i = 0; i < count; ++i)
@@ -150,7 +177,8 @@ void LoopCapture::process(const float* const* channels, int numChannels, int num
     if (written >= target)
     {
         recorded.store(written, std::memory_order_relaxed);
-        stateValue.store(static_cast<int>(State::Done), std::memory_order_release);
+        int expected = static_cast<int>(State::Recording);
+        stateValue.compare_exchange_strong(expected, static_cast<int>(State::Done), std::memory_order_seq_cst);
     }
 }
 } // namespace groovemorph::core

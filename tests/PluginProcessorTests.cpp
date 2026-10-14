@@ -1037,6 +1037,75 @@ int main()
         processor.setPlayHead(nullptr);
     }
 
+
+    // ---- Audit regressions ----
+    {
+        // Capture stays contiguous when placement boundaries split the render segments.
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        const int blockSize = 480;
+        processor.prepareToPlay(48000.0, blockSize);
+        setParameter(processor, "masterIntensity", 0.0f);
+        auto settings = processor.getSceneBank().variation(0).settings;
+        settings.control.placement.enabled = true;
+        settings.control.placement.window = groovemorph::core::control::WindowMode::Custom;
+        settings.control.placement.startPhase = 0.1f;
+        settings.control.placement.spanPhase = 0.3f;
+        settings.control.placement.downbeatProtectBeats = 0.7f;
+        processor.setVariationSettings(0, settings);
+        expect("capture arms with placement active", processor.armLoopCapture(1));
+        const auto signal = [](std::int64_t i) { return 0.5f * static_cast<float>(std::sin(0.002 * static_cast<double>(i))); };
+        std::int64_t sample = 7 * blockSize;
+        while (processor.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Done && sample < 96000 * 4)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                buffer.setSample(0, i, signal(sample + i));
+                buffer.setSample(1, i, signal(sample + i));
+            }
+            setTransport(playHead, sample);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            sample += blockSize;
+        }
+        processor.pollLoopCapture();
+        processor.setSourceMode(2);
+        bool exact = processor.hasLoop();
+        for (std::int64_t pos = 96000 * 3; pos < 96000 * 3 + 4800 && exact; pos += blockSize)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            buffer.clear();
+            setTransport(playHead, pos);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+            for (int i = 0; i < blockSize; ++i)
+                exact = exact && std::abs(buffer.getSample(0, i) - signal(96000 + ((pos + i) % 96000))) < 1e-3f;
+        }
+        expect("captured loop has no duplicated spans when placement splits segments", exact);
+        processor.setPlayHead(nullptr);
+    }
+    {
+        // Scene operations keep the destination's locked fields and lock configuration.
+        GrooveMorphAudioProcessor processor;
+        auto locked = processor.getSceneBank().variation(1).settings;
+        locked.operations[2] = {true, 0.55f, 0.5f};
+        locked.control.permissions.operationLocks[2] = groovemorph::core::control::lock::depth;
+        processor.setVariationSettings(1, locked);
+        expect("duplicate keeps the destination's locked depth",
+               processor.duplicateVariation(0, 1)
+               && processor.getSceneBank().variation(1).settings.operations[2].depth == 0.55f
+               && processor.getSceneBank().variation(1).settings.control.permissions.operationLocks[2]
+                      == groovemorph::core::control::lock::depth);
+        processor.resetVariation(1);
+        expect("reset keeps locked fields", processor.getSceneBank().variation(1).settings.operations[2].depth == 0.55f);
+        // Undo is refused while a preview is running.
+        processor.beginAudition(0);
+        expect("undo refused during audition", !processor.undoSceneEdit());
+        processor.revertAudition();
+    }
+
     if (failures == 0)
         std::cout << "PluginProcessorTests: all checks passed\n";
     return failures == 0 ? 0 : 1;

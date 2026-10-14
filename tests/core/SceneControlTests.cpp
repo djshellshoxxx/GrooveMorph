@@ -378,6 +378,74 @@ int main()
         expect("generation path restores the stored permissions", again.control.permissions.operationLocks[1] == lock::depth);
     }
 
+
+    // Audit regressions: locked events survive a full candidate lane; loop lengths are kept;
+    // out-of-range events are analysed on the wrapped phrase; sparse serializer slots are dropped.
+    {
+        VariationSettings source;
+        source.control.lane.explicitEvents = true;
+        source.control.permissions.operationLocks[0] = lock::events;
+        LaneEvent keep;
+        keep.operation = 0;
+        keep.onsetTicks = 960;
+        keep.durationTicks = 960;
+        (void)addEvent(source.control.lane, keep, 15360);
+        VariationSettings candidate = source;
+        candidate.control.lane = EventLane{};
+        candidate.control.lane.explicitEvents = true;
+        for (int i = 0; i < 32; ++i)
+        {
+            LaneEvent e;
+            e.operation = static_cast<std::uint8_t>(1 + i % 4);
+            e.onsetTicks = (i / 4) * 1000;
+            e.durationTicks = 100;
+            (void)addEvent(candidate.control.lane, e, 15360);
+        }
+        candidate.control.lane.loopBeats[1] = 4;
+        enforcePermissions(source, candidate);
+        bool found = false;
+        for (std::size_t i = 0; i < candidate.control.lane.count; ++i)
+            found = found || (candidate.control.lane.events[i].operation == 0 && candidate.control.lane.events[i].onsetTicks == 960);
+        expect("locked event survives a full candidate lane", found && candidate.control.lane.count <= maxLaneEvents);
+        expect("candidate loop lengths kept", candidate.control.lane.loopBeats[1] == 4);
+
+        // unrelated edit with a locked lane: no reorder, no restore
+        VariationSettings edited = source;
+        edited.operations[2].depth = 0.3f;
+        expect("unrelated edit restores nothing", enforcePermissions(source, edited, true) == 0
+                                                       && sameControl(source.control, edited.control));
+
+        // out-of-range events (saved for a longer phrase)
+        EventLane lane;
+        lane.explicitEvents = true;
+        lane.count = 2;
+        lane.events[0] = LaneEvent{0, true, 20000, 960, 1.0f};
+        lane.events[1] = LaneEvent{1, true, 0, 960, 1.0f};
+        ActivityConfig cfg;
+        cfg.maxCoverage = 0.07f;
+        const auto rep = reduceEvents(lane, cfg, PermissionConfig{}, 15360, false);
+        expect("coverage uses the wrapped phrase", rep.dropped == 1);
+        EventLane big;
+        big.count = 1;
+        big.events[0] = LaneEvent{0, true, 15000, 1966080, 1.0f};
+        cfg.maxCoverage = 0.5f;
+        expect("over-long event counts as the whole phrase", reduceEvents(big, cfg, PermissionConfig{}, 15360, false).dropped == 1);
+
+        // sparse / garbled serializer slots
+        using namespace groovemorph::core::scene;
+        const std::string header = "groovemorph-scenes v1\n";
+        auto loaded = SceneSerializer::deserialize(header + "variation.0.event.31.op=2\n");
+        expect("sparse slot becomes no phantom events", loaded.bank.variation(0).settings.control.lane.count == 0
+                                                             && loaded.report.status == LoadStatus::Recovered);
+        loaded = SceneSerializer::deserialize(header + "variation.1.event.3.depth=abc\n");
+        expect("garbled slot is not an event", loaded.bank.variation(1).settings.control.lane.count == 0);
+        loaded = SceneSerializer::deserialize(header + "variation.1.event.0.op=7\nvariation.1.event.0.onset=0\nvariation.1.event.0.duration=960\n");
+        expect("unknown operation is dropped, not remapped", loaded.bank.variation(1).settings.control.lane.count == 0);
+        loaded = SceneSerializer::deserialize(header + "variation.2.event.5.op=3\nvariation.2.event.5.onset=960\nvariation.2.event.5.duration=480\n");
+        expect("complete slot loads (slot index compacted)", loaded.bank.variation(2).settings.control.lane.count == 1
+                                                                   && loaded.bank.variation(2).settings.control.lane.events[0].operation == 3);
+    }
+
     if (failures == 0)
         std::cout << "SceneControlTests passed\n";
     return failures == 0 ? 0 : 1;

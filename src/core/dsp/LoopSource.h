@@ -10,10 +10,12 @@ namespace groovemorph::core
 // is read from the timeline position, so it follows seeks, loops and tempo changes (pitch follows
 // tempo: there is no time stretching in this alpha).
 //
-// Threading: load() runs on the message thread and fills the idle one of two preallocated buffers,
+// Threading: load() runs on the message thread and fills the buffer that was NOT last published,
 // then publishes it with a release store; render() runs on the audio thread, reads only the
-// published buffer and never allocates or blocks. load() waits (bounded) for the audio thread to
-// leave the previously published buffer before reusing it.
+// published buffer and never allocates or blocks. render() announces the buffer it reads in
+// `reading` (sequentially consistent, re-checking `active`), and load() waits - bounded - until
+// `reading` no longer names the buffer it is about to overwrite, so reuse is safe even after
+// clear() and independent of whether any audio blocks are being processed.
 class LoopSource final
 {
 public:
@@ -28,6 +30,7 @@ public:
     bool load(const float* const* channels, int numChannels, std::int64_t numSamples, double loopBeats,
               double originBeats);
     void clear() noexcept;
+    [[nodiscard]] std::int64_t capacitySamples() const noexcept { return capacity; }
     [[nodiscard]] bool hasLoop() const noexcept { return active.load(std::memory_order_acquire) >= 0; }
     [[nodiscard]] double loopBeats() const noexcept { return beats[0].load(std::memory_order_relaxed); }
 
@@ -42,8 +45,8 @@ private:
     std::atomic<double> beats[2] = {{0.0}, {0.0}};
     std::atomic<double> origin[2] = {{0.0}, {0.0}};
     std::atomic<int> active{-1};
-    std::atomic<std::uint64_t> renderCounter{0};
-    std::uint64_t counterAtPublish = 0;
+    std::atomic<int> reading{-1};  // buffer the audio thread is currently reading, or -1
+    int lastPublished = -1;        // message thread only: last buffer handed to the audio thread
     std::int64_t capacity = 0;
     double rate = 48000.0;
 };
@@ -67,6 +70,10 @@ public:
     [[nodiscard]] double loopBeats() const noexcept { return recordBeats.load(std::memory_order_relaxed); }
     [[nodiscard]] double startBeat() const noexcept { return startBeatValue.load(std::memory_order_relaxed); }
     void release() noexcept { stateValue.store(static_cast<int>(State::Idle), std::memory_order_release); }
+    // Audio thread: the transport stopped mid-recording.
+    void abort() noexcept;
+    // Why the last capture ended without a loop: 0 none, 1 would exceed 20 s, 2 transport stopped.
+    [[nodiscard]] int failure() const noexcept { return failureReason.load(std::memory_order_relaxed); }
 
     // Audio thread. channels = the signal to record (read only).
     void process(const float* const* channels, int numChannels, int numSamples, double beatAtStart,
@@ -78,6 +85,7 @@ private:
     std::atomic<int> stateValue{0};
     std::atomic<int> requestedBars{0};
     std::atomic<int> requestedBeatsPerBar{4};
+    std::atomic<int> failureReason{0};
     std::atomic<std::int64_t> recorded{0};
     std::atomic<double> recordBeats{0.0};
     std::atomic<double> startBeatValue{0.0};

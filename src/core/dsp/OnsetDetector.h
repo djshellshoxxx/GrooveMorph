@@ -18,8 +18,10 @@ private:
     double rate = 48000.0;
     float fast = 0.0f, slow = 0.0f;
     int refractory = 0;
+    int warmup = 0;
     bool armed = true;
     float fastAttack = 0.0f, fastRelease = 0.0f, slowAttack = 0.0f, slowRelease = 0.0f;
     int refractorySamples = 0;
+    int warmupSamples = 0;
 };
 } // namespace groovemorph::core

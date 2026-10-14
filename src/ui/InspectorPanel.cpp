@@ -121,7 +121,16 @@ public:
     void setSettingsView(const gm::VariationSettings& s)
     {
         if (!dragging)
+        {
             draft = s.control;
+            // The selection follows the event itself (operation, onset, duration), not its array
+            // slot, so undo, Reduce, scene switches and lock merges never leave it on another event.
+            if (hasSelection)
+            {
+                selectedIndex = findSelected(draft.lane);
+                hasSelection = selectedIndex >= 0;
+            }
+        }
         view = s;
         repaint();
     }
@@ -133,8 +142,9 @@ public:
         if (isLocked(next.lane.events[static_cast<std::size_t>(selectedIndex)].operation))
             return false;
         ctl::removeEvent(next.lane, static_cast<std::size_t>(selectedIndex));
-        commit(next);
         selectedIndex = -1;
+        hasSelection = false;
+        commit(next);
         if (onSelectionChanged)
             onSelectionChanged();
         return true;
@@ -288,6 +298,9 @@ public:
         const auto tick = tickAt(event.x, grid);
         dragLane = lane;
         selectedIndex = hit(control, lane, tick, P);
+        hasSelection = selectedIndex >= 0;
+        if (hasSelection)
+            selectedEvent = control.lane.events[static_cast<std::size_t>(selectedIndex)];
         dragging = true;
         dragMoved = false;
         if (selectedIndex >= 0)
@@ -338,6 +351,8 @@ public:
                 return;
             }
             selectedIndex = draft.lane.count - 1;
+            hasSelection = true;
+            selectedEvent = created;
             original = created;
             mode = Mode::ResizeEnd;
             dragMoved = true;
@@ -360,7 +375,7 @@ public:
         if (mode == Mode::Move)
         {
             auto onset = snap(tick - grabOffset, draft, true);
-            onset = std::clamp<std::int64_t>(onset, 0, pt - original.durationTicks);
+            onset = std::clamp<std::int64_t>(onset, 0, std::max<std::int64_t>(0, pt - original.durationTicks));
             e.onsetTicks = static_cast<std::int32_t>(onset);
         }
         else if (mode == Mode::ResizeStart)
@@ -380,6 +395,7 @@ public:
         if (ctl::replaceEvent(trial.lane, static_cast<std::size_t>(selectedIndex), e, pt) == ctl::EditStatus::Ok)
         {
             draft = trial;
+            selectedEvent = e;
             dragMoved = true;
         }
         repaint();
@@ -397,7 +413,7 @@ public:
 
     void mouseDoubleClick(const juce::MouseEvent& event) override
     {
-        if (!draft.lane.explicitEvents)
+        if (!draft.lane.explicitEvents || event.x < labelWidth)
             return;
         const auto grid = processor.getGridContext();
         const int lane = (event.y - laneTop) / laneHeight;
@@ -429,16 +445,20 @@ public:
             return true;
         const std::int64_t step = key.getModifiers().isShiftDown() ? ctl::ticksPerBeat : std::max<std::int64_t>(1, unit(control));
         auto onset = static_cast<std::int64_t>(e.onsetTicks) + (right ? step : -step);
-        onset = std::clamp<std::int64_t>(onset, 0, grid.phraseTicks() - e.durationTicks);
+        onset = std::clamp<std::int64_t>(onset, 0, std::max<std::int64_t>(0, grid.phraseTicks() - e.durationTicks));
         e.onsetTicks = static_cast<std::int32_t>(onset);
         if (ctl::replaceEvent(control.lane, static_cast<std::size_t>(selectedIndex), e, grid.phraseTicks()) == ctl::EditStatus::Ok)
+        {
+            selectedEvent = e;
             commit(control);
+        }
         return true;
     }
 
     void select(int index)
     {
         selectedIndex = index;
+        hasSelection = index >= 0;
         repaint();
     }
 
@@ -454,6 +474,8 @@ private:
     gm::VariationSettings view;
     ctl::SceneControl draft;
     int selectedIndex = -1;
+    bool hasSelection = false;
+    ctl::LaneEvent selectedEvent;
     int dragLane = 0;
     bool dragging = false, dragMoved = false;
     bool snapEnabled = true;
@@ -461,6 +483,14 @@ private:
     std::int64_t grabOffset = 0;
     ctl::LaneEvent original;
 
+    int findSelected(const ctl::EventLane& lane) const noexcept
+    {
+        for (std::size_t i = 0; i < lane.count; ++i)
+            if (lane.events[i].operation == selectedEvent.operation && lane.events[i].onsetTicks == selectedEvent.onsetTicks
+                && lane.events[i].durationTicks == selectedEvent.durationTicks)
+                return static_cast<int>(i);
+        return -1;
+    }
     bool isLocked(std::uint8_t op) const
     {
         return op < ctl::laneCount && (access.settings().control.permissions.operationLocks[op] & ctl::lock::events) != 0;
@@ -486,10 +516,11 @@ private:
             const auto& e = c.lane.events[i];
             if (e.operation != lane)
                 continue;
-            double d = std::fmod(static_cast<double>(tick - e.onsetTicks), P);
+            const double onset = std::fmod(static_cast<double>(e.onsetTicks), P);
+            double d = std::fmod(static_cast<double>(tick) - onset, P);
             if (d < 0.0)
                 d += P;
-            if (d < static_cast<double>(e.durationTicks) || std::abs(static_cast<double>(tick - e.onsetTicks)) < 1.0)
+            if (d < static_cast<double>(e.durationTicks) || std::abs(static_cast<double>(tick) - onset) < 1.0)
                 return static_cast<int>(i);
         }
         return -1;
@@ -498,7 +529,9 @@ private:
     static std::vector<std::pair<int, int>> eventRanges(const ctl::LaneEvent& e, double P, int width)
     {
         std::vector<std::pair<int, int>> ranges;
-        const double a = e.onsetTicks, b = a + e.durationTicks;
+        // Events saved for a longer phrase wrap into this one, exactly like the audio side.
+        const double a = std::fmod(static_cast<double>(e.onsetTicks), P);
+        const double b = a + std::min(static_cast<double>(e.durationTicks), P);
         if (b <= P)
             ranges.emplace_back(static_cast<int>(a / P * width), static_cast<int>(b / P * width));
         else
@@ -571,7 +604,7 @@ public:
                         mask |= 1u << i;
                 const auto pt = processor.getGridContext().phraseTicks();
                 s.control.lane.count = 0;
-                ctl::convertLegacyToEvents(s.control.lane, mask, pt);
+                ctl::convertLegacyToEvents(s.control.lane, mask, pt, &s.control.activity.priority);
             });
         };
         removeSelected.setButtonText("Delete event");
@@ -624,7 +657,7 @@ public:
         loopBeats.label.setVisible(false);
         loopBeats.slider.textFromValueFunction = [](double v) { return v < 0.5 ? juce::String("phrase") : juce::String(static_cast<int>(v)) + " beats"; };
         loopBeats.commit = [this] {
-            const auto lane = static_cast<std::size_t>(loopLane.getSelectedId() - 1);
+            const auto lane = static_cast<std::size_t>(juce::jmax(0, loopLane.getSelectedId() - 1));
             edit([this, lane](auto& s) { s.control.lane.loopBeats[lane] = static_cast<std::uint8_t>(loopBeats.slider.getValue()); });
         };
         eventEnabled.setButtonText("Event enabled");
@@ -665,18 +698,18 @@ public:
         protect.set(p.downbeatProtectBeats);
         modeButton.setToggleState(s.control.lane.explicitEvents, juce::dontSendNotification);
         const bool custom = p.window == ctl::WindowMode::Custom && p.enabled;
-        start.slider.setEnabled(custom);
-        span.slider.setEnabled(custom);
-        every.slider.setEnabled(p.enabled);
-        offset.slider.setEnabled(p.enabled);
-        window.setEnabled(p.enabled);
-        for (auto* c : std::initializer_list<juce::Component*>{&enable, &window, &start.slider, &span.slider, &every.slider,
-                                                               &offset.slider, &origin.slider, &protect.slider})
-            if (locked)
-                c->setEnabled(false);
-        if (locked)
-            message.setText("Placement is locked (Generator tab > Locks).", juce::dontSendNotification);
+        const bool free = !locked;
+        start.slider.setEnabled(free && custom);
+        span.slider.setEnabled(free && custom);
+        every.slider.setEnabled(free && p.enabled);
+        offset.slider.setEnabled(free && p.enabled);
+        window.setEnabled(free && p.enabled);
+        enable.setEnabled(free);
+        origin.slider.setEnabled(free);
+        protect.slider.setEnabled(free);
+        message.setText(locked ? "Placement is locked (Generator tab > Locks)." : "", juce::dontSendNotification);
         convert.setEnabled(!s.control.lane.explicitEvents);
+        canvas.setSettingsView(s);
         const int sel = canvas.selected();
         const bool haveSel = s.control.lane.explicitEvents && sel >= 0 && static_cast<std::size_t>(sel) < s.control.lane.count;
         removeSelected.setEnabled(haveSel);
@@ -766,9 +799,9 @@ public:
         newSeed.setButtonText("New seed");
         newSeed.setTooltip("Picks a fresh random seed and resets the candidate number to 1.");
         newSeed.onClick = [this] {
-            settings.seed = juce::Random::getSystemRandom().nextInt64();
+            settings.seed = static_cast<std::uint64_t>(juce::Random::getSystemRandom().nextInt64());
             settings.candidate = 0;
-            seedEditor.setText(juce::String(static_cast<juce::int64>(settings.seed)), false);
+            seedEditor.setText(juce::String(settings.seed), false);
             updateCandidateLabel();
         };
         distance.setup(*this, "Distance", "How far the candidate moves from the stored scene: 0 = unchanged, 1 = full generated change. Enable flips need >= 0.5.", 0, 1, 0.01, 2);
@@ -905,16 +938,13 @@ private:
 
     void readSeed()
     {
+        // Digits only, any length up to 20 (unsigned 64-bit; larger values wrap).
         const auto text = seedEditor.getText().trim();
-        settings.seed = text.isEmpty() ? 1ull : static_cast<std::uint64_t>(text.getLargeIntValue());
-        if (text.length() > 18)
-        {
-            // getLargeIntValue saturates at int64; parse unsigned 64-bit manually.
-            std::uint64_t v = 0;
-            for (auto ch : text)
-                v = v * 10u + static_cast<std::uint64_t>(ch - '0');
-            settings.seed = v;
-        }
+        std::uint64_t value = 0;
+        for (auto ch : text)
+            if (ch >= '0' && ch <= '9')
+                value = value * 10u + static_cast<std::uint64_t>(ch - '0');
+        settings.seed = text.isEmpty() ? 1ull : value;
         settings.candidate = 0;
         updateCandidateLabel();
     }
@@ -961,7 +991,7 @@ private:
         for (const auto& e : entries)
         {
             history.addItem(juce::String("#") + juce::String(id) + "  scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + e.scene))
-                                + "  seed " + juce::String(static_cast<juce::int64>(e.settings.seed)) + "  cand " + juce::String(e.settings.candidate + 1)
+                                + "  seed " + juce::String(e.settings.seed) + "  cand " + juce::String(e.settings.candidate + 1)
                                 + "  " + juce::StringArray{"Cons", "Creat", "Exper"}[static_cast<int>(e.settings.style)]
                                 + "  d=" + juce::String(e.settings.distance, 2), id);
             ++id;
@@ -973,6 +1003,12 @@ private:
         if (id < 1 || static_cast<std::size_t>(id) > entries.size())
             return;
         const auto entry = entries[static_cast<std::size_t>(id - 1)];
+        if (entry.scene != access.editingIndex())
+        {
+            resultLabel.setText("That entry belongs to scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + entry.scene))
+                                    + ". Select it in the Edit combo first.", juce::dontSendNotification);
+            return;
+        }
         const auto candidate = gvar::buildCandidate(entry.source, entry.settings);
         describe(candidate);
         resultLabel.setText("Recalled history #" + juce::String(id) + ". " + resultLabel.getText(), juce::dontSendNotification);
@@ -997,7 +1033,7 @@ public:
         duplicate.setTooltip("Copies the edited scene completely (effects, placement, events, locks and name) into the target. One undo step. Disabled during a preview.");
         duplicate.onClick = [this] {
             const auto from = access.editingIndex();
-            const auto to = static_cast<std::size_t>(target.getSelectedId() - 1);
+            const auto to = static_cast<std::size_t>(juce::jmax(0, target.getSelectedId() - 1));
             message.setText(processor.duplicateVariation(from, to) ? "Duplicated." : "Nothing to duplicate (same scene, identical scenes or preview active).",
                             juce::dontSendNotification);
         };
@@ -1010,7 +1046,7 @@ public:
         resetOp.setButtonText("Reset selected effect");
         resetOp.setTooltip("Resets the chosen effect of the edited scene to off / depth 1 / slice 0.25 beat.");
         resetOp.onClick = [this] {
-            const auto index = static_cast<std::size_t>(op.getSelectedId() - 1);
+            const auto index = static_cast<std::size_t>(juce::jmax(0, op.getSelectedId() - 1));
             edit([index](auto& s) { s.operations[index] = gm::OperationSettings{}; });
             message.setText("Effect reset.", juce::dontSendNotification);
         };
@@ -1346,7 +1382,13 @@ public:
         using State = groovemorph::core::LoopCapture::State;
         switch (processor.getLoopCaptureState())
         {
-            case State::Idle: capture.setButtonText("Capture"); break;
+            case State::Idle:
+                capture.setButtonText("Capture");
+                if (const int why = processor.getLoopCaptureFailure(); why == 1)
+                    message.setText("Capture refused: that many bars would exceed 20 seconds at this tempo.", juce::dontSendNotification);
+                else if (why == 2)
+                    message.setText("Capture stopped because the transport stopped.", juce::dontSendNotification);
+                break;
             case State::Armed: capture.setButtonText("Waiting for bar line (click to cancel)"); break;
             case State::Recording: capture.setButtonText("Recording... (click to cancel)"); break;
             case State::Done: capture.setButtonText("Finishing..."); break;
@@ -1447,10 +1489,10 @@ public:
         gestureTarget.addItemList({"Morph amount", "Intensity", "Dry / wet"}, 1);
         gestureTarget.setSelectedId(1, juce::dontSendNotification);
         gestureTarget.setTooltip("Which macro the gesture lane records and plays back.");
-        gestureTarget.onChange = [this] { processor.setGestureTarget(gestureTarget.getSelectedId() - 1); };
+        gestureTarget.onChange = [this] { if (!refreshing) processor.setGestureTarget(juce::jmax(0, gestureTarget.getSelectedId() - 1)); };
         record.setButtonText("Record");
         record.setClickingTogglesState(true);
-        record.setTooltip("While the transport plays, records the target's value by phrase position (move the slider while recording). Overwrites as the phrase loops.");
+        record.setTooltip("Changing the target clears the lane. While the transport plays, records the target's value by phrase position (move the slider while recording). Overwrites as the phrase loops.");
         record.onClick = [this] { processor.setGestureRecording(record.getToggleState()); };
         play.setButtonText("Play");
         play.setClickingTogglesState(true);
@@ -1507,6 +1549,25 @@ public:
         play.setEnabled(processor.getGestureFill() > 0);
         gestureInfo.setText(processor.getGestureFill() > 0 ? "Recorded bins: " + juce::String(processor.getGestureFill()) + " / 256"
                                                            : "Nothing recorded.", juce::dontSendNotification);
+        if (!evolveScene.isPopupActive() && !evolveStyle.isPopupActive() && !every.slider.isMouseButtonDown()
+            && !distance.slider.isMouseButtonDown())
+        {
+            const auto evo = processor.getEvolutionSettings();
+            if (evo.enabled || !evolveSynced)
+            {
+                evolveOn.setToggleState(evo.enabled, juce::dontSendNotification);
+                if (evo.enabled)
+                {
+                    evolveScene.setSelectedId(static_cast<int>(evo.scene) + 1, juce::dontSendNotification);
+                    evolveStyle.setSelectedId(evo.style + 1, juce::dontSendNotification);
+                    every.slider.setValue(evo.everyPhrases, juce::dontSendNotification);
+                    distance.slider.setValue(evo.distance, juce::dontSendNotification);
+                }
+                evolveSynced = true;
+            }
+        }
+        if (!gestureTarget.isPopupActive())
+            gestureTarget.setSelectedId(processor.getGestureTarget() + 1, juce::dontSendNotification);
         evolveInfo.setText(processor.isEvolving() ? "Evolving: step " + juce::String(processor.getEvolutionStep()) : "Evolution off.",
                            juce::dontSendNotification);
     }
@@ -1553,10 +1614,11 @@ private:
     {
         if (refreshing)
             return;
-        processor.setEvolution(evolveOn.getToggleState(), static_cast<std::size_t>(evolveScene.getSelectedId() - 1),
+        processor.setEvolution(evolveOn.getToggleState(), static_cast<std::size_t>(juce::jmax(0, evolveScene.getSelectedId() - 1)),
                                static_cast<int>(every.slider.getValue()), static_cast<float>(distance.slider.getValue()),
                                evolveStyle.getSelectedId() - 1, 0x47524F4F56ull);
     }
+    bool evolveSynced = false;
     std::array<juce::TextButton, 4> sceneButtons;
     juce::Label transitionLabel, morphLabel, gestureTitle, gestureInfo, evolveTitle, evolveInfo;
     std::array<juce::Label, 3> macroLabels;

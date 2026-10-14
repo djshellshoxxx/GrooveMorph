@@ -101,6 +101,48 @@ int main()
         expect("cancel", capture.state() == LoopCapture::State::Idle);
     }
 
+
+    // Audit regressions: reload after clear, too-long and aborted captures.
+    {
+        LoopSource loop;
+        loop.prepare(48000.0);
+        std::vector<float> a(48000, 0.1f), b(48000, 0.2f);
+        const float* pa[1] = {a.data()};
+        const float* pb[1] = {b.data()};
+        expect("first load", loop.load(pa, 1, 48000, 2.0, 0.0));
+        loop.clear();
+        expect("load right after clear", loop.load(pb, 1, 48000, 2.0, 0.0) && loop.hasLoop());
+        float out[2] = {};
+        float* ch[1] = {out};
+        loop.render(ch, 1, 1, 0.0, 24000.0);
+        expect("reloaded content plays", std::abs(out[0] - 0.2f) < 1e-6f);
+        for (int i = 0; i < 20; ++i) // repeated reloads never stall without audio running
+            expect("repeat reload", loop.load(i % 2 ? pa : pb, 1, 48000, 2.0, 0.0));
+
+        LoopCapture capture;
+        capture.prepare(48000.0);
+        expect("arm 16 bars", capture.arm(16, 4));
+        std::vector<float> block(480, 0.0f);
+        const float* in[1] = {block.data()};
+        capture.process(in, 1, 480, 0.0, 48000.0, true); // 64 beats at 1 s per beat = 64 s > 20 s
+        expect("too-long capture is refused, not truncated", capture.state() == LoopCapture::State::Idle && capture.failure() == 1);
+        expect("arm again", capture.arm(1, 4));
+        capture.process(in, 1, 480, 3.99, 24000.0, true); // starts recording at the bar line
+        expect("recording", capture.state() == LoopCapture::State::Recording);
+        capture.abort();
+        expect("abort when the transport stops", capture.state() == LoopCapture::State::Idle && capture.failure() == 2);
+        capture.process(in, 1, 480, 8.0, 24000.0, true);
+        expect("an aborted capture stays aborted", capture.state() == LoopCapture::State::Idle);
+        // cancel during recording is never overridden by a finishing block
+        expect("arm for cancel race", capture.arm(1, 4));
+        capture.process(in, 1, 480, 3.99, 24000.0, true);
+        capture.cancel();
+        std::vector<float> rest(96000, 0.0f);
+        const float* inRest[1] = {rest.data()};
+        capture.process(inRest, 1, 96000, 4.0, 24000.0, true);
+        expect("cancel wins over a finishing block", capture.state() == LoopCapture::State::Idle);
+    }
+
     // ---- GestureLane ----
     {
         control::GestureLane lane;

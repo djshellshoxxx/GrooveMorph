@@ -21,6 +21,7 @@ void OnsetDetector::prepare(double sampleRate) noexcept
     slowAttack = coefficient(rate, 0.020);
     slowRelease = coefficient(rate, 0.200);
     refractorySamples = static_cast<int>(rate * 0.120);
+    warmupSamples = static_cast<int>(rate * 0.050); // envelopes settle before onsets can fire
     reset();
 }
 
@@ -28,7 +29,8 @@ void OnsetDetector::reset() noexcept
 {
     fast = slow = 0.0f;
     refractory = 0;
-    armed = true;
+    warmup = warmupSamples;
+    armed = false; // must see the signal settle (or fall silent) before the first onset
 }
 
 int OnsetDetector::process(const float* samples, int numSamples, float sensitivity) noexcept
@@ -44,8 +46,15 @@ int OnsetDetector::process(const float* samples, int numSamples, float sensitivi
         const float x = std::isfinite(samples[i]) ? std::fabs(samples[i]) : 0.0f;
         fast += (x > fast ? fastAttack : fastRelease) * (x - fast);
         slow += (x > slow ? slowAttack : slowRelease) * (x - slow);
+        if (fast < 1.0e-20f) fast = 0.0f; // never sit in the subnormal range
+        if (slow < 1.0e-20f) slow = 0.0f;
         if (refractory > 0)
             --refractory;
+        if (warmup > 0)
+        {
+            --warmup;
+            continue;
+        }
         if (!armed && fast < slow * 1.1f + floorLevel * 0.5f)
             armed = true;
         if (armed && refractory == 0 && fast > floorLevel && fast > slow * ratio)

@@ -135,12 +135,21 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
         for (std::size_t op = 0; op < laneCount; ++op)
             if (on[op] && (enabledMask & (1u << op)) != 0)
                 order[n++] = op;
-        std::stable_sort(order.begin(), order.begin() + static_cast<std::ptrdiff_t>(n),
-                         [&c, &eventPriority](std::size_t a, std::size_t b) {
-                             const int pa = eventPriority[a] >= 0 ? eventPriority[a] : c.activity.priority[a];
-                             const int pb = eventPriority[b] >= 0 ? eventPriority[b] : c.activity.priority[b];
-                             return pa > pb;
-                         });
+        // Stable insertion sort (n <= 5): std::stable_sort may allocate a temporary buffer.
+        const auto priorityOf = [&c, &eventPriority](std::size_t op) {
+            return eventPriority[op] >= 0 ? eventPriority[op] : static_cast<int>(c.activity.priority[op]);
+        };
+        for (std::size_t i = 1; i < n; ++i)
+        {
+            const std::size_t key = order[i];
+            std::size_t j = i;
+            while (j > 0 && priorityOf(order[j - 1]) < priorityOf(key))
+            {
+                order[j] = order[j - 1];
+                --j;
+            }
+            order[j] = key;
+        }
         for (std::size_t k = c.activity.maxConcurrent; k < n; ++k)
             on[order[k]] = false;
     }

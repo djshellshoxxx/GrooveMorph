@@ -25,7 +25,7 @@ std::vector<float> clicks(int total, int period, float level)
     std::vector<float> x(static_cast<std::size_t>(total));
     for (int i = 0; i < total; ++i)
     {
-        const int since = i % period;
+        const int since = (i + period - 6000) % period; // first click after the warm-up
         const float click = since < 2400 ? level * std::exp(-static_cast<float>(since) / 400.0f) : 0.0f;
         x[static_cast<std::size_t>(i)] = 0.01f * std::sin(0.05f * static_cast<float>(i)) + click * (since % 2 ? 1.0f : -1.0f);
     }
@@ -54,6 +54,23 @@ int main()
     for (std::size_t i = 0; i < noisy.size(); ++i)
         noisy[i] = 0.05f * std::sin(0.2f * static_cast<float>(i));
     expect("constant-level signal gives at most the start-up transient", run(noisy, 0.5f, 480) <= 1);
+    // A sustained tone that begins after silence must not count as a hit (start-up transient).
+    std::vector<float> bed(48000 * 2);
+    for (std::size_t i = 0; i < bed.size(); ++i)
+        bed[i] = i < 24000 ? 0.0f : 0.3f * std::sin(0.03f * static_cast<float>(i));
+    expect("tone onset after silence inside the warm-up window is ignored when it starts at the beginning",
+           run(std::vector<float>(bed.begin() + 24000, bed.end()), 1.0f, 480) == 0);
+    // Long silence must not leave the envelopes in the subnormal range.
+    {
+        OnsetDetector quiet;
+        quiet.prepare(48000.0);
+        std::vector<float> loud(4800, 0.5f), silence(48000, 0.0f);
+        quiet.process(loud.data(), 4800, 0.5f);
+        for (int i = 0; i < 40; ++i)
+            quiet.process(silence.data(), 48000, 0.5f);
+        std::vector<float> hit = clicks(48000, 24000, 0.8f);
+        expect("detector still works after long silence", quiet.process(hit.data(), 48000, 0.6f) >= 1);
+    }
     OnsetDetector d;
     d.prepare(48000.0);
     float bad[3] = {std::nanf(""), INFINITY, 0.5f};

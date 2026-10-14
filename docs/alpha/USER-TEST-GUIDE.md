@@ -1,8 +1,7 @@
 # User test guide (Windows x64 Standalone alpha)
 
-**Unsupported or incomplete (read first):** transition phase (C04), per-event phase restart, spacing/coverage limits,
-low-frequency protection, multiband, performance mode, phrase evolution, polyrhythm, audio-triggered actions,
-audio import/capture, gesture recording, CLAP. See ALPHA-FEATURE-STATUS.md. The Status tab inside the app lists them too.
+**Unsupported or incomplete (read first):** transition phase (C04), protected temporal regions and per-event locks, time stretching,
+loop/gesture/evolution persistence, higher-order crossovers, CLAP. See ALPHA-FEATURE-STATUS.md (the Info tab in the app lists them too).
 
 ## Launch and audio setup
 1. Unzip; run `GrooveMorph.exe` (no installer). Windows SmartScreen may warn: the build is unsigned.
@@ -20,10 +19,13 @@ audio import/capture, gesture recording, CLAP. See ALPHA-FEATURE-STATUS.md. The 
 - **Generator:** set a Seed, Style and Distance, press **Generate preview**, then **Apply preview** or **Revert preview**. **Regenerate >** gives the next candidate; the same seed/candidate always reproduces. Use Locks to protect fields.
 - **Scenes:** duplicate A to B, reset a scene or effect; Undo reverts each.
 - **Morph/Return:** morph toward another scene with Amount; set *Return after (bars)* then switch scenes and watch it return on the bar line.
-- **Limits:** limit effects at once and set priorities.
+- **Limits:** limit effects at once and set priorities; set spacing/coverage and press **Analyze**, then **Reduce events**.
+- **Place (events):** select an event to set its own slice, priority and *Restart effect cycle*; set a lane's loop length (e.g. Gate = 3 beats vs Repeat = 4) for polyrhythm.
+- **Input:** pick *Demo drum loop*; press **Capture** (starts on the next bar line) or **Import file...**, then choose *Captured / imported loop*. Try *Band split* (Protect lows / Lows only), *Audio trigger* (Next scene) and the MIDI macros.
+- **Perform:** launch scenes, move the macros, **Record** a gesture while moving Morph amount and **Play** it back, and enable **Evolve scene**.
 
 ## Visual evaluation checklist (record defects)
-1. Window opens, nothing clipped at the default size; resize to the minimum (1180x700) and to full screen.
+1. Window opens, nothing clipped at the default size; resize to the minimum (1230x700) and to full screen.
 2. Top bar: Demo loop and Bypass visible; status line shows "Playing | editing X | bar | beat" and the playhead moves.
 3. Scene buttons: active/queued/editing states are legible and update when switching.
 4. Each inspector tab: labels fully visible, tooltips appear on hover, disabled controls are greyed.

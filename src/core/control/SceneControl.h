@@ -125,5 +125,6 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
 
 // Explicit command: one full-phrase event per operation in `enabledMask`. Returns events added.
 std::size_t convertLegacyToEvents(EventLane& lane, std::uint32_t enabledMask,
-                                  std::int64_t phraseTicks) noexcept;
+                                  std::int64_t phraseTicks,
+                                  const std::array<std::uint8_t, laneCount>* priorities = nullptr) noexcept;
 } // namespace groovemorph::core::control

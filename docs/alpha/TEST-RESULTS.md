@@ -2,15 +2,16 @@
 
 Only checks that were actually run are listed. Dates 2026-10-14.
 
-## Local, Linux x86_64 (GCC, Release, JUCE 8.0.7)
+## Local, Linux x86_64 (alpha 2)
 | Check | Result |
 |---|---|
-| Portable core: `cmake -DGROOVEMORPH_CORE_ONLY_BUILD=ON`, 11 test executables (incl. new SceneControlTests, CandidateBuilderTests) | 11/11 passed |
-| Portable core with `-fsanitize=address,undefined` | 11/11 passed, no reports |
-| Full plugin build (VST3 + Standalone + tests) + `ctest` (core tests + GrooveMorphPluginTests) | 12/12 passed |
-| New processor tests: host Variation sync (pending/cancel/GUI/unread automation), placement exactly dry before a LastBar window and engaging at/after sample 288000 with a deliberately misaligned 300-sample block, auto-return landing at sample 96000, duplicate/reset/undo, state round-trip of control data, Standalone free-run clock | passed |
-| Linux Standalone launched under Xvfb | stayed alive for the 10 s timeout (no audio device in the container, ALSA seq warning only) |
-| Editor rendered by `tools/EditorSnapshot.cpp` (software rendering of the real editor) | PNGs in `docs/alpha/screenshots/` (placement, generator, scenes, morph, limits, status, minimum size) |
+| Portable core, GCC Release: 14 test executables (adds SceneControl, CandidateBuilder, EnginePhase, OnsetDetector, LoopSource) | 14/14 passed |
+| Portable core with `-fsanitize=address,undefined` | passed, no reports |
+| Full plugin build (VST3 + Standalone + tests), GCC and Clang (`-Wall -Wextra`) + `ctest` | 15/15 passed, no warnings from project sources |
+| Processor tests include: host Variation sync, placement boundaries at misaligned block sizes, auto-return (bars and phrases) landing on the bar line, band split (50 Hz / 5 kHz projections), audio trigger, MIDI macros, loop capture/playback locked to the bar grid (also with placement splitting segments), file import validation, gesture record/play, phrase evolution never touching stored/saved scenes, scene operations keeping locks | passed |
+| Independent code audit (3 read-only reviewers: real-time/concurrency, core correctness, GUI/state) | findings fixed or documented; see below |
+
+Audit follow-ups fixed in this build: heap allocation in the activity limiter (`std::stable_sort` replaced), capture/loop source rendered with a pre-clamp block length when placement split a segment, loop double-buffer reuse race and 200 ms stalls (reader flag handshake), capture cancel/abort races (compare-exchange), message-thread loop services vs `prepareToPlay` (mutex), locked-event merge dropping locked events and loop lengths, coverage math for events beyond the phrase, phantom/garbled events from hostile scene files, detector start-up trigger and subnormal envelopes, demo noise depending on block splits, placement lock leaving controls disabled, locks not applied to Copy FX/Duplicate/Reset/history recall/previews, selection tracked by array index, Convert changing limit priorities, rounded depth/slice written on Enable toggles, seed corruption, Undo during a preview, truncated imports.
 
 ## Windows (GitHub Actions, windows-2022, MSVC, Release)
 Alpha build: [run 38497756566](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38497756566) on `main` @ `4042b61`

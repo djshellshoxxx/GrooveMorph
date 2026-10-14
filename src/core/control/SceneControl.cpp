@@ -163,7 +163,8 @@ bool removeEvent(EventLane& lane, std::size_t index) noexcept
 }
 
 std::size_t convertLegacyToEvents(EventLane& lane, std::uint32_t enabledMask,
-                                  std::int64_t phraseTicks) noexcept
+                                  std::int64_t phraseTicks,
+                                  const std::array<std::uint8_t, laneCount>* priorities) noexcept
 {
     std::size_t added = 0;
     for (std::uint8_t op = 0; op < laneCount; ++op)
@@ -172,6 +173,8 @@ std::size_t convertLegacyToEvents(EventLane& lane, std::uint32_t enabledMask,
             continue;
         LaneEvent e;
         e.operation = op;
+        if (priorities != nullptr)
+            e.priority = std::min<std::uint8_t>((*priorities)[op], 100); // keep the limit's lane priority
         e.onsetTicks = 0;
         e.durationTicks = static_cast<std::int32_t>(std::min<std::int64_t>(phraseTicks, 1966080));
         if (addEvent(lane, e, phraseTicks) == EditStatus::Ok)
@@ -269,6 +272,18 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
     ReduceReport report;
     if (phraseTicks <= 0 || lane.count == 0)
         return report;
+    // Events saved for a longer phrase may lie beyond this one; the evaluator wraps them, so the
+    // analysis works on wrapped, length-limited copies. Kept events are written back unmodified.
+    const EventLane original = lane;
+    for (std::size_t i = 0; i < lane.count && i < maxLaneEvents; ++i)
+    {
+        auto& e = lane.events[i];
+        std::int64_t onset = static_cast<std::int64_t>(e.onsetTicks) % phraseTicks;
+        if (onset < 0)
+            onset += phraseTicks;
+        e.onsetTicks = static_cast<std::int32_t>(onset);
+        e.durationTicks = static_cast<std::int32_t>(std::clamp<std::int64_t>(e.durationTicks, 1, phraseTicks));
+    }
     const std::int64_t spacing = static_cast<std::int64_t>(
         std::ceil(static_cast<double>(std::clamp(config.minSpacingBeats, 0.0f, 4.0f)) * ticksPerBeat));
     const std::int64_t coverageLimit = static_cast<std::int64_t>(
@@ -311,6 +326,7 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
             if (violates(kept, i))
             {
                 report.status = ReduceStatus::ConflictLocked; // locked events alone break a limit
+                lane = original;
                 return report;
             }
             kept |= 1u << i;
@@ -323,13 +339,14 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
     report.coverage = static_cast<float>(static_cast<double>(unionTicks(lane, kept, phraseTicks))
                                          / static_cast<double>(phraseTicks));
     report.peakConcurrent = peakConcurrent(lane, kept, phraseTicks);
+    lane = original;
     if (apply && report.dropped > 0)
     {
-        EventLane reduced = lane;
+        EventLane reduced = original;
         reduced.count = 0;
-        for (std::size_t i = 0; i < lane.count; ++i)
+        for (std::size_t i = 0; i < original.count; ++i)
             if ((kept & (1u << i)) != 0)
-                reduced.events[reduced.count++] = lane.events[i];
+                reduced.events[reduced.count++] = original.events[i];
         for (std::size_t i = reduced.count; i < maxLaneEvents; ++i)
             reduced.events[i] = LaneEvent{};
         lane = reduced;
