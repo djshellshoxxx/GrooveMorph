@@ -310,7 +310,7 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
                 << " is assigned to multiple variations. The first mapped variation wins. "
                    "Edit one variation's MIDI note to restore independent triggering. "
                    "Received note events: "
-                << audioProcessor.getMidiNoteEventCount();
+                << juce::String(audioProcessor.getMidiNoteEventCount());
         midiLabel.setTooltip(tooltip);
     }
     else
