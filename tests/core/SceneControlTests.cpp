@@ -446,6 +446,28 @@ int main()
                                                                    && loaded.bank.variation(2).settings.control.lane.events[0].operation == 3);
     }
 
+
+    // Audit regression: every operation index (including TapeStop = 4) survives a save/load.
+    {
+        using namespace groovemorph::core::scene;
+        SceneBank bank;
+        auto v = bank.variation(0);
+        for (std::size_t op = 0; op < operationCount; ++op)
+        {
+            v.settings.control.permissions.operationLocks[op] = static_cast<std::uint8_t>(1 + op);
+            v.settings.control.activity.priority[op] = static_cast<std::uint8_t>(10 + op * 7);
+            v.settings.control.lane.loopBeats[op] = static_cast<std::uint8_t>(2 + op);
+        }
+        bank.setVariation(0, v);
+        const auto text = SceneSerializer::serialize(bank);
+        const auto loaded = SceneSerializer::deserialize(text);
+        expect("all five operations round-trip", loaded.bank == bank && SceneSerializer::serialize(loaded.bank) == text);
+        std::string flood = "groovemorph-scenes v1\n";
+        for (int i = 0; i < 5000; ++i)
+            flood += "variation.0.placement.every=bad\n";
+        expect("recovery notes are capped", SceneSerializer::deserialize(flood).report.messages.size() <= 65);
+    }
+
     if (failures == 0)
         std::cout << "SceneControlTests passed\n";
     return failures == 0 ? 0 : 1;

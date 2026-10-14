@@ -31,9 +31,10 @@ bool parseNumber(std::string_view s, T& out) noexcept
     return res.ec == std::errc{} && res.ptr == s.data() + s.size();
 }
 
-bool parseIndex(std::string_view s, std::size_t& out) noexcept
+// Single-digit index below `limit` (variations: variationCount, operations: operationCount).
+bool parseIndex(std::string_view s, std::size_t& out, std::size_t limit = variationCount) noexcept
 {
-    return s.size() == 1 && s[0] >= '0' && s[0] < static_cast<char>('0' + variationCount)
+    return s.size() == 1 && s[0] >= '0' && s[0] < static_cast<char>('0' + limit)
            && (out = static_cast<std::size_t>(s[0] - '0'), true);
 }
 
@@ -80,7 +81,11 @@ public:
     void note(std::string msg)
     {
         result.report.status = LoadStatus::Recovered;
-        result.report.messages.push_back(std::move(msg));
+        constexpr std::size_t maxMessages = 64; // hostile files must not grow the report without bound
+        if (result.report.messages.size() < maxMessages)
+            result.report.messages.push_back(std::move(msg));
+        else if (result.report.messages.size() == maxMessages)
+            result.report.messages.push_back("further recovery notes suppressed");
     }
 
     void apply(std::string_view key, std::string_view value)
@@ -180,7 +185,7 @@ private:
         else if (rest.starts_with("lane.loop."))
         {
             std::size_t op = 0;
-            if (!parseIndex(rest.substr(10, 1), op) || op >= operationCount || rest.size() != 11)
+            if (!parseIndex(rest.substr(10, 1), op, operationCount) || rest.size() != 11)
                 return;
             if (asInt(n)) c.lane.loopBeats[op] = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 64));
         }
@@ -212,7 +217,7 @@ private:
         else if (rest.starts_with("perm.op."))
         {
             std::size_t op = 0;
-            if (!parseIndex(rest.substr(8, 1), op) || op >= operationCount || rest.size() != 9)
+            if (!parseIndex(rest.substr(8, 1), op, operationCount) || rest.size() != 9)
                 return;
             if (asInt(n)) c.permissions.operationLocks[op] = static_cast<std::uint8_t>(n & control::lock::all);
         }
@@ -222,7 +227,7 @@ private:
         else if (rest.starts_with("activity.prio."))
         {
             std::size_t op = 0;
-            if (!parseIndex(rest.substr(14, 1), op) || op >= operationCount || rest.size() != 15)
+            if (!parseIndex(rest.substr(14, 1), op, operationCount) || rest.size() != 15)
                 return;
             if (asInt(n)) c.activity.priority[op] = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 100));
         }

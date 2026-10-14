@@ -132,6 +132,26 @@ int main()
         expect("demo identical when rendered in different block splits (incl. negative positions)", worst < 1e-4);
     }
 
+
+    // Audit regression: (seed, candidate 1) must not equal another seed's candidate 0.
+    {
+        const std::uint64_t K = 0xd6e8feb86659fd93ULL;
+        int identical = 0;
+        for (std::uint64_t seed = 1; seed <= 32; ++seed)
+        {
+            GeneratorSettings a, b;
+            a.seed = seed;
+            a.candidate = 1;
+            a.style = Style::Experimental;
+            b = a;
+            b.seed = seed ^ K;
+            b.candidate = 0;
+            if (scene::sameSettings(buildCandidate(source, a).settings, buildCandidate(source, b).settings))
+                ++identical;
+        }
+        expect("seed and candidate index no longer alias", identical < 8);
+    }
+
     if (failures == 0)
         std::cout << "CandidateBuilderTests passed\n";
     return failures == 0 ? 0 : 1;

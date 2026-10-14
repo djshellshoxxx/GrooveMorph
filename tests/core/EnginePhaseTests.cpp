@@ -1,5 +1,6 @@
 #include "core/dsp/RhythmEngine.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <string_view>
@@ -69,6 +70,82 @@ int main()
     for (float f : moved)
         finite = finite && std::isfinite(f);
     expect("output finite", finite);
+
+
+    // ---- Audit regressions ----
+    {
+        // resetHistory() mid-stream must not add a step beyond the cross-fade (was ~0.45 FS).
+        const OperationType history[] = {OperationType::Repeat, OperationType::ReverseSlice, OperationType::HalfTime,
+                                         OperationType::TapeStop};
+        for (auto type : history)
+        {
+            RhythmEngine engine;
+            engine.prepare(48000.0, 480, 1);
+            VariationSettings v;
+            v[type] = {true, 1.0f, 0.25f};
+            const double spb = 24000.0;
+            float previous = 0.0f, worst = 0.0f;
+            std::vector<float> block(480);
+            for (int b = 0; b < 400; ++b)
+            {
+                if (b == 200)
+                    engine.resetHistory();
+                for (std::size_t i = 0; i < block.size(); ++i)
+                    block[i] = 0.5f * std::sin(0.0130899f * static_cast<float>(b * 480 + static_cast<int>(i))); // 100 Hz
+                RhythmTiming timing;
+                timing.samplesPerBeat = spb;
+                timing.beatAtBlockStart = b * 480.0 / spb;
+                timing.isPlaying = true;
+                float* ch[1] = {block.data()};
+                engine.process(ch, 1, 480, v, 1.0f, timing);
+                for (std::size_t i = 0; i < block.size(); ++i)
+                {
+                    // The single wet-to-dry step at the seek itself is inherent; everything after must be smooth.
+                    if (b > 0 && !(b == 200 && i == 0))
+                        worst = std::max(worst, std::abs(block[i] - previous));
+                    previous = block[i];
+                }
+            }
+            expect("history reset adds no click after the seek sample", worst < 0.06f);
+        }
+    }
+    {
+        // Non-finite input never poisons the history; all-operations-disabled is bit-exact dry.
+        RhythmEngine engine;
+        engine.prepare(48000.0, 480, 1);
+        VariationSettings v;
+        v[OperationType::Repeat] = {true, 1.0f, 0.25f};
+        bool finite = true;
+        for (int b = 0; b < 300; ++b)
+        {
+            std::vector<float> in(480, 0.2f);
+            if (b == 100)
+            {
+                in[10] = std::nanf("");
+                in[20] = INFINITY;
+            }
+            RhythmTiming timing;
+            timing.samplesPerBeat = 24000.0;
+            timing.beatAtBlockStart = b * 480.0 / 24000.0;
+            timing.isPlaying = true;
+            float* ch[1] = {in.data()};
+            engine.process(ch, 1, 480, v, 1.0f, timing);
+            for (float y : in)
+                finite = finite && std::isfinite(y) && std::abs(y) < 1.0f;
+        }
+        expect("NaN/Inf input leaves no residue in later replays", finite);
+
+        RhythmEngine plain;
+        plain.prepare(48000.0, 480, 1);
+        VariationSettings none;
+        std::vector<float> tiny(480, 1.0e-35f), copy = tiny;
+        RhythmTiming timing;
+        timing.samplesPerBeat = 24000.0;
+        timing.isPlaying = true;
+        float* ch[1] = {tiny.data()};
+        plain.process(ch, 1, 480, none, 1.0f, timing);
+        expect("all operations disabled is bit-exact, even for tiny values", tiny == copy);
+    }
 
     if (failures == 0)
         std::cout << "EnginePhaseTests passed\n";
