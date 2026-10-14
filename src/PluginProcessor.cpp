@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 
+#include <vector>
 #include <algorithm>
 #include <cmath>
 
@@ -763,9 +764,9 @@ void GrooveMorphAudioProcessor::syncHostVariationParameter()
         return;
     // A token the audio thread never consumed (the value it saw did not change) is stale; drop it so
     // it cannot swallow a later genuine automation write of the same value.
-    if (const int token = expectedParamEcho.load(std::memory_order_acquire);
+    if (int token = expectedParamEcho.load(std::memory_order_acquire);
         token >= 0 && paramSeenByAudio.load(std::memory_order_acquire) == token)
-        expectedParamEcho.compare_exchange_strong(const_cast<int&>(token), -1, std::memory_order_acq_rel);
+        expectedParamEcho.compare_exchange_strong(token, -1, std::memory_order_acq_rel);
     const int active = static_cast<int>(activeVariation.load(std::memory_order_relaxed));
     const int maxIndex = static_cast<int>(core::variationCount) - 1;
     const int shown = juce::jlimit(0, maxIndex,
@@ -1069,7 +1070,16 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
         clockState.setProperty("value", 0.0f, nullptr);
         restoredState.appendChild(clockState, nullptr);
     }
+    // Parameters absent from the restored state would otherwise keep the previous session's values.
+    // Note them before replacing so they can return to their defaults afterwards.
+    std::vector<juce::RangedAudioParameter*> missingParameters;
+    for (auto* parameter : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter))
+            if (!restoredState.getChildWithProperty("id", ranged->paramID).isValid())
+                missingParameters.push_back(ranged);
     parameters.replaceState(restoredState);
+    for (auto* ranged : missingParameters)
+        ranged->setValueNotifyingHost(ranged->getDefaultValue());
 
     // Missing or malformed scene data yields defaults plus a recovery report.
     auto result = scene::SceneSerializer::deserialize(sceneText);

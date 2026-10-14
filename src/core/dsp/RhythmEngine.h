@@ -66,6 +66,8 @@ public:
     // Negative history times are treated as silence until fresh audio fills each window.
     // Preserve parameter ramps so a timeline jump does not restart automation smoothing.
     void resetHistory() noexcept;
+    // After resetHistory() each history operation passes the dry signal until the fresh history covers
+    // its read delay (then it crossfades in), instead of replaying silence from an emptied buffer.
 
     // Processes in place. Channels beyond maxChannels are left untouched. Does nothing
     // before prepare().
@@ -118,5 +120,6 @@ private:
     std::array<float, operationCount> amounts{};
     std::array<Voice, historyStageCount> voices{};
     float gateGain = 1.0f;
+    bool warmingAfterReset = false; // set by resetHistory(), cleared by reset()
 };
 } // namespace groovemorph::core

@@ -101,12 +101,18 @@ void RhythmEngine::reset() noexcept
     amounts.fill(0.0f);
     voices.fill(Voice{});
     gateGain = 1.0f;
+    warmingAfterReset = false;
 }
 
 void RhythmEngine::resetHistory() noexcept
 {
     now = 0;
     voices.fill(Voice{});
+    // Amounts of history operations drop at once: ramping them down would read the emptied history.
+    for (std::size_t op = 0; op < operationCount; ++op)
+        if (historySlot(op) >= 0)
+            amounts[op] = 0.0f;
+    warmingAfterReset = true;
 }
 
 double RhythmEngine::maxSliceSamples(OperationType type) const noexcept
@@ -169,6 +175,11 @@ void RhythmEngine::process(float* const* channels,
             sliceSamples[op] = samples;
         }
         sliceBeats[op] = beats;
+        // After a history reset, a history operation waits until fresh audio covers its read delay.
+        if (warmingAfterReset && historySlot(op) >= 0 && timingOk
+            && static_cast<double>(now) < delayMultiple(static_cast<OperationType>(op)) * sliceSamples[op]
+                                              + static_cast<double>(fadeSamples) + 2.0)
+            targets[op] = 0.0f;
     }
     const float intensityTarget = sanitiseUnit(intensity, 0.0f);
 
@@ -291,7 +302,7 @@ void RhythmEngine::process(float* const* channels,
             float* data = channels[c];
             if (data == nullptr)
                 continue;
-            const float dry = data[n];
+            const float dry = std::isfinite(data[n]) ? data[n] : 0.0f; // never let NaN/Inf poison history
             float x = dry;
             for (std::size_t op = 0; op < operationCount; ++op)
             {
@@ -327,7 +338,7 @@ void RhythmEngine::process(float* const* channels,
                 }
             }
             float y = dry;
-            if (smoothedIntensity > 0.0f)
+            if (smoothedIntensity > 0.0f && x != dry) // x == dry: no operation changed the signal
             {
                 y = dry + smoothedIntensity * (x - dry);
                 if (!std::isfinite(y) || std::abs(y) < 1.0e-30f)

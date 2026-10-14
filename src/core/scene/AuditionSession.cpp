@@ -41,6 +41,7 @@ bool AuditionSession::commit(SceneBank& bank)
     if (!active)
         return false;
     bank.setVariation(variationIndex, working);
+    original = working; // the committed scene is the new stored scene
     active = false;
     hearStoredVariation = false;
     return true;

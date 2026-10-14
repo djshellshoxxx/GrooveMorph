@@ -22,7 +22,11 @@ float bounded(float f, float fallback, float low, float high) noexcept {
 Result generate(const Request& request) noexcept {
     Result result{};
     result.settings = request.source;
-    std::uint64_t rng = request.seed ^ (static_cast<std::uint64_t>(request.candidateIndex) * 0xd6e8feb86659fd93ULL);
+    // Mix the seed first, then the candidate index, so (seed, candidate) pairs never alias each other.
+    std::uint64_t rng = request.seed;
+    (void)next(rng);
+    rng += static_cast<std::uint64_t>(request.candidateIndex) * 0xd6e8feb86659fd93ULL;
+    (void)next(rng);
     const auto style = request.style;
     const float probability = style == Style::Conservative ? 0.25f : style == Style::Creative ? 0.55f : 0.85f;
     const float depthSpread = style == Style::Conservative ? 0.12f : style == Style::Creative ? 0.30f : 0.55f;
