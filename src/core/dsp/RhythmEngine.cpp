@@ -121,13 +121,9 @@ void RhythmEngine::process(float* const* channels,
         double beats = sanitiseSliceBeats(s.sliceBeats);
         if (timingOk)
         {
-            double samples = beats * spb;
-            if (historySlot(op) >= 0)
-            {
-                samples = std::min(samples, maxSliceSamples(static_cast<OperationType>(op)));
-                beats = samples / spb;
-            }
-            sliceSamples[op] = samples;
+            const stage::Slice slice = stage::effectiveSlice(static_cast<OperationType>(op), s.sliceBeats, spb, historySamples);
+            beats = slice.beats;
+            sliceSamples[op] = slice.samples;
         }
         sliceBeats[op] = beats;
     }

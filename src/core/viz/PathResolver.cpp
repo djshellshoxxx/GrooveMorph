@@ -109,7 +109,9 @@ ResolvedThread resolveThread(const FrameWindow& w, double outputSample) noexcept
         const float a = std::clamp(f.amount[o], 0.0f, 1.0f);
         if (op == OperationType::Gate)
         {
-            weight *= 1.0f - a + a * std::clamp(f.gateGain, 0.0f, 1.0f);
+            const float factor = 1.0f - a + a * std::clamp(f.gateGain, 0.0f, 1.0f);
+            weight *= factor;
+            out.gateFactor = factor;
             continue;
         }
         const int slot = stage::historySlot(o);

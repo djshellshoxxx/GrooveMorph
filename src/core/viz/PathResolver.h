@@ -25,6 +25,7 @@ struct ResolvedThread
     double sourceSample = 0.0;  // engine-clock sample of the input this output moment came from
     float weight = 0.0f;        // 0..1: share of the heard sound carried by this path
     std::uint8_t wetMask = 0;   // bit per OperationType: history stage that actually moved the path
+    float gateFactor = 1.0f;    // gate multiplier applied on this path (1 = open), at the moment the gate acted
     bool noData = false;        // the chain walked outside the recorded window
 };
 

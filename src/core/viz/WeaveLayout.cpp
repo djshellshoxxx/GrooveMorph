@@ -63,13 +63,45 @@ std::size_t buildWeave(const FrameWindow& w, const WeaveParams& p, Thread* out, 
         t.clipped = *srcBeat < p.viewStartBeat - p.leadBeats;
         t.effectMask = r.wetMask;
         t.primary = primaryOf(r.wetMask);
-        const std::size_t fi = nearestFrame(w, *sample);
-        if (fi != noFrame)
-        {
-            const auto& f = w.frames[fi];
-            t.gateClosed = f.amount[static_cast<std::size_t>(OperationType::Gate)] >= 0.5f && f.gateGain < gateClosedBelow;
-        }
+        t.gateClosed = r.gateFactor < gateClosedBelow;
         t.opacity = std::clamp(0.18f + 0.62f * r.weight, 0.05f, 0.85f);
+        t.width = 0.8f + 0.8f * r.weight;
+        out[written++] = t;
+    }
+    return written;
+}
+
+std::size_t buildPlannedWeave(const PlanContext& ctx, const WeaveParams& p, double tentativeFromBeat, Thread* out,
+                              std::size_t capacity) noexcept
+{
+    if (out == nullptr || capacity == 0 || !(p.spanBeats > 0.0) || !(p.leadBeats >= 0.0))
+        return 0;
+    const std::size_t n = std::min<std::size_t>(capacity, static_cast<std::size_t>(std::clamp(p.threads, 1, 256)));
+    std::size_t written = 0;
+    for (std::size_t j = 0; j < n; ++j)
+    {
+        const double beat = p.viewStartBeat + (static_cast<double>(j) + 0.5) / static_cast<double>(n) * p.spanBeats;
+        if (beat <= p.nowBeat)
+            continue; // heard: drawn from measurements by buildWeave
+        Thread t;
+        t.planned = true;
+        t.xTop = normalised(beat, p);
+        t.xBottom = t.xTop;
+        t.tentative = beat >= tentativeFromBeat;
+        const PlannedThread r = planThread(ctx, beat);
+        if (!r.valid)
+        {
+            t.noData = true;
+            t.opacity = 0.06f;
+            out[written++] = t;
+            continue;
+        }
+        t.xBottom = normalised(r.sourceBeat, p);
+        t.clipped = r.sourceBeat < p.viewStartBeat - p.leadBeats;
+        t.effectMask = r.wetMask;
+        t.primary = primaryOf(r.wetMask);
+        t.gateClosed = r.gateFactor < gateClosedBelow;
+        t.opacity = std::clamp(0.6f * (0.18f + 0.62f * r.weight), 0.03f, 0.85f * 0.6f);
         t.width = 0.8f + 0.8f * r.weight;
         out[written++] = t;
     }

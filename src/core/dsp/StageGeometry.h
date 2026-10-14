@@ -64,6 +64,28 @@ inline double positionInCell(double beat, double cellBeats, double samplesPerBea
     return std::max(0.0, pos);
 }
 
+struct Slice
+{
+    double beats = 0.25;
+    double samples = 0.0;
+};
+
+// Effective slice of an operation: the sanitised setting, and for history-reading stages clamped so the
+// read stays inside the history ring (historySamples as RhythmEngine::historyCapacity basis).
+inline Slice effectiveSlice(OperationType op, float sliceBeatsSetting, double samplesPerBeat, std::size_t historySamples) noexcept
+{
+    Slice s;
+    s.beats = sanitiseSliceBeats(sliceBeatsSetting);
+    s.samples = s.beats * samplesPerBeat;
+    if (historySlot(static_cast<std::size_t>(op)) >= 0)
+    {
+        const double maxSamples = historySamples < 8 ? 0.0 : static_cast<double>(historySamples - 4) / delayMultiple(op);
+        s.samples = std::min(s.samples, maxSamples);
+        s.beats = s.samples / samplesPerBeat;
+    }
+    return s;
+}
+
 // Gate is open for the first half of each slice.
 inline bool gateOpen(double beat, double sliceBeats, double samplesPerBeat, double sliceSamples) noexcept
 {

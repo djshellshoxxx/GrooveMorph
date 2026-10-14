@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/viz/PathResolver.h"
+#include "core/viz/PlannedPath.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -40,10 +41,16 @@ struct Thread
     bool noData = false;     // source or output moment outside the recorded window
     bool gateClosed = false; // gate was (mostly) closed at this moment
     bool clipped = false;    // source lies left of the drawn range and was clamped to the edge
+    bool tentative = false;  // planned thread beyond a queued scene switch, auto-return or similar boundary
 };
 
 // Builds one thread per requested slot for the heard part of the view (output beat <= nowBeat).
 // Returns the number written (<= min(params.threads, capacity)); allocation-free.
 [[nodiscard]] std::size_t buildWeave(const FrameWindow& w, const WeaveParams& p, Thread* out,
                                      std::size_t capacity) noexcept;
+
+// Planned (pencil) threads for the part of the view right of the ink front (output beat > nowBeat), from
+// the committed scene via PlannedPath. Threads at or after tentativeFromBeat are flagged tentative.
+[[nodiscard]] std::size_t buildPlannedWeave(const PlanContext& ctx, const WeaveParams& p, double tentativeFromBeat,
+                                            Thread* out, std::size_t capacity) noexcept;
 } // namespace groovemorph::core::viz
