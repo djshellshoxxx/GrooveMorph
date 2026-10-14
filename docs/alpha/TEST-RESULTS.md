@@ -14,21 +14,21 @@ Only checks that were actually run are listed. Dates 2026-10-14.
 Audit follow-ups fixed in this build: heap allocation in the activity limiter (`std::stable_sort` replaced), capture/loop source rendered with a pre-clamp block length when placement split a segment, loop double-buffer reuse race and 200 ms stalls (reader flag handshake), capture cancel/abort races (compare-exchange), message-thread loop services vs `prepareToPlay` (mutex), locked-event merge dropping locked events and loop lengths, coverage math for events beyond the phrase, phantom/garbled events from hostile scene files, detector start-up trigger and subnormal envelopes, demo noise depending on block splits, placement lock leaving controls disabled, locks not applied to Copy FX/Duplicate/Reset/history recall/previews, selection tracked by array index, Convert changing limit priorities, rounded depth/slice written on Enable toggles, seed corruption, Undo during a preview, truncated imports.
 
 ## Windows (GitHub Actions, windows-2022, MSVC, Release)
-Alpha build: [run 38497756566](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38497756566) on `main` @ `4042b61`
-(release `v0.1.0-alpha.3`). PR head `33c927b` checks, all passed: Windows + Linux portable core, JUCE plugin/standalone build,
+Alpha 2 build: [run 38503789674](https://github.com/djshellshoxxx/GrooveMorph/actions/runs/38503789674) on `main` @ `9e76b43`
+(release `v0.1.0-alpha.9`). PR #24 checks, all 15 passed: Windows + Linux portable core, JUCE plugin/standalone build,
 Windows + Linux pluginval (pinned, strictness 5), Linux ASan/UBSan, Windows Standalone smoke.
 
 | Check | Result |
 |---|---|
-| Compile + link `GrooveMorph.exe` (PE32+ GUI x86-64) | passed (an earlier commit failed on a `var` name clash with `juce::var` under MSVC; fixed in `33c927b`) |
-| `ctest` on Windows | 12/12 passed (`ctest-windows.log` in the ZIP) |
+| Compile + link `GrooveMorph.exe` (PE32+ GUI x86-64) | passed |
+| `ctest` on Windows | 15/15 passed (`ctest-windows.log` in the ZIP) |
 | Standalone startup | process still alive after 8 s on a runner with no audio device |
-| Desktop screenshot | captured on the runner (`docs/alpha/screenshots/windows-ci-desktop-1024x768.png`) |
-| ZIP | SHA-256 `3737447f...cca9` matches the `.sha256` asset; contains exe, docs, manifest, ctest log, screenshot |
+| Desktop screenshot | captured on the runner (`docs/alpha/screenshots/windows-ci-desktop-1024x768.png` is the alpha.3 capture; the alpha.9 capture is inside the ZIP) |
+| ZIP | SHA-256 `b934abd5...e427` matches the `.sha256` asset; contains exe, docs, manifest, ctest log, screenshot |
 
-What the real screenshot shows (and does not): the real Windows rendering of the editor at 1024x768. The 1240x740 window is cropped by that
-small desktop (see KNOWN-ISSUES), the status line reads "audio not running" (no audio device on the runner), and JUCE's yellow
-"input muted to avoid feedback loop" banner is shown. It is a startup screenshot only; no controls were operated on Windows.
+The Windows screenshot is a startup capture only: the 1290x740 window is cropped by the 1024x768 runner desktop, the status line reads
+"audio not running" (no audio device) and JUCE's yellow "input muted to avoid feedback loop" banner is shown. No controls were operated on
+Windows. The earlier alpha.3 build (`4042b61`) passed the same checks with 12 tests.
 
 ## Not performed
 DAW hosting (REAPER or other), VST3 validator run on the new build, audio-device playback, listening/quality evaluation,
