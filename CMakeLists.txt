@@ -94,6 +94,11 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
             $<TARGET_PROPERTY:GrooveMorphPlugin,COMPILE_DEFINITIONS>
         )
         target_link_libraries(GrooveMorphPluginTests PRIVATE GrooveMorphPlugin)
+        if(MSVC)
+            # main() holds many processors/editors by value; MSVC does not share their stack slots,
+            # so the default 1 MB stack can overflow on entry. Test executable only.
+            target_link_options(GrooveMorphPluginTests PRIVATE /STACK:16777216)
+        endif()
         add_test(NAME GrooveMorphPluginTests COMMAND GrooveMorphPluginTests)
 
         # Developer tool (not a CTest): renders the real editor, software-rendered, to PNG files.

@@ -68,7 +68,9 @@ void processSilence(GrooveMorphAudioProcessor& processor, int samples)
 
 int main()
 {
+    std::cerr << "start: main entered\n" << std::flush;
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    std::cerr << "start: juce initialised\n" << std::flush;
 
     {
         GrooveMorphAudioProcessor processor;
