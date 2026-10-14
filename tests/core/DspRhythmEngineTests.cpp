@@ -123,6 +123,27 @@ int main()
         expect("no NaN/denormals", clean);
     }
 
+    // A host render must account for effect output after the input goes silent.
+    // Repeat stores the first grid slice and replays it during later slices.
+    {
+        engine.reset();
+        std::vector<float> pulseThenSilence(12000, 0.0f);
+        for (std::size_t i = 0; i < 1200; ++i)
+            pulseThenSilence[i] = 0.4f * static_cast<float>(
+                std::sin(2.0 * pi * 220.0 * static_cast<double>(i) / sampleRate));
+        const auto out = run(engine, pulseThenSilence, 1.0f,
+            [](std::size_t) { return only(OperationType::Repeat, 0.25f); });
+        float echo = 0.0f;
+        for (std::size_t i = 1400; i < 2000; ++i)
+            echo = std::max(echo, std::abs(out[i]));
+        expect("repeat emits audible bounded history after input ends", echo > 0.2f);
+        engine.resetHistory();
+        const std::vector<float> silence(2400, 0.0f);
+        const auto resetOut = run(engine, silence, 1.0f,
+            [](std::size_t) { return only(OperationType::Repeat, 0.25f); });
+        expect("seek reset removes prior repeat tail", resetOut == silence);
+    }
+
     // Repeat: slices 1..3 of each cycle replay slice 0.
     {
         engine.reset();
