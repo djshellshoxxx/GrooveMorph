@@ -76,8 +76,7 @@ project completion percentage is asserted.
 ## Six-control specification package (2026-10-13)
 
 - [x] Author [six detailed specs and shared integration plan](control-specs/README.md).
-- [x] Add portable control provider types and C01 event-pattern validator (`src/core/control/`, `EventPatternTests`); not yet wired to scenes, state or audio.
-- [ ] Implement shared v2 scene serializer (S01), parameter manifest and snapshot adapter with legacy null fixtures.
+- [ ] Implement shared v2 scene/parameter/model prerequisites with legacy fixtures.
 - [ ] Implement C01 placement/event authoring, then C03 permissions and C06 activity limits.
 - [ ] Integrate the merged PR #9 planner into C02 distance/candidate workflow with safe preview/apply and host/state tests.
 - [ ] Extend canonical Scheduler for C04 phase and C05 automatic return.
