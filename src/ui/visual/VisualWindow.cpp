@@ -378,12 +378,14 @@ VisualWindow::VisualWindow(GrooveMorphAudioProcessor& processor, std::function<v
     : juce::DocumentWindow("GrooveMorph Visual", palette::slate, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
       onCloseRequested(std::move(onClose))
 {
+    // This is a separate top-level window, so the editor's tooltip window never sees its components.
+    tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 700);
     contentComponent = new VisualContent(processor, true);
     contentComponent->onEscape = [this] { closeButtonPressed(); };
     setContentOwned(contentComponent, false);
     setUsingNativeTitleBar(true);
     setResizable(true, true);
-    setResizeLimits(720, 480, 2600, 1600);
+    setResizeLimits(900, 560, 2600, 1600); // the smallest size the views are laid out and tested for
     centreWithSize(1280, 720);
 }
 

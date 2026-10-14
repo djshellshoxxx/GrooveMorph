@@ -275,6 +275,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
 GrooveMorphAudioProcessorEditor::~GrooveMorphAudioProcessorEditor()
 {
     stopTimer();
+    audioProcessor.cancelMidiLearn(); // a closed editor must not leave MIDI learn armed
     visualWindow.reset(); // closes the Visual window and deactivates tracing
     // A hidden preview must never remain active after the editor closes.
     if (audioProcessor.isAuditioning()) audioProcessor.revertAudition();

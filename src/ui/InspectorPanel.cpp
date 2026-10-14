@@ -307,6 +307,8 @@ public:
     void mouseDown(const juce::MouseEvent& event) override
     {
         grabKeyboardFocus();
+        if (event.mods.isPopupMenu())
+            return; // right-click never creates or drags events
         auto control = access.settings().control;
         draft = control;
         if (!control.lane.explicitEvents)
@@ -996,8 +998,12 @@ private:
         for (auto ch : text)
             if (ch >= '0' && ch <= '9')
                 value = value * 10u + static_cast<std::uint64_t>(ch - '0');
-        settings.seed = text.isEmpty() ? 1ull : value;
-        settings.candidate = 0;
+        const std::uint64_t newSeed = text.isEmpty() ? 1ull : value;
+        if (newSeed != settings.seed)
+            settings.candidate = 0; // a new seed starts its own sequence; unchanged text keeps the candidate
+        settings.seed = newSeed;
+        if (text.isEmpty())
+            seedEditor.setText(juce::String(static_cast<juce::int64>(newSeed)), false);
         updateCandidateLabel();
     }
     void updateCandidateLabel()
@@ -1776,7 +1782,7 @@ public:
             && !distance.slider.isMouseButtonDown())
         {
             const auto evo = processor.getEvolutionSettings();
-            if (evo.enabled || !evolveSynced)
+            if (evo.enabled || !evolveSynced || evolveOn.getToggleState()) // also follows a Reset that turned it off
             {
                 evolveOn.setToggleState(evo.enabled, juce::dontSendNotification);
                 if (evo.enabled)
@@ -1875,23 +1881,26 @@ public:
         text.setMultiLine(true);
         text.setReadOnly(true);
         text.setCaretVisible(false);
+        text.setTooltip("Honest list of what this alpha implements and what it does not (read only).");
         text.setText(
             "ALPHA FEATURE STATUS (see docs/alpha/ALPHA-FEATURE-STATUS.md)\n\n"
             "Implemented (automated tests; not tried in a DAW or by ear):\n"
-            " - Placement window/cadence/origin/snap, downbeat protect, event lanes with per-event\n"
-            "   depth, slice, priority and cycle restart; per-lane loop lengths (polyrhythm)\n"
+            " - Placement window/cadence/origin/snap, downbeat protect, up to 4 protected regions, event lanes\n"
+            "   with per-event depth, slice, priority, cycle restart and lock; per-lane loop lengths\n"
             " - Generator: seed, style, distance, candidates, locks (also hold for manual edits),\n"
             "   preview/apply/revert, session history\n"
-            " - Scenes: duplicate, reset, copy FX, rename, undo/redo, morph, auto-return (bars/phrases)\n"
-            " - Limits: effects at once + priority; spacing/coverage via Reduce\n"
-            " - Input: demo loop, capture/import loop (beat-locked), band split, audio trigger,\n"
-            "   MIDI CC/program-change macros\n"
+            " - Scenes: duplicate, reset, copy FX, rename, undo/redo, morph, auto-return (bars/phrases),\n"
+            "   scene start phase (follow / restart / snap to next beat, offset, Restart scene now)\n"
+            " - Limits: effects at once + priority; spacing/coverage via Reduce; Events x2 and /2\n"
+            " - Input: demo loop, capture/import loop (beat-locked), band split (6 or 12 dB/oct), audio\n"
+            "   trigger, MIDI CC/program-change macros (tick MIDI macros first)\n"
             " - Perform: scene launch, macros, gesture lane, phrase evolution\n"
+            " - Right-click on any control: exact value, copy/paste, reset, MIDI learn; Visual window\n"
             " - Host Variation parameter follows the sounding scene\n\n"
             "Not implemented / limited in this alpha:\n"
-            " - C04 transition phase options; protected temporal regions and per-event locks\n"
-            " - Band split is first-order (6 dB/oct); no time stretching for loops\n"
-            " - Gestures/evolution/loops are not saved with the project; gestures run at ~20 Hz\n"
+            " - Per-scene transition smoothing time; Linkwitz-Riley or steeper crossovers; loop-aware Reduce\n"
+            " - No time stretching for loops; loop audio and history are not saved with the project\n"
+            "   (gesture curve, evolution settings and MIDI links are); gestures run at ~20 Hz\n"
             " - Capture is stereo-limited, 20 s max; CLAP and other formats\n\n"
             "Untested: real DAW hosts, audio hardware, listening quality.",
             false);
@@ -1954,6 +1963,10 @@ InspectorPanel::InspectorPanel(GrooveMorphAudioProcessor& processor, SceneEditAc
 {
     addAndMakeVisible(impl->tabs);
     finishControlMenus(*this, processor);
+    // Only the current tab is a child of the tab component; name the controls of every tab.
+    for (int i = 0; i < impl->tabs.getNumTabs(); ++i)
+        if (auto* content = impl->tabs.getTabContentComponent(i))
+            finishControlMenus(*content, processor);
 }
 
 InspectorPanel::~InspectorPanel() = default;

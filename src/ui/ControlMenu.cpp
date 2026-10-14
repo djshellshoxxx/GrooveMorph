@@ -48,7 +48,35 @@ bool parseNumber(const juce::String& rawText, double& value)
     const auto number = text.substring(start, end);
     if (!number.containsAnyOf("0123456789"))
         return false;
-    const double parsed = number.getDoubleValue();
+    double parsed = number.getDoubleValue();
+    // Exponent ("1e-3") and simple fractions ("1/8", handy for slice lengths).
+    if (end < text.length() && (text[end] == 'e' || text[end] == 'E'))
+    {
+        int e = end + 1;
+        if (e < text.length() && (text[e] == '-' || text[e] == '+'))
+            ++e;
+        const int digitsStart = e;
+        while (e < text.length() && text[e] >= '0' && text[e] <= '9')
+            ++e;
+        if (e > digitsStart && e - digitsStart <= 3)
+        {
+            parsed = text.substring(start, e).getDoubleValue();
+            end = e;
+        }
+    }
+    else if (end < text.length() && text[end] == '/')
+    {
+        int d = end + 1;
+        bool dot = false;
+        while (d < text.length() && ((text[d] >= '0' && text[d] <= '9') || (text[d] == '.' && !dot)))
+        {
+            dot = dot || text[d] == '.';
+            ++d;
+        }
+        const double denominator = text.substring(end + 1, d).getDoubleValue();
+        if (d > end + 1 && denominator != 0.0)
+            parsed /= denominator;
+    }
     if (!std::isfinite(parsed))
         return false;
     value = parsed;
@@ -221,6 +249,8 @@ bool MenuSupport::showMenu(const juce::MouseEvent& e)
 {
     if (!e.mods.isPopupMenu())
         return false;
+    if (!owner.isEnabled())
+        return true; // a disabled control offers no menu (and swallows the click like an enabled one)
     juce::PopupMenu m;
     m.addSectionHeader(menu.name.isNotEmpty() ? menu.name : juce::String("Control"));
     if (enterExact)
@@ -292,9 +322,10 @@ void askForValue(juce::Component& owner, const juce::String& title, const juce::
     window->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey));
     window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<juce::AlertWindow> safe(window);
+    juce::Component::SafePointer<juce::Component> ownerSafe(&owner); // the editor may close while the dialog is open
     window->enterModalState(true,
-                            juce::ModalCallbackFunction::create([safe, apply](int result) {
-                                if (result == 1 && safe != nullptr)
+                            juce::ModalCallbackFunction::create([safe, ownerSafe, apply](int result) {
+                                if (result == 1 && safe != nullptr && ownerSafe != nullptr)
                                 {
                                     if (!apply(safe->getTextEditorContents("value")))
                                         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Value not understood",
@@ -308,13 +339,25 @@ void askForValue(juce::Component& owner, const juce::String& title, const juce::
 MenuSlider::MenuSlider() : support(*this)
 {
     support.copyText = [this] { return formatNumber(getValue()); };
-    support.pasteText = [this](const juce::String& t) { return applyTextToSlider(*this, t); };
-    support.enterExact = [this] {
+    // Typed or pasted values on a host parameter are one automation gesture (touch/latch hosts record them).
+    const auto applyText = [this](const juce::String& t) {
+        juce::RangedAudioParameter* parameter = nullptr;
+        if (support.menu.processor != nullptr && support.menu.midiTarget.startsWith("p:"))
+            parameter = support.menu.processor->parameters.getParameter(support.menu.midiTarget.substring(2));
+        if (parameter != nullptr)
+            parameter->beginChangeGesture();
+        const bool ok = applyTextToSlider(*this, t);
+        if (parameter != nullptr)
+            parameter->endChangeGesture();
+        return ok;
+    };
+    support.pasteText = applyText;
+    support.enterExact = [this, applyText] {
         const auto range = getRange();
         askForValue(*this, support.menu.name.isNotEmpty() ? support.menu.name : juce::String("Enter value"), formatNumber(getValue()),
                     "Type the exact value (" + formatNumber(range.getStart()) + " to " + formatNumber(range.getEnd())
                         + (support.menu.unit.isNotEmpty() ? " " + support.menu.unit : juce::String()) + ").",
-                    [this](const juce::String& t) { return applyTextToSlider(*this, t); });
+                    applyText);
     };
     support.resetAvailable = [this] { return isDoubleClickReturnEnabled(); };
     support.resetFallback = [this] {

@@ -84,6 +84,7 @@ public:
     [[nodiscard]] VisualContent& content() { return *contentComponent; }
 
 private:
+    std::unique_ptr<juce::TooltipWindow> tooltipWindow;
     VisualContent* contentComponent = nullptr; // owned by the window
     std::function<void()> onCloseRequested;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VisualWindow)

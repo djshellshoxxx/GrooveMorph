@@ -1622,6 +1622,11 @@ int main()
                     }
                 }
                 walk(*child);
+                // Only the current tab is in the tree; walk every tab's content as well.
+                if (auto* tabs = dynamic_cast<juce::TabbedComponent*>(child))
+                    for (int t = 0; t < tabs->getNumTabs(); ++t)
+                        if (auto* content = tabs->getTabContentComponent(t))
+                            walk(*content);
             }
         };
         walk(*editor);

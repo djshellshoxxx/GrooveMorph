@@ -1627,8 +1627,13 @@ bool GrooveMorphAudioProcessor::republishStoredLoop()
             out.copyFrom(c, 0, loopStore, juce::jmin(c, loopStore.getNumChannels() - 1), 0, outLength);
         else
         {
+            // The interpolator reads a few samples past the rounded-up end; give it zero padding to read.
+            const int sourceChannel = juce::jmin(c, loopStore.getNumChannels() - 1);
+            juce::AudioBuffer<float> padded(1, loopStore.getNumSamples() + static_cast<int>(std::ceil(ratio)) + 8);
+            padded.clear();
+            padded.copyFrom(0, 0, loopStore, sourceChannel, 0, loopStore.getNumSamples());
             juce::LagrangeInterpolator interpolator;
-            interpolator.process(ratio, loopStore.getReadPointer(juce::jmin(c, loopStore.getNumChannels() - 1)), out.getWritePointer(c), outLength);
+            interpolator.process(ratio, padded.getReadPointer(0), out.getWritePointer(c), outLength);
         }
     }
     const float* channels[2] = {out.getReadPointer(0), out.getReadPointer(1)};
@@ -1679,8 +1684,12 @@ juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, i
     {
         for (int c = 0; c < data.getNumChannels(); ++c)
         {
+            const double ratio = reader->sampleRate / deviceRate;
+            juce::AudioBuffer<float> padded(1, length + static_cast<int>(std::ceil(ratio)) + 8); // zero tail for the interpolator
+            padded.clear();
+            padded.copyFrom(0, 0, data, c, 0, length);
             juce::LagrangeInterpolator interpolator;
-            interpolator.process(reader->sampleRate / deviceRate, data.getReadPointer(c), resampled.getWritePointer(c), outLength);
+            interpolator.process(ratio, padded.getReadPointer(0), resampled.getWritePointer(c), outLength);
         }
     }
 
