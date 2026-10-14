@@ -11,7 +11,7 @@
 
 namespace gm = groovemorph::core;
 namespace ctl = groovemorph::core::control;
-namespace var = groovemorph::core::variation;
+namespace gvar = groovemorph::core::variation;
 
 namespace groovemorph::ui
 {
@@ -771,7 +771,7 @@ public:
                                                                &regenerate, &candidateLabel, &resultLabel, &history, &protectLabel,
                                                                &locksTitle, &lockPlacement})
             addAndMakeVisible(*c);
-        style.onChange = [this] { settings.style = static_cast<var::Style>(style.getSelectedId() - 1); };
+        style.onChange = [this] { settings.style = static_cast<gvar::Style>(style.getSelectedId() - 1); };
         updateCandidateLabel();
     }
 
@@ -829,11 +829,11 @@ private:
     struct Entry
     {
         gm::VariationSettings source;
-        var::GeneratorSettings settings;
+        gvar::GeneratorSettings settings;
         std::size_t scene = 0;
     };
 
-    var::GeneratorSettings settings;
+    gvar::GeneratorSettings settings;
     std::deque<Entry> entries;
     juce::ComboBox style, history;
     juce::Label styleLabel, seedLabel, protectLabel, locksTitle, candidateLabel, resultLabel;
@@ -864,7 +864,7 @@ private:
     {
         candidateLabel.setText("Candidate #" + juce::String(settings.candidate + 1), juce::dontSendNotification);
     }
-    void describe(const var::Candidate& c)
+    void describe(const gvar::Candidate& c)
     {
         juce::StringArray changed;
         for (std::size_t i = 0; i < gm::operationCount; ++i)
@@ -881,7 +881,7 @@ private:
     {
         readSeedQuiet();
         const auto source = access.storedSettings();
-        const auto candidate = var::buildCandidate(source, settings);
+        const auto candidate = gvar::buildCandidate(source, settings);
         entries.push_front({source, settings, access.editingIndex()});
         if (entries.size() > 24)
             entries.pop_back();
@@ -915,7 +915,7 @@ private:
         if (id < 1 || static_cast<std::size_t>(id) > entries.size())
             return;
         const auto entry = entries[static_cast<std::size_t>(id - 1)];
-        const auto candidate = var::buildCandidate(entry.source, entry.settings);
+        const auto candidate = gvar::buildCandidate(entry.source, entry.settings);
         describe(candidate);
         resultLabel.setText("Recalled history #" + juce::String(id) + ". " + resultLabel.getText(), juce::dontSendNotification);
         access.previewCandidate(candidate.settings);
