@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include "core/scene/SceneBank.h"
 #include "ui/InspectorPanel.h"
+#include "ui/visual/VisualWindow.h"
 
 #include <memory>
 #include <vector>
@@ -36,6 +37,8 @@ private:
     juce::ComboBox timingMode, transitionMode, denominator, editVariation;
     juce::ToggleButton bypassButton{"Bypass"}, returnOnNoteOff{"Return on MIDI note-off"},
                        demoButton{"Demo loop"};
+    juce::ToggleButton visualButton{"Visual"};
+    std::unique_ptr<groovemorph::ui::visual::VisualWindow> visualWindow;
     std::unique_ptr<groovemorph::ui::InspectorPanel> inspector;
     std::array<juce::TextButton, 4> variationButtons;
     std::array<OperationRow, groovemorph::core::operationCount> operations;

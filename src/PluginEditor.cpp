@@ -83,6 +83,22 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     demoButton.onClick = [this] { audioProcessor.setDemoSourceEnabled(demoButton.getToggleState()); };
     demoButton.setTooltip("Switches the input source between live input and the built-in drum loop (kick, snare, hat) so the effects can be heard without external audio. Captured/imported loops are in the Input tab. Not saved with the project.");
     addAndMakeVisible(demoButton);
+    visualButton.setTooltip("Opens or closes the separate Visual window: a live picture of what the plugin is doing to the sound (which past audio you are hearing, what is planned next, gate, scenes) with the numbers behind it. Tracing only runs while the window is open.");
+    visualButton.onClick = [this] {
+        if (visualButton.getToggleState())
+        {
+            if (visualWindow == nullptr)
+                visualWindow = std::make_unique<groovemorph::ui::visual::VisualWindow>(audioProcessor, [this] {
+                    visualButton.setToggleState(false, juce::dontSendNotification);
+                });
+            visualWindow->open();
+        }
+        else if (visualWindow != nullptr)
+        {
+            visualWindow->close();
+        }
+    };
+    addAndMakeVisible(visualButton);
     bypassAttachment = std::make_unique<ButtonAttachment>(audioProcessor.parameters, "bypass", bypassButton);
 
     for (std::size_t i = 0; i < variationButtons.size(); ++i)
@@ -196,6 +212,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
 GrooveMorphAudioProcessorEditor::~GrooveMorphAudioProcessorEditor()
 {
     stopTimer();
+    visualWindow.reset(); // closes the Visual window and deactivates tracing
     // A hidden preview must never remain active after the editor closes.
     if (audioProcessor.isAuditioning()) audioProcessor.revertAudition();
 }
@@ -427,9 +444,10 @@ void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
 void GrooveMorphAudioProcessorEditor::resized()
 {
     const int width = contentWidth() - 40, column = width / 2;
-    titleLabel.setBounds(20, 12, width - 240, 36);
+    titleLabel.setBounds(20, 12, width - 340, 36);
     bypassButton.setBounds(contentWidth() - 120, 16, 100, 30);
     demoButton.setBounds(contentWidth() - 240, 16, 110, 30);
+    visualButton.setBounds(contentWidth() - 340, 16, 90, 30);
     if (inspector != nullptr) inspector->setBounds(contentWidth(), 8, inspectorWidth - 8, getHeight() - 16);
     intensitySlider.setBounds(144, 56, column - 124, 30);
     dryWetSlider.setBounds(20 + column + 110, 56, column - 110, 30);

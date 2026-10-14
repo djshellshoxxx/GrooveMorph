@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "ui/visual/VisualWindow.h"
 #include "PluginEditor.h"
 
 #include <cstdlib>
@@ -1145,6 +1146,51 @@ int main()
         expect("deactivated ring stops recording", traced.getTraceRing().pushedCount() == before);
         traced.setPlayHead(nullptr);
         plain.setPlayHead(nullptr);
+    }
+
+    // VF-T08 / VF-T09: the Visual content follows its active flag, renders real data without a display, and
+    // leaves the audio untouched.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        GrooveMorphAudioProcessor processor;
+        setParameter(processor, "masterIntensity", 1.0f);
+        processor.prepareToPlay(48000.0, 256);
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        groovemorph::ui::visual::VisualContent content(processor);
+        content.setSize(900, 560);
+        expect("visual content starts with tracing off", !processor.getTraceRing().active());
+        content.refresh();
+        expect("no frames yet: ledger says so", content.ledgerText().contains("No trace data yet") || content.ledgerText().contains("transport stopped") || content.ledgerText().contains("Timing invalid"));
+        content.setActive(true);
+        expect("activating the content activates tracing", processor.getTraceRing().active());
+        for (int block = 0; block < 400; ++block)
+        {
+            setTransport(playHead, block * 256);
+            juce::AudioBuffer<float> buffer(2, 256);
+            for (int i = 0; i < 256; ++i)
+                buffer.setSample(0, i, std::sin(0.03f * static_cast<float>(block * 256 + i)) * 0.5f);
+            buffer.copyFrom(1, 0, buffer, 0, 0, 256);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+        }
+        content.refresh();
+        const auto text = content.ledgerText();
+        expect("ledger has live numbers", text.contains("Hearing audio from:") && text.contains("Position: bar") && text.contains("History:"));
+        const auto image = content.createComponentSnapshot(content.getLocalBounds(), true, 1.0f);
+        expect("content paints to a non-empty image", image.getWidth() == 900 && image.getHeight() == 560);
+        bool drewSomething = false;
+        for (int y = 0; y < image.getHeight() && !drewSomething; y += 7)
+            for (int x = 0; x < image.getWidth(); x += 7)
+                if (image.getPixelAt(x, y) != image.getPixelAt(0, 0)) { drewSomething = true; break; }
+        expect("content draws more than a flat colour", drewSomething);
+        content.setActive(false);
+        expect("deactivating stops tracing", !processor.getTraceRing().active());
+        const auto frames = processor.getTraceRing().pushedCount();
+        setTransport(playHead, 400 * 256);
+        processSilence(processor, 256);
+        expect("no frames while the window is closed", processor.getTraceRing().pushedCount() == frames);
+        processor.setPlayHead(nullptr);
     }
 
     if (failures == 0)

@@ -71,7 +71,7 @@ int main() {
         expectEq("speed live", row(l, "Reading speed")->value, std::string("1x"));
         expectEq("gate off", row(l, "Gate")->value, std::string("off"));
         expectEq("wet", row(l, "Wet / intensity")->value, std::string("0 % / 100 %"));
-        expectEq("added", row(l, "Added vs input")->value, std::string("+0.0 dB"));
+        expectEq("levels", row(l, "Level in / out")->value, std::string("-6.0 dB / -6.0 dB"));
         expectEq("history", row(l, "History")->value, std::string("2.0 / 4.0 s"));
         expectEq("history note", row(l, "History")->note, std::string("filling"));
         expectEq("tail", row(l, "Reported tail")->value, std::string("4.0 s"));
@@ -113,14 +113,13 @@ int main() {
         expect("gate closed percentage", row(l, "Gate")->note == "closed 50 % of the last bar" || row(l, "Gate")->note == "closed 51 % of the last bar");
     }
 
-    // Level change.
+    // Levels: in and out are reported separately (never as a gain).
     {
         auto f = steady();
         for (auto& fr : f) { fr.inPeak = 0.25f; fr.outPeak = 0.5f; }
-        expectEq("added +6", row(buildLedger(FrameWindow{f.data(), f.size()}, status()), "Added vs input")->value, std::string("+6.0 dB"));
+        expectEq("levels differ", row(buildLedger(FrameWindow{f.data(), f.size()}, status()), "Level in / out")->value, std::string("-12.0 dB / -6.0 dB"));
         for (auto& fr : f) { fr.inPeak = 0.0f; fr.outPeak = 0.0f; }
-        const auto l = buildLedger(FrameWindow{f.data(), f.size()}, status());
-        expectEq("silent input", row(l, "Added vs input")->note, std::string("input silent"));
+        expectEq("silence", row(buildLedger(FrameWindow{f.data(), f.size()}, status()), "Level in / out")->value, std::string("-inf dB / -inf dB"));
     }
 
     // Scene queue, countdown and preview.

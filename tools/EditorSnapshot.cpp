@@ -2,6 +2,7 @@
 // the snapshot itself) to PNG files so the layout can be inspected. Usage: EditorSnapshot <outdir>
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "ui/visual/VisualWindow.h"
 
 #include <iostream>
 
@@ -88,6 +89,47 @@ int main(int argc, char** argv)
     pump(120);
     save(*editor, out.getChildFile("editor-minimum-size.png"));
     delete editor;
+
+    // Visual window: drive the real processor for several seconds (demo loop, trace active), then render the
+    // content component. Two scenes: the busy inspector scene above and a plain repeat + reverse scene.
+    namespace vis = groovemorph::ui::visual;
+    auto runSeconds = [&](double seconds, std::int64_t& position) {
+        const int blocks = static_cast<int>(seconds * 48000.0 / 512.0);
+        for (int b = 0; b < blocks; ++b)
+        {
+            playHead.info.setTimeInSamples(position);
+            playHead.info.setPpqPosition(static_cast<double>(position) / 24000.0);
+            playHead.info.setPpqPositionOfLastBarStart(std::floor(static_cast<double>(position) / 96000.0) * 4.0);
+            buffer.clear();
+            processor.processBlock(buffer, midi);
+            position += 512;
+        }
+    };
+    auto visualShot = [&](const char* name, const groovemorph::core::VariationSettings& scene, int width, int height) {
+        processor.setVariationSettings(0, scene);
+        vis::VisualContent content(processor);
+        content.setSize(width, height);
+        content.setActive(true);
+        std::int64_t position = 0;
+        runSeconds(9.0, position);
+        content.refresh();
+        save(content, out.getChildFile(name));
+        std::cout << content.ledgerText() << "\n";
+        content.setActive(false);
+    };
+    {
+        groovemorph::core::VariationSettings plain;
+        plain.operations[0] = {true, 1.0f, 0.25f};
+        plain.operations[1] = {true, 1.0f, 0.5f};
+        visualShot("visual-repeat-reverse.png", plain, 1100, 680);
+        groovemorph::core::VariationSettings busy;
+        busy.operations[0] = {true, 0.8f, 0.25f};
+        busy.operations[2] = {true, 0.8f, 0.5f};
+        busy.operations[3] = {true, 1.0f, 1.0f};
+        busy.operations[4] = {true, 0.9f, 1.0f};
+        visualShot("visual-halftime-tapestop-gate.png", busy, 1100, 680);
+        visualShot("visual-small.png", plain, 800, 500);
+    }
     processor.setPlayHead(nullptr);
     return 0;
 }

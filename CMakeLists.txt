@@ -60,6 +60,9 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
         src/ui/InspectorPanel.cpp
+        src/ui/visual/VisualWindow.cpp
+        src/ui/visual/WeaveView.cpp
+        src/ui/visual/LedgerView.cpp
     )
     target_include_directories(GrooveMorphPlugin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(GrooveMorphPlugin PRIVATE

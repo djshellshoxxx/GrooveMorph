@@ -191,9 +191,10 @@ Ledger buildLedger(const FrameWindow& w, const StatusSnapshot& st)
         L.rows.push_back(r);
     }
 
-    // Added vs input: peak level change over the last 100 ms.
+    // Level in / out: peak levels over the last 100 ms. Not a gain figure: time-displacement effects
+    // legitimately play loud past audio while the current input is quiet.
     {
-        LedgerRow r{"Added vs input", "-", "peak, last 100 ms"};
+        LedgerRow r{"Level in / out", "-", "peak, last 100 ms"};
         if (hasFrames)
         {
             float inMax = 0.0f, outMax = 0.0f;
@@ -205,16 +206,7 @@ Ledger buildLedger(const FrameWindow& w, const StatusSnapshot& st)
                 inMax = std::max(inMax, w.frames[i].inPeak);
                 outMax = std::max(outMax, w.frames[i].outPeak);
             }
-            if (inMax > 1.0e-4f)
-            {
-                const double db = 20.0 * std::log10(static_cast<double>(std::max(outMax, 1.0e-6f)) / static_cast<double>(inMax));
-                r.value = fmt("%+.1f dB", db);
-            }
-            else
-            {
-                r.value = "-";
-                r.note = "input silent";
-            }
+            r.value = formatDb(static_cast<double>(inMax)) + " / " + formatDb(static_cast<double>(outMax));
         }
         L.rows.push_back(r);
     }

@@ -80,7 +80,8 @@ anti-resemblance review (VF-07) signed off by the user. Items not verified nativ
 | S5 PlannedPath | done | `PlannedPathTests`: planner vs real-engine trace agreement over 682 sampled moments per fixture: source within 0.01 beat 96.3-100 % (misses cluster at slice boundaries), weight within 0.05 for 91-100 % (gate ramp edges); phase offsets; segments; tentative flag. `effectiveSlice` shared with the engine (golden hashes unchanged); resolver now reports the gate factor on the traced path |
 | S6 Ledger | done | `LedgerTests`: exact strings for every row, units, scene queue/countdown, preview/idle/invalid/no-data banners, copy-as-text |
 | S5b PlanBuilder | done | `PlanBuilderTests`: segments reproduce the processor's placement gating (window, event lanes, activity limits, slice override, cycle-restart anchors); planner vs engine driven like the processor: 98.5 % (placement window) and 99.1 % (event lane) source agreement over 2116 sampled moments |
-| S7 to S12 | not started | |
+| S7 Visual window + Weave + Ledger | done | `VisualContent`/`VisualWindow`/`WeaveView`/`LedgerView` under `src/ui/visual`; header **Visual** toggle; tracing on only while the window is open. `PluginProcessorTests` VF-T08/T09 (content follows active flag, ledger has live numbers, paints, no frames when closed; passes headless and under xvfb; full native Linux 24/24). Real-processor snapshots via `GrooveMorphEditorSnapshot` (visual-*.png) checked by eye at 1100x680 and 800x500 |
+| S8 to S12 | not started | |
 
 Measured (offline, this container, GCC -O2, 60 s of stereo audio at 64-sample blocks, all five effects, best of five):
 no sink 526 ms (0.88 % of real time), inactive sink 487 ms (0.81 %), active sink 483 ms (0.81 %): tracing overhead is below measurement noise.
