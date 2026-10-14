@@ -54,7 +54,7 @@ PlannedThread planThread(const PlanContext& ctx, double outputBeat) noexcept
         const OperationSettings& s = seg->settings.operations[o];
         const float a = s.enabled ? stage::sanitiseUnit(s.depth, 0.0f) : 0.0f;
         const stage::Slice slice = stage::effectiveSlice(op, s.sliceBeats, ctx.samplesPerBeat, ctx.historySamples);
-        const double phased = beat - ctx.phaseOffsetBeats[o];
+        const double phased = beat - seg->phaseOffsetBeats[o];
         if (op == OperationType::Gate)
         {
             const bool open = a <= 0.0f || stage::gateOpen(phased, slice.beats, ctx.samplesPerBeat, slice.samples);

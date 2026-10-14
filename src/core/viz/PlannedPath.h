@@ -17,6 +17,7 @@ struct PlanSegment
     double startBeat = 0.0;
     double endBeat = 0.0;
     VariationSettings settings{};
+    std::array<double, operationCount> phaseOffsetBeats{}; // per-event cycle restart anchors (0 = shared grid)
 };
 
 struct PlanContext
@@ -26,7 +27,6 @@ struct PlanContext
     float intensity = 1.0f;            // master intensity
     double samplesPerBeat = 0.0;       // from the newest timed frame
     std::size_t historySamples = 0;    // ceil(maxHistorySeconds * sampleRate)
-    std::array<double, operationCount> phaseOffsetBeats{};
 };
 
 struct PlannedThread

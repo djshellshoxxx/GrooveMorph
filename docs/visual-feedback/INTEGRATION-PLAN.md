@@ -79,6 +79,7 @@ anti-resemblance review (VF-07) signed off by the user. Items not verified nativ
 | S4 PathResolver + WeaveLayout | done | `PathResolverTests` (impulse through the real engine reappears and resolves to its source for Repeat, Reverse and Repeat→Reverse; dominant-branch rule at 0.49/0.50/0.51; no-data; stopped transport; monotonic), `WeaveLayoutTests` (live/repeat/reverse/half-time/tape-stop/gate shapes on real frames, shared scale, capacity, ink front); core 20/20 |
 | S5 PlannedPath | done | `PlannedPathTests`: planner vs real-engine trace agreement over 682 sampled moments per fixture: source within 0.01 beat 96.3-100 % (misses cluster at slice boundaries), weight within 0.05 for 91-100 % (gate ramp edges); phase offsets; segments; tentative flag. `effectiveSlice` shared with the engine (golden hashes unchanged); resolver now reports the gate factor on the traced path |
 | S6 Ledger | done | `LedgerTests`: exact strings for every row, units, scene queue/countdown, preview/idle/invalid/no-data banners, copy-as-text |
+| S5b PlanBuilder | done | `PlanBuilderTests`: segments reproduce the processor's placement gating (window, event lanes, activity limits, slice override, cycle-restart anchors); planner vs engine driven like the processor: 98.5 % (placement window) and 99.1 % (event lane) source agreement over 2116 sampled moments |
 | S7 to S12 | not started | |
 
 Measured (offline, this container, GCC -O2, 60 s of stereo audio at 64-sample blocks, all five effects, best of five):

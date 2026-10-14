@@ -49,14 +49,13 @@ struct Agreement { std::size_t compared = 0, agree = 0, weightOk = 0, maskOk = 0
 Agreement compare(const VariationSettings& v, float intensity, const std::array<double, operationCount>& phase = {}) {
     const auto f = frames(v, intensity, phase);
     const FrameWindow w{f.data(), f.size()};
-    PlanSegment seg{0.0, 1000.0, v};
+    PlanSegment seg{0.0, 1000.0, v, phase};
     PlanContext ctx;
     ctx.segments = &seg;
     ctx.segmentCount = 1;
     ctx.intensity = intensity;
     ctx.samplesPerBeat = spb;
     ctx.historySamples = static_cast<std::size_t>(std::ceil(RhythmEngine::maxHistorySeconds * sampleRate));
-    ctx.phaseOffsetBeats = phase;
     Agreement a;
     for (double beat = 12.0; beat < 19.5; beat += 0.011) {
         const auto sample = sampleAtBeat(w, beat);
@@ -118,7 +117,7 @@ int main() {
 
     // Segments: settings change at a beat; outside every segment the plan is invalid.
     {
-        PlanSegment segs[2] = {{0.0, 4.0, VariationSettings{}}, {4.0, 8.0, one(OperationType::Repeat, 0.25f)}};
+        PlanSegment segs[2] = {{0.0, 4.0, VariationSettings{}, {}}, {4.0, 8.0, one(OperationType::Repeat, 0.25f), {}}};
         PlanContext ctx;
         ctx.segments = segs; ctx.segmentCount = 2; ctx.intensity = 1.0f; ctx.samplesPerBeat = spb;
         ctx.historySamples = 192000;
@@ -132,7 +131,7 @@ int main() {
 
     // buildPlannedWeave: only future threads, flagged planned, tentative after the boundary.
     {
-        PlanSegment seg{0.0, 1000.0, one(OperationType::Repeat, 0.25f)};
+        PlanSegment seg{0.0, 1000.0, one(OperationType::Repeat, 0.25f), {}};
         PlanContext ctx;
         ctx.segments = &seg; ctx.segmentCount = 1; ctx.intensity = 1.0f; ctx.samplesPerBeat = spb; ctx.historySamples = 192000;
         WeaveParams p{12.0, 4.0, 2.0, 200, 14.0};
