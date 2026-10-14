@@ -480,6 +480,18 @@ void GrooveMorphAudioProcessor::setVariationSettings(std::size_t index, const co
     commitBankLocked(bank);
 }
 
+bool GrooveMorphAudioProcessor::copyVariationSettings(std::size_t source, std::size_t destination)
+{
+    const std::lock_guard<std::mutex> lock(modelMutex);
+    if (audition.isActive())
+        return false;
+    auto bank = undoStack.current();
+    if (!bank.copyVariationSettings(source, destination))
+        return false;
+    commitBankLocked(bank);
+    return true;
+}
+
 void GrooveMorphAudioProcessor::setOperationSettings(std::size_t index, core::OperationType op,
                                                      const core::OperationSettings& settings)
 {

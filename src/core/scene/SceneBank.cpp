@@ -121,6 +121,17 @@ void SceneBank::setVariationSettings(std::size_t index, const VariationSettings&
     sanitize(variations[index].settings);
 }
 
+bool SceneBank::copyVariationSettings(std::size_t source, std::size_t destination) noexcept
+{
+    if (source >= variationCount || destination >= variationCount || source == destination)
+        return false;
+    const auto& sourceSettings = variations[source].settings;
+    if (sameSettings(variations[destination].settings, sourceSettings))
+        return false;
+    variations[destination].settings = sourceSettings;
+    return true;
+}
+
 void SceneBank::setActiveIndex(std::size_t index) noexcept
 {
     active = std::min(index, variationCount - 1);

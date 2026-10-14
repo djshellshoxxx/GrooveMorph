@@ -17,6 +17,7 @@ check existing PRs. Unassigned tasks below have no claimed implementation owner.
 - [x] Merge help pages and annotated source-derived SVG maps (PR #8).
 - [x] Publish and merge feature audit (PR #11); record exact build evidence (PR #10).
 - [x] Merge six musical control specs (PR #14) and portable deterministic variation-planning core (PR #9).
+- [ ] Complete review/merge of A06 settings-only Copy FX workflow (PR #17): isolated core model, one undo transaction and editor action.
 
 ## Active work, dependencies and acceptance
 
@@ -27,7 +28,7 @@ check existing PRs. Unassigned tasks below have no claimed implementation owner.
 | A03 / P1 workflow bug | Reproduced; unassigned | Define requested versus active Variation semantics and safe host feedback | UI/MIDI/automation/cancel/reopen stay coherent without callback host notification |
 | A04 / P1 MIDI conflict | Diagnostic warning implemented (PR #15); mapping policy still first-match | Decide whether to add auto-swap/reject; validate the warning in a native host | Duplicate assignments are visible, prior saved maps remain valid; first match keeps existing behavior |
 | A05 / P1 generator | Portable planner merged (PR #9); UI absent | Design non-destructive preview/apply integration, seed and candidate controls | Existing planner Linux/Windows/sanitizer CI passed; seed/protection determinism and isolated preview remain required end-to-end |
-| A06 / P1 authoring | Missing; unassigned | Define stable operation automation IDs, scene copy/duplicate controls and fade policy | Host automation/state/undo contract tested; copied scenes independent |
+| A06 / P1 authoring | Settings-only copy proposed in PR #17; other work missing | Native host validate Copy FX and undo; define stable operation automation IDs, full scene duplicate and fade policy | Settings copies are independent, undoable and leave host parameter IDs and state schema unchanged |
 | A07 / P2 documentation/UX | Partial; unassigned | Native host screenshots + checked arrows/manifest, help entrypoint, effective slice-limit feedback, keyboard/scaling QA | Accurate clickable bounds and tested platforms; limitations visible |
 | A08 / P2 expansion | Draft PR #6; confirm existing owner | Pin canonical baseline; complete/review F01–F12 interfaces, tasks, schemas, numerical fixtures | Package becomes READY only when measurable contracts and review evidence are complete |
 | Distribution / P0 beta gate | Partial; unassigned | Publish verified VST3/Standalone bundles, installation guide, dependency/product license inventory, clean-machine check | Artifact/version/source match; install/remove paths work; no production claim from CI executable alone |

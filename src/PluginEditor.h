@@ -37,6 +37,7 @@ private:
     std::array<OperationRow, groovemorph::core::operationCount> operations;
     juce::TextEditor variationName;
     juce::TextButton triggerButton{"Trigger queued"}, cancelButton{"Cancel queued"};
+    juce::TextButton copyActiveFxButton{"Copy FX"};
     juce::TextButton previewButton{"Preview"}, compareButton{"Hear stored"},
                      applyButton{"Apply preview"}, revertButton{"Revert preview"},
                      undoButton{"Undo"}, redoButton{"Redo"};

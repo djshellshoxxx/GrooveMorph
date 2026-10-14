@@ -59,6 +59,9 @@ public:
     void setVariation(std::size_t index, Variation v); // sanitized; out-of-range index ignored
     void setVariationName(std::size_t index, std::string_view name);
     void setVariationSettings(std::size_t index, const VariationSettings& settings);
+    // Copy only effect settings between scenes. Preserve names, MIDI mapping,
+    // active scene and seed. False on invalid, self or semantically equal copy.
+    [[nodiscard]] bool copyVariationSettings(std::size_t source, std::size_t destination) noexcept;
 
     [[nodiscard]] std::size_t activeIndex() const noexcept { return active; }
     void setActiveIndex(std::size_t index) noexcept; // clamped

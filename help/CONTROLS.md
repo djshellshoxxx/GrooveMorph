@@ -17,7 +17,7 @@
 | 9 | Timing and status | Read-only transport/timing diagnostics; exposes active or queued state and, when resolvable, samples until switch. |
 | 10 | Phrase progress strip | Bar divisions and current position marker when timing is valid. Not an editable step sequencer. |
 | 11 | A–D buttons | Request each variation for playback. Labels can show `[active]` or `[queued]`. |
-| 12 | Edit A–D selector and name | Choose a variation to **edit**, independently of playback, and rename it. |
+| 12 | Edit A–D selector and name | Choose a variation to **edit**, independently of playback, and rename it. The **Copy FX** action copies settings from the currently playing scene to this editing target, leaves its name and MIDI note unchanged, and creates one Undo step. Disabled during preview or when editing the playing scene. |
 | 13 | Trigger queued / Cancel queued | Trigger an armed request now or cancel it. Buttons are disabled when there is no queued request. |
 | 14 | Operation rows | Enable and adjust Repeat/stutter, Reverse slice, Gate, Half-time, Tape stop. |
 | 15 | Preview/compare/apply/revert | Compare edited versus stored variation without committing until Apply. |
