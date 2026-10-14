@@ -148,6 +148,16 @@ bool eventsOverlap(const LaneEvent& a, const LaneEvent& b, std::int64_t phraseTi
     return inside(a, b.onsetTicks) || inside(b, a.onsetTicks);
 }
 
+namespace
+{
+// Ring (ticks) on which an operation's events repeat: its own loop length, else the phrase.
+std::int64_t laneRing(const EventLane& lane, std::uint8_t operation, std::int64_t phraseTicks) noexcept
+{
+    const std::uint8_t loop = lane.loopBeats[operation % laneCount];
+    return loop > 0 ? static_cast<std::int64_t>(loop) * ticksPerBeat : phraseTicks;
+}
+} // namespace
+
 EditStatus addEvent(EventLane& lane, const LaneEvent& event, std::int64_t phraseTicks) noexcept
 {
     if (!validEvent(event, phraseTicks))
@@ -156,7 +166,7 @@ EditStatus addEvent(EventLane& lane, const LaneEvent& event, std::int64_t phrase
         return EditStatus::Capacity;
     for (std::size_t i = 0; i < lane.count; ++i)
         if (lane.events[i].operation == event.operation
-            && eventsOverlap(lane.events[i], event, phraseTicks))
+            && eventsOverlap(lane.events[i], event, laneRing(lane, event.operation, phraseTicks)))
             return EditStatus::Overlap;
     lane.events[lane.count++] = event;
     return EditStatus::Ok;
@@ -169,7 +179,7 @@ EditStatus replaceEvent(EventLane& lane, std::size_t index, const LaneEvent& eve
         return EditStatus::Invalid;
     for (std::size_t i = 0; i < lane.count; ++i)
         if (i != index && lane.events[i].operation == event.operation
-            && eventsOverlap(lane.events[i], event, phraseTicks))
+            && eventsOverlap(lane.events[i], event, laneRing(lane, event.operation, phraseTicks)))
             return EditStatus::Overlap;
     lane.events[index] = event;
     return EditStatus::Ok;
@@ -183,6 +193,59 @@ bool removeEvent(EventLane& lane, std::size_t index) noexcept
         lane.events[i] = lane.events[i + 1];
     lane.events[--lane.count] = LaneEvent{};
     return true;
+}
+
+ScaleReport scaleEvents(EventLane& lane, std::int64_t numerator, std::int64_t denominator,
+                        std::int64_t phraseTicks, const PermissionConfig& permissions) noexcept
+{
+    ScaleReport report;
+    if (numerator < 1 || denominator < 1 || numerator > 64 || denominator > 64 || phraseTicks <= 0)
+        return report;
+    EventLane scaled;
+    scaled.explicitEvents = lane.explicitEvents;
+    scaled.loopBeats = lane.loopBeats;
+    const auto isLocked = [&permissions](const LaneEvent& e) {
+        return e.locked || (permissions.operationLocks[e.operation % laneCount] & lock::events) != 0;
+    };
+    // Locked events keep their exact position and are placed first so scaled events cannot crowd them out.
+    for (std::size_t i = 0; i < lane.count && i < maxLaneEvents; ++i)
+        if (isLocked(lane.events[i]))
+        {
+            scaled.events[scaled.count++] = lane.events[i];
+            ++report.skippedLocked;
+        }
+    for (std::size_t i = 0; i < lane.count && i < maxLaneEvents; ++i)
+    {
+        const auto& e = lane.events[i];
+        if (isLocked(e))
+            continue;
+        LaneEvent out = e;
+        const auto round = [numerator, denominator](std::int64_t v) {
+            return (v * numerator + denominator / 2) / denominator;
+        };
+        const std::int64_t onset = round(e.onsetTicks);
+        out.onsetTicks = static_cast<std::int32_t>(std::min<std::int64_t>(onset, phraseTicks - 1));
+        out.durationTicks = static_cast<std::int32_t>(
+            std::clamp<std::int64_t>(round(e.durationTicks), 1, std::min<std::int64_t>(phraseTicks, 1966080)));
+        if (onset >= phraseTicks)
+        {
+            ++report.dropped; // would start after the phrase ends
+            continue;
+        }
+        bool overlaps = false;
+        for (std::size_t k = 0; k < scaled.count && !overlaps; ++k)
+            overlaps = scaled.events[k].operation == out.operation
+                       && eventsOverlap(scaled.events[k], out, laneRing(scaled, out.operation, phraseTicks));
+        if (overlaps)
+        {
+            ++report.dropped;
+            continue;
+        }
+        scaled.events[scaled.count++] = out;
+        ++report.scaled;
+    }
+    lane = scaled;
+    return report;
 }
 
 std::size_t convertLegacyToEvents(EventLane& lane, std::uint32_t enabledMask,
@@ -317,7 +380,8 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
     std::uint32_t kept = 0;
     std::uint32_t mandatory = 0;
     for (std::size_t i = 0; i < lane.count; ++i)
-        if ((permissions.operationLocks[lane.events[i].operation % laneCount] & lock::events) != 0)
+        if (lane.events[i].locked
+            || (permissions.operationLocks[lane.events[i].operation % laneCount] & lock::events) != 0)
             mandatory |= 1u << i;
     for (std::size_t i = 0; i < lane.count; ++i)
         if ((mandatory & (1u << i)) != 0)

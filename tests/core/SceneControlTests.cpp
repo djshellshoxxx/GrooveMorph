@@ -468,6 +468,49 @@ int main()
         expect("recovery notes are capped", SceneSerializer::deserialize(flood).report.messages.size() <= 65);
     }
 
+
+    // Scale-events command, per-event locks and loop-ring-aware overlap.
+    {
+        using namespace groovemorph::core::control;
+        const std::int64_t phrase = 16 * ticksPerBeat;
+        EventLane lane;
+        lane.explicitEvents = true;
+        lane.events[0] = LaneEvent{0, true, 0, 480, 1.0f, 0.0f, 50, false, false};
+        lane.events[1] = LaneEvent{0, true, 960, 480, 1.0f, 0.0f, 50, false, true}; // locked
+        lane.events[2] = LaneEvent{1, true, 4 * ticksPerBeat, 960, 1.0f, 0.0f, 50, false, false};
+        lane.count = 3;
+        auto doubled = lane;
+        auto report = scaleEvents(doubled, 2, 1, phrase, PermissionConfig{});
+        bool durationsDoubled = false;
+        for (std::size_t i = 0; i < doubled.count; ++i)
+            durationsDoubled = durationsDoubled
+                               || (!doubled.events[i].locked && doubled.events[i].operation == 0
+                                   && doubled.events[i].onsetTicks == 0 && doubled.events[i].durationTicks == 960);
+        expect("scale doubles unlocked events", report.skippedLocked == 1 && report.scaled == 2 && durationsDoubled);
+        bool lockedExact = false;
+        for (std::size_t i = 0; i < doubled.count; ++i)
+            lockedExact = lockedExact || (doubled.events[i].locked && doubled.events[i].onsetTicks == 960);
+        expect("locked event position unchanged", lockedExact);
+        auto tooFar = lane;
+        report = scaleEvents(tooFar, 4, 1, phrase, PermissionConfig{});
+        expect("events scaled past the phrase end are dropped", report.dropped >= 1);
+        auto halved = lane;
+        report = scaleEvents(halved, 1, 2, phrase, PermissionConfig{});
+        expect("halving shrinks durations", report.scaled == 2);
+        expect("invalid ratio is rejected", scaleEvents(halved, 0, 1, phrase, PermissionConfig{}).scaled == 0
+                                                && scaleEvents(halved, 100, 1, phrase, PermissionConfig{}).scaled == 0);
+
+        EventLane looped;
+        looped.loopBeats[0] = 4; // 4-beat ring
+        looped.events[0] = LaneEvent{0, true, 0, 480, 1.0f, 0.0f, 50, false, false};
+        looped.count = 1;
+        const LaneEvent second{0, true, 4 * ticksPerBeat, 480, 1.0f, 0.0f, 50, false, false}; // same slot on the ring
+        expect("overlap is judged on the lane's own loop ring", addEvent(looped, second, phrase) == EditStatus::Overlap);
+        EventLane plain = looped;
+        plain.loopBeats[0] = 0;
+        expect("without a loop the same event is fine", addEvent(plain, second, phrase) == EditStatus::Ok);
+    }
+
     if (failures == 0)
         std::cout << "SceneControlTests passed\n";
     return failures == 0 ? 0 : 1;

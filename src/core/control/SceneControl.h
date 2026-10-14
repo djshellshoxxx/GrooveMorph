@@ -145,6 +145,19 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
                           const PermissionConfig& permissions, std::int64_t phraseTicks,
                           bool apply) noexcept;
 
+// Explicit command (e.g. after a meter or phrase-length change): multiplies every unlocked event's
+// onset and duration by numerator/denominator (both 1..64, rounded to the nearest tick). Events that
+// would start past the phrase end, or overlap an already placed event of the same operation, are
+// dropped and counted. Locked events (per-event or Events lock) keep their exact position.
+struct ScaleReport
+{
+    std::uint8_t scaled = 0;
+    std::uint8_t dropped = 0;
+    std::uint8_t skippedLocked = 0;
+};
+ScaleReport scaleEvents(EventLane& lane, std::int64_t numerator, std::int64_t denominator,
+                        std::int64_t phraseTicks, const PermissionConfig& permissions) noexcept;
+
 // Explicit command: one full-phrase event per operation in `enabledMask`. Returns events added.
 std::size_t convertLegacyToEvents(EventLane& lane, std::uint32_t enabledMask,
                                   std::int64_t phraseTicks,
