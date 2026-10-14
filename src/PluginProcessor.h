@@ -10,6 +10,7 @@
 #include "core/TransportResolver.h"
 #include "core/control/GestureLane.h"
 #include "core/dsp/DemoSource.h"
+#include "core/MidiLinks.h"
 #include "core/dsp/LoopSource.h"
 #include "core/variation/CandidateBuilder.h"
 #include "core/dsp/OnsetDetector.h"
@@ -106,6 +107,10 @@ public:
 
     juce::AudioProcessorValueTreeState parameters;
 
+    // ---- Visual window telemetry (audio thread -> UI) ----
+    // The ring records nothing until the Visual window activates it (setActive(true)).
+    groovemorph::core::trace::TraceRing& getTraceRing() noexcept { return traceRing; }
+
     // ---- Timing status (audio thread -> UI) ----
     groovemorph::core::TimingSource getTimingSource() const noexcept
     {
@@ -145,6 +150,36 @@ public:
     // parameter and not saved in project state.
     void setSourceMode(int mode) noexcept { sourceMode.store(juce::jlimit(0, 2, mode), std::memory_order_relaxed); }
     int getSourceMode() const noexcept { return sourceMode.load(std::memory_order_relaxed); }
+
+    // ---- MIDI learn: link any control to a MIDI CC ----
+    // Targets: "p:<parameterId>" or "s:<effect 0-4>:<depth|slice|enabled>" (the sounding scene). Message thread.
+    void beginMidiLearn(const juce::String& target);   // the next CC that moves is linked to the target
+    void cancelMidiLearn();
+    juce::String getMidiLearnTarget() const;            // empty when not learning
+    int getMidiLinkCc(const juce::String& target) const; // -1 when not linked
+    bool linkMidi(int cc, const juce::String& target);
+    void unlinkMidi(const juce::String& target);
+    void clearMidiLinks();
+    // Applies controller movement received since the last call (the processor's timer calls this ~20x/s).
+    void servicePendingControllers() { applyMidiLinks(); }
+    // Live scene edit for controllers: no undo entry per move, refused while a preview is active.
+    void setOperationSettingsLive(std::size_t index, groovemorph::core::OperationType op,
+                                  const groovemorph::core::OperationSettings& settings);
+
+    // Restores every setting to its factory default (confirmation is the caller's job). Message thread.
+    void resetToDefaults();
+
+    // ---- Internal transport (Standalone, or Sample Clock when the host reports no play state) ----
+    // Play continues from the current position; Stop halts and rewinds to the start. When a host decides
+    // play/stop, isInternalTransportActive() is false and these requests have no effect on the audio.
+    void startInternalTransport() noexcept { internalPlaying.store(true, std::memory_order_relaxed); }
+    void stopInternalTransport() noexcept
+    {
+        internalPlaying.store(false, std::memory_order_relaxed);
+        internalRewind.store(true, std::memory_order_relaxed);
+    }
+    bool isInternalPlaying() const noexcept { return internalPlaying.load(std::memory_order_relaxed); }
+    bool isInternalTransportActive() const noexcept { return internalClockActive.load(std::memory_order_relaxed); }
     void setDemoSourceEnabled(bool enabled) noexcept { setSourceMode(enabled ? 1 : 0); }
     bool isDemoSourceEnabled() const noexcept { return getSourceMode() == 1; }
     // Loop capture/import (message thread). Capture records the pre-effect signal for N bars starting
@@ -155,8 +190,15 @@ public:
     // Why the last capture produced no loop: 0 none, 1 longer than 20 s, 2 transport stopped.
     int getLoopCaptureFailure() const noexcept { return loopCapture.failure(); }
     // Loads an audio file (WAV/AIFF/FLAC/...; up to 20 s) as a loop spanning `bars` bars.
-    juce::Result importLoopFile(const juce::File& file, int bars);
-    void clearLoop() noexcept { loopSource.clear(); loopSeconds.store(0.0, std::memory_order_relaxed); }
+    // bars: 1..16, or 0 = automatic. nativeBpm: the loop's own tempo, or 0 = unknown. nativeBpm wins over bars
+    // (see core/dsp/LoopImport.h). The file is resampled to the device rate. The result is readable through
+    // getLoopBeats()/getLoopBpm() for the UI to report what was decided.
+    juce::Result importLoopFile(const juce::File& file, int bars, double nativeBpm = 0.0);
+    double getLoopBeats() const noexcept { return loopBeatsStatus.load(std::memory_order_relaxed); }
+    double getLoopBpm() const noexcept { return loopBpmStatus.load(std::memory_order_relaxed); }
+    // Sets the manual tempo parameter to the loop's native tempo. False when there is no loop or the tempo is out of range.
+    bool matchTempoToLoop();
+    void clearLoop() noexcept;
     bool hasLoop() const noexcept { return loopSource.hasLoop(); }
     double getLoopSeconds() const noexcept { return loopSeconds.load(std::memory_order_relaxed); }
     void pollLoopCapture();
@@ -248,6 +290,7 @@ private:
     {
         syncHostVariationParameter();
         applyMidiMacros();
+        applyMidiLinks();
         pollLoopCapture();
         updateGesture();
         updateEvolution();
@@ -312,12 +355,21 @@ private:
 
     // Audio-thread state.
     groovemorph::core::Scheduler scheduler;
+    // Telemetry for the Visual window; written by the engine only while active (see TraceRing).
+    groovemorph::core::trace::TraceRing traceRing;
     groovemorph::core::RhythmEngine engine;
     groovemorph::core::scene::MidiTriggerState midiTrigger;
     juce::AudioBuffer<float> dryBuffer;
     int maxBlock = 0;
     double currentSampleRate = 0.0;
+    // Internal (Standalone / Sample Clock) transport. freeRunSample counts samples played; the grid origin is
+    // re-based when tempo or meter change so the musical position stays continuous (never jumps).
     std::int64_t freeRunSample = 0;
+    std::int64_t freeRunOrigin = 0;
+    long double freeRunSamplesPerBeat = 0.0L;
+    std::atomic<bool> internalPlaying{true};
+    std::atomic<bool> internalRewind{false};
+    std::atomic<bool> internalClockActive{false}; // audio thread: the internal transport is what decides play/stop
     std::optional<std::int64_t> previousHostSamplePosition;
     std::optional<double> previousHostPpqPosition;
     double previousHostTempo = 120.0;
@@ -378,6 +430,13 @@ private:
     groovemorph::core::LoopSource loopSource;
     groovemorph::core::LoopCapture loopCapture;
     std::atomic<double> loopSeconds{0.0};
+    // Message-thread copy of the loop at its sample rate, so it survives prepareToPlay (guarded by loopServiceMutex).
+    juce::AudioBuffer<float> loopStore;
+    double loopStoreRate = 0.0;
+    double loopStoreBeats = 0.0;
+    bool republishStoredLoop();
+    std::atomic<double> loopBeatsStatus{0.0};
+    std::atomic<double> loopBpmStatus{0.0};
     std::atomic<double> sampleRateStatus{48000.0};
     mutable std::mutex loopServiceMutex; // message-thread loop services vs prepareToPlay; never taken by the audio thread
     std::atomic<double> phraseFractionStatus{0.0};
@@ -393,6 +452,13 @@ private:
     groovemorph::core::variation::GeneratorSettings evolutionSettings;
     std::uint32_t evolutionStep = 0;
     std::int64_t lastEvolutionPhrase = -1;
+    // MIDI links: the audio thread only pushes CC values into the inbox; links are applied by the timer.
+    groovemorph::core::CcInbox ccInbox;
+    mutable std::mutex midiLinkMutex;
+    groovemorph::core::MidiLinkTable midiLinks;
+    juce::String midiLearnTarget;
+    void applyMidiLinks();
+    void applyLinkedValue(const std::string& target, float normalised);
     std::atomic<bool> midiMacros{false};
     std::array<std::atomic<float>, 3> ccValue{};
     std::atomic<unsigned> ccDirty{0};

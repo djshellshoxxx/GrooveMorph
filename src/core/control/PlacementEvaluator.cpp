@@ -45,10 +45,16 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
 
     const double P = static_cast<double>(phraseTicksInt);
     const double barTicks = static_cast<double>(grid.beatsPerBar) * ticksPerBeat;
-    const double pos = positionBeats * ticksPerBeat;
+    // Every boundary is an integer tick; a position a hair short of one (floating-point beat sums)
+    // must count as being on it, or a whole window would be missed.
+    const auto snapToTick = [](double ticks) {
+        const double nearest = std::round(ticks);
+        return std::abs(ticks - nearest) < 1.0e-6 ? nearest : ticks;
+    };
+    const double pos = snapToTick(positionBeats * ticksPerBeat);
     const double q = pos - static_cast<double>(c.placement.originTicks);
     const bool hasGlobal = std::isfinite(globalBeats);
-    const double globalPos = hasGlobal ? globalBeats * ticksPerBeat : pos;
+    const double globalPos = hasGlobal ? snapToTick(globalBeats * ticksPerBeat) : pos;
     const double globalQ = globalPos - static_cast<double>(c.placement.originTicks);
     const double phraseIndex = std::floor(globalQ / P);
     const double phase = positiveMod(q, P);

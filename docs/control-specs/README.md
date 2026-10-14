@@ -1,6 +1,6 @@
 # Six musical controls: developer specification package
 
-Authored 2026-10-13. Specification only; no application code is changed.
+Authored 2026-10-13. Specification package. C01-C06 are now partly implemented; see docs/alpha/ALPHA-FEATURE-STATUS.md for what exists and where it deviates.
 Baseline: main 015658dc4471be9816d0e2cbcccd8f5d72ed9223; canonical runtime 7f2784a.
 The user's requested five controls are phrase placement, variation distance,
 change permissions, transition phase and automatic return. The sixth is effect

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "SPECIFIED_NOT_IMPLEMENTED",
+  "status": "PARTIALLY_IMPLEMENTED_SEE_docs/alpha/ALPHA-FEATURE-STATUS.md",
   "authored_date": "2026-10-13",
   "baseline_main": "015658dc4471be9816d0e2cbcccd8f5d72ed9223",
   "baseline_runtime": "7f2784a0571f2a6ffb93ea261c386cd89cdde6af",

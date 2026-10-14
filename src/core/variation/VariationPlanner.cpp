@@ -22,7 +22,8 @@ float bounded(float f, float fallback, float low, float high) noexcept {
 Result generate(const Request& request) noexcept {
     Result result{};
     result.settings = request.source;
-    // Mix the seed first, then the candidate index, so (seed, candidate) pairs never alias each other.
+    // Mix the seed first, then the candidate index: consecutive candidates of a seed differ, and (seed, candidate)
+    // aliasing needs seeds that differ by the mixing constant (not reachable with ordinary seeds).
     std::uint64_t rng = request.seed;
     (void)next(rng);
     rng += static_cast<std::uint64_t>(request.candidateIndex) * 0xd6e8feb86659fd93ULL;

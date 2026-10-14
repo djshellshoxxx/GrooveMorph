@@ -399,7 +399,7 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
     const auto violates = [&](std::uint32_t set, std::size_t candidate) {
         if (spacing > 0)
             for (std::size_t j = 0; j < lane.count; ++j)
-                if ((set & (1u << j)) != 0 && j != candidate
+                if ((set & (1u << j)) != 0 && j != candidate && lane.events[j].enabled && lane.events[candidate].enabled
                     && circularGap(lane.events[j].onsetTicks, lane.events[candidate].onsetTicks, phraseTicks) < spacing)
                     return true;
         return unionTicks(lane, set | (1u << candidate), phraseTicks) > coverageLimit;

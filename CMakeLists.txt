@@ -14,6 +14,9 @@ file(GLOB_RECURSE GROOVEMORPH_CORE_SOURCES CONFIGURE_DEPENDS src/core/*.cpp)
 add_library(GrooveMorphCore STATIC ${GROOVEMORPH_CORE_SOURCES})
 target_include_directories(GrooveMorphCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(GrooveMorphCore PUBLIC cxx_std_20)
+# TraceRing's concurrency test and any std::thread use in tests need the platform thread library.
+find_package(Threads REQUIRED)
+target_link_libraries(GrooveMorphCore PUBLIC Threads::Threads)
 # Linked into the VST3 shared object, so the static core must be position independent.
 set_target_properties(GrooveMorphCore PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -57,6 +60,13 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
         src/ui/InspectorPanel.cpp
+        src/ui/ControlMenu.cpp
+        src/ui/visual/VisualWindow.cpp
+        src/ui/visual/WeaveView.cpp
+        src/ui/visual/LedgerView.cpp
+        src/ui/visual/Glyphs.cpp
+        src/ui/visual/StationsView.cpp
+        src/ui/visual/RingsView.cpp
     )
     target_include_directories(GrooveMorphPlugin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(GrooveMorphPlugin PRIVATE
@@ -84,6 +94,11 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
             $<TARGET_PROPERTY:GrooveMorphPlugin,COMPILE_DEFINITIONS>
         )
         target_link_libraries(GrooveMorphPluginTests PRIVATE GrooveMorphPlugin)
+        if(MSVC)
+            # main() holds many processors/editors by value; MSVC does not share their stack slots,
+            # so the default 1 MB stack can overflow on entry. Test executable only.
+            target_link_options(GrooveMorphPluginTests PRIVATE /STACK:16777216)
+        endif()
         add_test(NAME GrooveMorphPluginTests COMMAND GrooveMorphPluginTests)
 
         # Developer tool (not a CTest): renders the real editor, software-rendered, to PNG files.

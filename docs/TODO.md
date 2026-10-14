@@ -1,6 +1,6 @@
 # GrooveMorph TODO and implementation ledger
 
-Updated 2026-10-13. Current integrated reference: main `055d0fd8` (PR #16).
+Updated 2026-10-14. See the alpha integration section below and docs/alpha/ALPHA-FEATURE-STATUS.md for the current state (the older text further down is historical).
 This ledger reflects runtime behavior, not every proposed feature. The historical
 feature audit examined earlier main `61d5156`; use the new QA ledger for current
 release validation evidence. Check active PRs before claiming ownership.
@@ -11,8 +11,9 @@ Windows Standalone alpha work: see [alpha feature status](alpha/ALPHA-FEATURE-ST
 [known issues](alpha/KNOWN-ISSUES.md) and [test results](alpha/TEST-RESULTS.md). Delivered subsets:
 A01/C01 placement + event lanes, A02 host Variation sync, A03/C02/C03 generator with locks, A04 scene tools,
 C05 auto-return, C06 activity limits, F02 morph, F03 downbeat protection, F08 session history, demo loop,
-Standalone free-run clock fix. Still open: C04, per-event phase, LF protection and F04-F07, F09-F12; native
-host/device QA (issue #19).
+Standalone free-run clock fix, and (merged alpha) C04 start phase, per-event locks and cycle restart, protected regions,
+F04-F07 and F09-F12 subsets, the Visual window, right-click/MIDI learn, 12 dB crossover option. Still open: per-scene
+transition smoothing, loop-aware Reduce, Linkwitz-Riley crossover, CLAP; native host/device QA (issue #19).
 
 ## Completed
 
@@ -72,6 +73,14 @@ contains original integration CI evidence and limits. [Traceability](TRACEABILIT
 records requirement coverage. Close tasks only with relevant current tests and
 user-facing wiring; update this ledger and help when behavior changes. No numeric
 project completion percentage is asserted.
+
+## Visual feedback window (2026-10-14)
+
+- [x] Research, [plan](visual-feedback/PLAN.md), [developer spec](visual-feedback/SPEC.md) and [integration plan](visual-feedback/INTEGRATION-PLAN.md).
+- [x] Slices S1-S10: trace ring and engine sink, StageGeometry, path resolver, weave layout, planned paths and plan builder, ledger, Visual window (Weave, Ledger, Rings, Stations, Orbit), palette checks, toolbar, [help page](../help/VISUAL-WINDOW.md).
+- [ ] S11 native validation (Windows / REAPER, CPU with the window open, Standalone vs VST3) under [issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19).
+- [ ] User review of the design against the Gross Beat anti-resemblance rules (PLAN 4b), screen-reader pass, human colour-blind review.
+- [ ] Optional S12: per-stage in/out peaks (delta strips), repeat/self-similarity map, keyboard thread cursor, planned view for evolution/gestures.
 
 ## Six-control specification package (2026-10-13)
 

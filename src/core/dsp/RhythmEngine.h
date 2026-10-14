@@ -1,6 +1,8 @@
 #pragma once
 
 #include "core/OperationParams.h"
+#include "core/dsp/StageGeometry.h"
+#include "core/trace/TraceRing.h"
 
 #include <array>
 #include <cstddef>
@@ -53,7 +55,7 @@ public:
     static constexpr double maxHistorySeconds = 4.0;
     static constexpr double crossfadeSeconds = 0.003;
     static constexpr double gateRampSeconds = 0.002;
-    static constexpr int repeatCycleSlices = 4;
+    static constexpr int repeatCycleSlices = stage::repeatCycleSlices;
 
     // Allocates all state. Not real-time safe. Resets the engine.
     void prepare(double sampleRate, int maxBlockSize, int maxChannels);
@@ -66,6 +68,8 @@ public:
     // Negative history times are treated as silence until fresh audio fills each window.
     // Preserve parameter ramps so a timeline jump does not restart automation smoothing.
     void resetHistory() noexcept;
+    // Starts a new trace epoch without touching audio state (the trace beat axis jumped, e.g. a C04 phase shift).
+    void startTraceEpoch() noexcept { ++traceEpoch; }
     // After resetHistory() each history operation passes the dry signal until the fresh history covers
     // its read delay (then it crossfades in), instead of replaying silence from an emptied buffer.
 
@@ -77,6 +81,11 @@ public:
                  const VariationSettings& variation,
                  float intensity,
                  const RhythmTiming& timing) noexcept;
+
+    // Optional read-only telemetry for the Visual window (docs/visual-feedback/SPEC.md section 4).
+    // nullptr (default) or an inactive ring costs nothing and never changes the audio output. Must
+    // not be changed concurrently with process(); the sink must outlive its use by the engine.
+    void setTraceSink(trace::TraceRing* sink) noexcept { traceSink = sink; }
 
     [[nodiscard]] bool isPrepared() const noexcept { return capacity > 0; }
     [[nodiscard]] int crossfadeSamples() const noexcept { return fadeSamples; }
@@ -121,5 +130,11 @@ private:
     std::array<Voice, historyStageCount> voices{};
     float gateGain = 1.0f;
     bool warmingAfterReset = false; // set by resetHistory(), cleared by reset()
+
+    trace::TraceRing* traceSink = nullptr;
+    std::uint32_t traceEpoch = 0; // increments on reset()/resetHistory()
+    float traceInPeak = 0.0f;     // peak accumulators over the current hop window
+    float traceOutPeak = 0.0f;
+    bool traceLastTimingOk = true; // a stop/start of timing starts a new epoch (beat is 0 while stopped)
 };
 } // namespace groovemorph::core

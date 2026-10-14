@@ -76,16 +76,29 @@ public:
             control::sanitize(settings.control);
             result.bank.setVariationSettings(v, settings);
         }
+        if (const auto duplicate = result.bank.midiNoteMap().firstConflictingNote())
+            info("MIDI note " + std::to_string(*duplicate) + " is assigned to more than one scene; the first scene wins");
+        if (suppressed > 0)
+            result.report.messages.push_back(std::to_string(suppressed) + " more recovery notes suppressed");
     }
+
+    // At most maxMessages recovery notes are kept so a hostile blob of bad lines cannot allocate without bound.
+    static constexpr std::size_t maxMessages = 64;
+    std::size_t suppressed = 0;
 
     void note(std::string msg)
     {
         result.report.status = LoadStatus::Recovered;
-        constexpr std::size_t maxMessages = 64; // hostile files must not grow the report without bound
+        info(std::move(msg));
+    }
+
+    // Informational message that does not mean anything was recovered (the data loaded exactly as saved).
+    void info(std::string msg)
+    {
         if (result.report.messages.size() < maxMessages)
             result.report.messages.push_back(std::move(msg));
-        else if (result.report.messages.size() == maxMessages)
-            result.report.messages.push_back("further recovery notes suppressed");
+        else
+            ++suppressed;
     }
 
     void apply(std::string_view key, std::string_view value)
@@ -181,7 +194,13 @@ private:
         else if (rest == "placement.origin") { if (asInt(n)) c.placement.originTicks = static_cast<std::int32_t>(std::clamp<long long>(n, -1966080, 1966080)); }
         else if (rest == "placement.subdiv") { if (asInt(n)) c.placement.subdivision = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 255)); }
         else if (rest == "placement.protect") asFloat(c.placement.downbeatProtectBeats);
-        else if (rest == "placement.regions") { if (asInt(n)) c.placement.regionCount = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, static_cast<long long>(control::maxProtectedRegions))); }
+        else if (rest == "placement.regions")
+        {
+            // Not sanitised here: the region lines that follow fill in the lengths (sanitize would flag them).
+            if (asInt(n)) c.placement.regionCount = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, static_cast<long long>(control::maxProtectedRegions)));
+            result.bank.setVariationSettings(idx, settings);
+            return;
+        }
         else if (rest.starts_with("region."))
         {
             // region.K.start / region.K.length (K < maxProtectedRegions)
@@ -413,10 +432,12 @@ LoadResult SceneSerializer::deserialize(std::string_view text) noexcept
             std::string(sceneFormatMagic) + " v" + std::to_string(sceneFormatVersion);
         if (header != expected)
         {
+            // Older versions would be migrated here (only v1 exists today). A newer version cannot be read:
+            // report it so the caller can keep the user's current scenes instead of replacing them.
             LoadResult r;
             r.report.status = LoadStatus::Defaulted;
             r.report.messages.push_back(header.starts_with(sceneFormatMagic)
-                                            ? "unsupported scene format version; defaults loaded"
+                                            ? "scene format version is newer than this build supports; scenes not loaded"
                                             : "missing scene header; defaults loaded");
             return r;
         }

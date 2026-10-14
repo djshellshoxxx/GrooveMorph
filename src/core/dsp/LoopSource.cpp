@@ -29,7 +29,9 @@ bool LoopSource::load(const float* const* channels, int numChannels, std::int64_
         std::this_thread::sleep_for(std::chrono::microseconds(200));
     if (reading.load(std::memory_order_seq_cst) == idle)
         return false; // the audio thread is stuck on this buffer; refuse rather than race
-    const std::int64_t n = std::min(numSamples, capacity);
+    if (numSamples > capacity)
+        return false; // truncating would silently stretch the loop against its beat length
+    const std::int64_t n = numSamples;
     auto& buffer = data[idle];
     for (int c = 0; c < maxChannels; ++c)
     {

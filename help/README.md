@@ -1,6 +1,6 @@
 # GrooveMorph user help
 
-> Documentation target: integrated MVP editor at commit `7f2784a0571f2a6ffb93ea261c386cd89cdde6af` (PR #7). The UI may change in later branches. This is a beta user guide, not evidence of final DAW qualification.
+> Documentation status: `CONTROLS`, `QUICK-START`, `WORKFLOWS`, `TIMING` and the SVG images describe the original MVP editor (commit `7f2784a`, PR #7). The alpha adds inspector tabs (Place, Gen, Scene, Morph, Limit, Input, Perform, Info), the Visual window, transport buttons and right-click menus; only `RIGHT-CLICK-AND-MIDI` and `VISUAL-WINDOW` cover the newer controls, and the tabs are described in `docs/alpha/USER-TEST-GUIDE.md` and the in-app tooltips. This is a user guide, not evidence of DAW qualification.
 
 ## Start here
 
@@ -10,6 +10,8 @@
 4. [Timing and transitions](TIMING.md): Automatic vs Host PPQ vs Sample Clock; queue semantics and fallback.
 5. [Troubleshooting](TROUBLESHOOTING.md): silent output, missing timing, held transitions, MIDI, host state.
 6. [Visual guide and screenshot capture](VISUAL-GUIDE.md): arrows, numbered labels, and screenshot verification process.
+7. [The Visual window](VISUAL-WINDOW.md): the live picture of what the plugin is doing to the sound (alpha).
+8. [Right-click menu, MIDI links, Play/Stop and Reset](RIGHT-CLICK-AND-MIDI.md): exact values, copy/paste, MIDI learn, the transport buttons, loop tempo.
 
 ## Scope
 
@@ -19,7 +21,7 @@ The illustrated SVGs in `help/images/` are **source-derived UI diagrams**, **not
 
 ## What this beta does not claim
 
-No arbitrary step/event-lane editor, editable phrase origin or beat subdivision, full-song buffer capture, audio-file import, scene morphing, multiband engine, CLAP export, or validated native DAW compatibility are established by this MVP. The expansion F01–F12 specifications live separately and are drafts.
+The original MVP had no event lanes, file import, morphing or band split; the alpha adds them (see `docs/alpha/ALPHA-FEATURE-STATUS.md`). Full-song capture, time stretching, CLAP export and validated native DAW compatibility are not established. The F01–F12 specifications are drafts (PR #6).
 
 ## Useful code links
 

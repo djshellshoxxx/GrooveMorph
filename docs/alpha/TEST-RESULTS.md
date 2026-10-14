@@ -2,7 +2,17 @@
 
 Only checks that were actually run are listed. Dates 2026-10-14.
 
-## Local, Linux x86_64 (alpha 2)
+## Merged line (2026-10-14: alpha-2 features + visual-feedback branch), local Linux x86_64
+| Check | Result |
+|---|---|
+| Portable core, GCC (29 test executables) | 29/29 passed |
+| Portable core under ThreadSanitizer, and under AddressSanitizer + UBSan | 29/29 passed each, no reports |
+| Full plugin build + `ctest` under xvfb (29 core + `GrooveMorphPluginTests`) | 30/30 passed |
+| Independent audits of the merged tree (processor/audio thread, core/state, UI, features vs docs) | findings fixed or documented in KNOWN-ISSUES.md |
+| Windows CI for the merged commit | see the PR's checks; no Windows run is claimed here |
+Earlier numbers below belong to the pre-merge alpha-2 build (`9e76b43`, alpha.9) and are kept as history.
+
+## Local, Linux x86_64 (alpha 2, pre-merge)
 | Check | Result |
 |---|---|
 | Portable core, GCC Release: 14 test executables (adds SceneControl, CandidateBuilder, EnginePhase, OnsetDetector, LoopSource) | 14/14 passed |
@@ -31,6 +41,6 @@ The Windows screenshot is a startup capture only: the 1290x740 window is cropped
 Windows. The earlier alpha.3 build (`4042b61`) passed the same checks with 12 tests.
 
 ## Not performed
-DAW hosting (REAPER or other), VST3 validator run on the new build, audio-device playback, listening/quality evaluation,
+DAW hosting (REAPER or other), Steinberg SDK VST3 validator run (pluginval passed on the pre-merge PR #24 build), audio-device playback, listening/quality evaluation,
 real-time deadline and allocation instrumentation, long-session stress, interactive GUI tests on a Windows desktop by the author,
 CPU measurements. Core/processor tests do not prove DAW compatibility or audio quality.

@@ -12,43 +12,11 @@ constexpr std::size_t opIndex(OperationType type) noexcept
     return static_cast<std::size_t>(type);
 }
 
-// History-ring slot of an operation, or -1 when it reads no history.
-constexpr int historySlot(std::size_t op) noexcept
-{
-    switch (static_cast<OperationType>(op))
-    {
-        case OperationType::Repeat: return 0;
-        case OperationType::ReverseSlice: return 1;
-        case OperationType::HalfTime: return 2;
-        case OperationType::TapeStop: return 3;
-        default: return -1;
-    }
-}
-
-// Maximum read delay of an operation as a multiple of its slice length.
-constexpr double delayMultiple(OperationType type) noexcept
-{
-    switch (type)
-    {
-        case OperationType::Repeat: return static_cast<double>(RhythmEngine::repeatCycleSlices - 1);
-        case OperationType::ReverseSlice: return 2.0;
-        default: return 1.0;
-    }
-}
-
-float sanitiseUnit(float v, float fallback) noexcept
-{
-    if (!std::isfinite(v))
-        return fallback;
-    return std::clamp(v, 0.0f, 1.0f);
-}
-
-double sanitiseSliceBeats(float v) noexcept
-{
-    if (!std::isfinite(v))
-        return 0.25;
-    return std::clamp(static_cast<double>(v), 1.0 / 16.0, 4.0);
-}
+using stage::delayMultiple;
+using stage::historySlot;
+using stage::positionInCell;
+using stage::sanitiseSliceBeats;
+using stage::sanitiseUnit;
 
 float slew(float current, float target, float step) noexcept
 {
@@ -57,19 +25,6 @@ float slew(float current, float target, float step) noexcept
     if (current > target)
         return std::max(target, current - step);
     return target;
-}
-
-// Samples elapsed since the start of the grid cell of length cellBeats containing beat.
-double positionInCell(double beat, double cellBeats, double samplesPerBeat, double cellSamples) noexcept
-{
-    const double index = std::floor(beat / cellBeats);
-    double pos = (beat - index * cellBeats) * samplesPerBeat;
-    const double rounded = std::nearbyint(pos);
-    if (std::abs(pos - rounded) < 1.0e-6)
-        pos = rounded;
-    if (pos >= cellSamples)
-        pos = 0.0;
-    return std::max(0.0, pos);
 }
 } // namespace
 
@@ -102,6 +57,9 @@ void RhythmEngine::reset() noexcept
     voices.fill(Voice{});
     gateGain = 1.0f;
     warmingAfterReset = false;
+    ++traceEpoch;
+    traceInPeak = 0.0f;
+    traceOutPeak = 0.0f;
 }
 
 void RhythmEngine::resetHistory() noexcept
@@ -113,6 +71,9 @@ void RhythmEngine::resetHistory() noexcept
         if (historySlot(op) >= 0)
             amounts[op] = 0.0f;
     warmingAfterReset = true;
+    ++traceEpoch;
+    traceInPeak = 0.0f;
+    traceOutPeak = 0.0f;
 }
 
 double RhythmEngine::maxSliceSamples(OperationType type) const noexcept
@@ -155,6 +116,11 @@ void RhythmEngine::process(float* const* channels,
     const double spb = timing.samplesPerBeat;
     const bool timingOk = timing.isPlaying && std::isfinite(spb) && spb > 0.0
                           && std::isfinite(timing.beatAtBlockStart);
+    if (timingOk != traceLastTimingOk)
+    {
+        traceLastTimingOk = timingOk;
+        ++traceEpoch; // frames while stopped carry beat 0; keep each epoch's beat axis monotonic
+    }
 
     std::array<float, operationCount> targets{};
     std::array<double, operationCount> sliceBeats{};
@@ -166,13 +132,9 @@ void RhythmEngine::process(float* const* channels,
         double beats = sanitiseSliceBeats(s.sliceBeats);
         if (timingOk)
         {
-            double samples = beats * spb;
-            if (historySlot(op) >= 0)
-            {
-                samples = std::min(samples, maxSliceSamples(static_cast<OperationType>(op)));
-                beats = samples / spb;
-            }
-            sliceSamples[op] = samples;
+            const stage::Slice slice = stage::effectiveSlice(static_cast<OperationType>(op), s.sliceBeats, spb, historySamples);
+            beats = slice.beats;
+            sliceSamples[op] = slice.samples;
         }
         sliceBeats[op] = beats;
         // After a history reset, a history operation waits until fresh audio covers its read delay.
@@ -197,6 +159,7 @@ void RhythmEngine::process(float* const* channels,
         return static_cast<std::size_t>(t % static_cast<std::int64_t>(capacity));
     };
 
+    const bool tracing = traceSink != nullptr && traceSink->active();
     std::array<double, historyStageCount> newR{};
     const float fadeNorm = 1.0f / static_cast<float>(fadeSamples + 1);
 
@@ -214,8 +177,8 @@ void RhythmEngine::process(float* const* channels,
             const std::size_t g = opIndex(OperationType::Gate);
             if (amounts[g] > 0.0f && timingOk)
             {
-                const double pos = positionInCell(beat - timing.phaseOffsetBeats[g], sliceBeats[g], spb, sliceSamples[g]);
-                const float target = pos < 0.5 * sliceSamples[g] ? 1.0f : 0.0f;
+                const float target =
+                    stage::gateOpen(beat - timing.phaseOffsetBeats[g], sliceBeats[g], spb, sliceSamples[g]) ? 1.0f : 0.0f;
                 gateGain = slew(gateGain, target, gateStep);
             }
             else
@@ -238,44 +201,11 @@ void RhythmEngine::process(float* const* channels,
                 continue;
             }
             const double len = sliceSamples[op];
-            double r = t;
-            double rate = 1.0;
-            switch (timingOk ? static_cast<OperationType>(op) : OperationType::Count)
-            {
-                case OperationType::Repeat:
-                {
-                    const double cyclePos = positionInCell(
-                        beat - timing.phaseOffsetBeats[op], sliceBeats[op] * repeatCycleSlices, spb,
-                        len * repeatCycleSlices);
-                    const double j = std::min(static_cast<double>(repeatCycleSlices - 1),
-                                              std::floor(cyclePos / len));
-                    r = t - j * len;
-                    rate = 1.0;
-                    break;
-                }
-                case OperationType::ReverseSlice:
-                {
-                    const double p = positionInCell(beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
-                    r = t - 2.0 * p - 1.0;
-                    rate = -1.0;
-                    break;
-                }
-                case OperationType::HalfTime:
-                {
-                    const double p = positionInCell(beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
-                    r = t - 0.5 * p;
-                    rate = 0.5;
-                    break;
-                }
-                case OperationType::TapeStop:
-                {
-                    const double p = positionInCell(beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
-                    r = t - p * p / (2.0 * len);
-                    rate = 1.0 - p / len;
-                    break;
-                }
-                default: break;
-            }
+            const stage::ReadState read =
+                stage::readPosition(timingOk ? static_cast<OperationType>(op) : OperationType::Count, t,
+                                    beat - timing.phaseOffsetBeats[op], sliceBeats[op], spb, len);
+            const double r = read.r;
+            const double rate = read.rate;
             if (v.valid)
             {
                 const double predicted = v.prevR + v.prevRate;
@@ -303,6 +233,8 @@ void RhythmEngine::process(float* const* channels,
             if (data == nullptr)
                 continue;
             const float dry = std::isfinite(data[n]) ? data[n] : 0.0f; // never let NaN/Inf poison history
+            if (tracing)
+                traceInPeak = std::max(traceInPeak, std::abs(dry));
             float x = dry;
             for (std::size_t op = 0; op < operationCount; ++op)
             {
@@ -345,6 +277,8 @@ void RhythmEngine::process(float* const* channels,
                     y = 0.0f;
             }
             data[n] = y;
+            if (tracing)
+                traceOutPeak = std::max(traceOutPeak, std::abs(y));
         }
 
         for (auto& v : voices)
@@ -360,6 +294,39 @@ void RhythmEngine::process(float* const* channels,
                 v.taps[0] = v.taps[1];
                 --v.tapCount;
             }
+        }
+
+        if (tracing && (now & (trace::hopSamples - 1)) == trace::hopSamples - 1)
+        {
+            trace::TraceFrame f;
+            f.sample = now;
+            f.epoch = traceEpoch;
+            f.flags = (timingOk ? trace::TimingOk : 0u);
+            f.beat = timingOk ? timing.beatAtBlockStart + static_cast<double>(n) / spb : 0.0;
+            f.samplesPerBeat = timingOk ? static_cast<float>(spb) : 0.0f;
+            f.intensity = smoothedIntensity;
+            for (std::size_t op = 0; op < operationCount; ++op)
+            {
+                f.amount[op] = amounts[op];
+                const int slot = historySlot(op);
+                if (slot < 0)
+                    continue;
+                const Voice& v = voices[static_cast<std::size_t>(slot)];
+                if (v.tapCount > 0)
+                    f.flags |= trace::Crossfading;
+                if (amounts[op] > 0.0f && v.valid)
+                {
+                    const double lag = static_cast<double>(now) - v.prevR;
+                    f.lagSamples[slot] = std::isfinite(lag) ? static_cast<float>(std::clamp(lag, 0.0, static_cast<double>(capacity))) : 0.0f;
+                    f.rate[slot] = std::isfinite(v.prevRate) ? static_cast<float>(v.prevRate) : 1.0f;
+                }
+            }
+            f.gateGain = gateGain;
+            f.inPeak = traceInPeak;
+            f.outPeak = traceOutPeak;
+            traceSink->push(f);
+            traceInPeak = 0.0f;
+            traceOutPeak = 0.0f;
         }
         ++now;
     }

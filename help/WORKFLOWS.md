@@ -44,10 +44,9 @@ Set and test the phrase length and transition policy before playing. Prefer bar/
 
 ## Current workflow limitations (2026-10-13)
 
-Use distinct MIDI note assignments. Duplicate notes are accepted, and the first
-matching variation wins without a warning. Scene buttons/MIDI can change the
-active variation while the host's Variation parameter still shows its earlier
-value; inspect the plugin active/queued labels and verify automation behavior.
+Use distinct MIDI note assignments. Duplicate notes are accepted with a warning in the MIDI status
+line, and the first matching variation wins. The host's Variation parameter follows the sounding
+scene (it is realigned after a switch completes); verify automation behavior in your host.
 These are known gaps, tracked in [TODO](../docs/TODO.md).
 
 Undo/Redo covers scene names, operation edits, mappings and scene-bank changes;

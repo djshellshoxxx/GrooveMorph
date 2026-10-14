@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "ui/visual/VisualWindow.h"
 #include "PluginEditor.h"
 
 #include <cstdlib>
@@ -18,10 +19,16 @@ int failures = 0;
 
 void expect(std::string_view name, bool condition)
 {
+    // Every check is logged (flushed) so a crash in CI shows the last check reached.
+    // ctest only prints this output for a failing test.
     if (!condition)
     {
         std::cerr << name << ": check failed\n";
         ++failures;
+    }
+    else
+    {
+        std::cerr << "ok: " << name << '\n' << std::flush;
     }
 }
 
@@ -61,7 +68,9 @@ void processSilence(GrooveMorphAudioProcessor& processor, int samples)
 
 int main()
 {
+    std::cerr << "start: main entered\n" << std::flush;
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
+    std::cerr << "start: juce initialised\n" << std::flush;
 
     {
         GrooveMorphAudioProcessor processor;
@@ -616,7 +625,8 @@ int main()
         juce::MemoryBlock bad;
         juce::AudioProcessor::copyXmlToBinary(*xml, bad);
         restored.setStateInformation(bad.getData(), static_cast<int>(bad.getSize()));
-        expect("malformed scene defaults", restored.getSceneBank() == scene::SceneBank{});
+        expect("unreadable scene blob keeps the current scenes", restored.getSceneBank() == source.getSceneBank());
+        expect("and reports it", restored.getLastSceneLoadReport().status == scene::LoadStatus::Defaulted);
         expect("malformed scene reported", restored.getLastSceneLoadReport().status != scene::LoadStatus::Ok);
     }
 
@@ -1072,7 +1082,8 @@ int main()
                 writer->writeFromAudioSampleBuffer(data, 0, 44100);
             }
         }
-        expect("bad bar count rejected", processor.importLoopFile(tmp, 0).failed());
+        expect("bad bar count rejected", processor.importLoopFile(tmp, 17).failed() && processor.importLoopFile(tmp, -1).failed());
+        expect("bad loop tempo rejected", processor.importLoopFile(tmp, 0, 5.0).failed() && processor.importLoopFile(tmp, 0, 900.0).failed());
         expect("wav imports", processor.importLoopFile(tmp, 2).wasOk() && processor.hasLoop()
                                   && std::abs(processor.getLoopSeconds() - 1.0) < 1e-3);
         tmp.deleteFile();
@@ -1143,7 +1154,7 @@ int main()
         processor.getStateInformation(state);
         GrooveMorphAudioProcessor restored;
         restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
-        expect("evolution is not saved into project state", restored.getSceneBank() == stored);
+        expect("evolution does not modify the saved scene bank", restored.getSceneBank() == stored);
         processor.setEvolution(false, 0, 1, 1.0f, 2, 1234);
         expect("evolution off", !processor.isEvolving());
         processor.setPlayHead(nullptr);
@@ -1216,6 +1227,504 @@ int main()
         processor.beginAudition(0);
         expect("undo refused during audition", !processor.undoSceneEdit());
         processor.revertAudition();
+    }
+
+    // VF-T10: the Visual window's trace ring never changes the processed audio, and records only while active.
+    {
+        GrooveMorphAudioProcessor traced, plain;
+        for (auto* p : {&traced, &plain})
+        {
+            setParameter(*p, "masterIntensity", 1.0f);
+            p->prepareToPlay(48000.0, 256);
+        }
+        FakePlayHead headA, headB;
+        traced.setPlayHead(&headA);
+        plain.setPlayHead(&headB);
+        traced.getTraceRing().setActive(true);
+        juce::Random random(99);
+        bool identical = true;
+        for (int block = 0; block < 120; ++block)
+        {
+            setTransport(headA, block * 256);
+            setTransport(headB, block * 256);
+            juce::AudioBuffer<float> a(2, 256);
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < 256; ++i)
+                    a.setSample(c, i, random.nextFloat() * 1.6f - 0.8f);
+            juce::AudioBuffer<float> b(a);
+            juce::MidiBuffer midiA, midiB;
+            traced.processBlock(a, midiA);
+            plain.processBlock(b, midiB);
+            for (int c = 0; c < 2; ++c)
+                identical = identical && std::memcmp(a.getReadPointer(c), b.getReadPointer(c), sizeof(float) * 256) == 0;
+        }
+        expect("trace ring does not change processed audio", identical);
+        expect("active ring recorded frames", traced.getTraceRing().pushedCount() == 120u * 256u / 128u);
+        expect("inactive ring recorded nothing", plain.getTraceRing().pushedCount() == 0);
+        traced.getTraceRing().setActive(false);
+        const auto before = traced.getTraceRing().pushedCount();
+        setTransport(headA, 120 * 256);
+        processSilence(traced, 256);
+        expect("deactivated ring stops recording", traced.getTraceRing().pushedCount() == before);
+        traced.setPlayHead(nullptr);
+        plain.setPlayHead(nullptr);
+    }
+
+    // VF-T08 / VF-T09: the Visual content follows its active flag, renders real data without a display, and
+    // leaves the audio untouched.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        GrooveMorphAudioProcessor processor;
+        setParameter(processor, "masterIntensity", 1.0f);
+        processor.prepareToPlay(48000.0, 256);
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        groovemorph::ui::visual::VisualContent content(processor);
+        content.setSize(900, 560);
+        expect("visual content starts with tracing off", !processor.getTraceRing().active());
+        content.refresh();
+        expect("no frames yet: ledger says so", content.ledgerText().contains("No trace data yet") || content.ledgerText().contains("transport stopped") || content.ledgerText().contains("Timing invalid"));
+        content.setActive(true);
+        expect("activating the content activates tracing", processor.getTraceRing().active());
+        for (int block = 0; block < 400; ++block)
+        {
+            setTransport(playHead, block * 256);
+            juce::AudioBuffer<float> buffer(2, 256);
+            for (int i = 0; i < 256; ++i)
+                buffer.setSample(0, i, std::sin(0.03f * static_cast<float>(block * 256 + i)) * 0.5f);
+            buffer.copyFrom(1, 0, buffer, 0, 0, 256);
+            juce::MidiBuffer midi;
+            processor.processBlock(buffer, midi);
+        }
+        content.refresh();
+        const auto text = content.ledgerText();
+        expect("ledger has live numbers", text.contains("Hearing audio from:") && text.contains("Position: bar") && text.contains("History:"));
+        const auto image = content.createComponentSnapshot(content.getLocalBounds(), true, 1.0f);
+        expect("content paints to a non-empty image", image.getWidth() == 900 && image.getHeight() == 560);
+        bool drewSomething = false;
+        for (int y = 0; y < image.getHeight() && !drewSomething; y += 7)
+            for (int x = 0; x < image.getWidth(); x += 7)
+                if (image.getPixelAt(x, y) != image.getPixelAt(0, 0)) { drewSomething = true; break; }
+        expect("content draws more than a flat colour", drewSomething);
+        // VF-06: view preferences, keyboard and accessible names.
+        content.setSpanBeats(99.0);
+        expect("span is clamped high", content.spanBeats() == 8.0);
+        content.setSpanBeats(0.1);
+        expect("span is clamped low", content.spanBeats() == 1.0);
+        content.setSpanBeats(4.0);
+        expect("reduce motion starts off", !content.reduceMotion());
+        content.setReduceMotion(true);
+        expect("reduce motion can be turned on", content.reduceMotion());
+        content.setReduceMotion(false);
+        bool escaped = false;
+        content.onEscape = [&] { escaped = true; };
+        expect("escape is handled", content.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey)) && escaped);
+        expect("unrelated keys are not swallowed", !content.keyPressed(juce::KeyPress('x')));
+        int named = 0;
+        for (int i = 0; i < content.getNumChildComponents(); ++i)
+            if (content.getChildComponent(i)->getTitle().isNotEmpty())
+                ++named;
+        expect("every view has an accessible name", named >= 5);
+
+        content.setActive(false);
+        expect("deactivating stops tracing", !processor.getTraceRing().active());
+        const auto frames = processor.getTraceRing().pushedCount();
+        setTransport(playHead, 400 * 256);
+        processSilence(processor, 256);
+        expect("no frames while the window is closed", processor.getTraceRing().pushedCount() == frames);
+        processor.setPlayHead(nullptr);
+    }
+
+    // Internal clock (explicit Sample Clock, no host): tempo changes keep the musical position continuous,
+    // Stop holds and rewinds, Play resumes, and an imported loop plays at the right speed.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        auto frames = [](GrooveMorphAudioProcessor& p) {
+            std::vector<groovemorph::core::trace::TraceFrame> f(8192);
+            f.resize(p.getTraceRing().copyLatest(f.data(), f.size()));
+            return f;
+        };
+        auto run = [](GrooveMorphAudioProcessor& p, int blocks, std::vector<float>* capture = nullptr) {
+            for (int b = 0; b < blocks; ++b)
+            {
+                juce::AudioBuffer<float> buf(2, 256);
+                buf.clear();
+                juce::MidiBuffer midi;
+                p.processBlock(buf, midi);
+                if (capture)
+                    for (int i = 0; i < 256; ++i) capture->push_back(buf.getSample(0, i));
+            }
+        };
+        {
+            GrooveMorphAudioProcessor p;
+            setParameter(p, "timingMode", 2.0f); // Sample Clock
+            setParameter(p, "manualTempo", 120.0f);
+            p.prepareToPlay(48000.0, 256);
+            p.getTraceRing().setActive(true);
+            run(p, 400);
+            const auto before = frames(p).back();
+            expect("internal clock decides transport", p.isInternalTransportActive() && p.isInternalPlaying());
+            setParameter(p, "manualTempo", 140.0f);
+            run(p, 1);
+            const auto after = frames(p).back();
+            const double expectedStep = 256.0 / 48000.0 * 140.0 / 60.0; // one block at the new tempo
+            expect("tempo change does not make the position jump",
+                   std::abs((after.beat - before.beat) - (expectedStep + 256.0 / 48000.0 * 120.0 / 60.0)) < 0.02);
+            run(p, 400);
+            const auto a = frames(p); const auto& x = a[a.size() - 300]; const auto& y = a.back();
+            const double bps = (y.beat - x.beat) / (static_cast<double>(y.sample - x.sample) / 48000.0);
+            expect("beats per second follow the tempo (140 BPM)", std::abs(bps - 140.0 / 60.0) < 0.01);
+
+            p.stopInternalTransport();
+            run(p, 4);
+            const auto stopped = frames(p).back();
+            expect("stopped: transport reports stopped", !p.isTransportPlaying() && (stopped.flags & groovemorph::core::trace::TimingOk) == 0);
+            run(p, 50);
+            expect("stopped: position stays at the start", p.getBarInPhrase() == 0.0 && p.getBeatInBar() == 0.0);
+            p.startInternalTransport();
+            run(p, 100); // about one beat at 140 BPM
+            expect("play resumes from the start", p.isTransportPlaying() && p.getBarInPhrase() > 0.0 && p.getBarInPhrase() < 1.0);
+        }
+        // Host sample counter with automated tempo in Sample Clock mode (no PPQ): position stays continuous.
+        {
+            GrooveMorphAudioProcessor p;
+            setParameter(p, "timingMode", 2.0f); // Sample Clock
+            p.prepareToPlay(48000.0, 256);
+            p.getTraceRing().setActive(true);
+            FakePlayHead host;
+            host.info.setIsPlaying(true);
+            host.info.setTimeSignature(juce::AudioPlayHead::TimeSignature{4, 4});
+            p.setPlayHead(&host);
+            std::int64_t pos = 0;
+            auto hostRun = [&](double bpm, int blocks) {
+                host.info.setBpm(bpm);
+                for (int b = 0; b < blocks; ++b)
+                {
+                    host.info.setTimeInSamples(pos);
+                    juce::AudioBuffer<float> buf(2, 256);
+                    buf.clear();
+                    juce::MidiBuffer midi;
+                    p.processBlock(buf, midi);
+                    pos += 256;
+                }
+            };
+            hostRun(120.0, 400);
+            const auto before = frames(p).back();
+            hostRun(140.0, 1);
+            const auto after = frames(p).back();
+            const double stepAtNewTempo = 256.0 / 48000.0 * 140.0 / 60.0;
+            expect("host sample counter: tempo automation does not make the position jump",
+                   std::abs((after.beat - before.beat) - stepAtNewTempo) < 0.002);
+            hostRun(140.0, 400);
+            const auto a = frames(p); const auto& x = a[a.size() - 300]; const auto& y = a.back();
+            const double bps = (y.beat - x.beat) / (static_cast<double>(y.sample - x.sample) / 48000.0);
+            expect("host sample counter: beats per second follow the automated tempo",
+                   std::abs(bps - 140.0 / 60.0) < 0.01);
+            p.setPlayHead(nullptr);
+        }
+        // A 4-bar loop at 140 BPM (ramp 0..0.9), imported with automatic bars at the default 120 BPM.
+        const double secs = 16.0 * 60.0 / 140.0;
+        const int sr = 48000;
+        const int n = static_cast<int>(secs * sr);
+        const juce::File wav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm_ramp_test.wav");
+        {
+            wav.deleteFile();
+            juce::WavAudioFormat fmt;
+            std::unique_ptr<juce::FileOutputStream> os(wav.createOutputStream());
+            std::unique_ptr<juce::AudioFormatWriter> w(fmt.createWriterFor(os.get(), sr, 1, 24, {}, 0));
+            if (w)
+            {
+                os.release();
+                juce::AudioBuffer<float> r(1, n);
+                for (int i = 0; i < n; ++i) r.setSample(0, i, static_cast<float>(i) / static_cast<float>(n) * 0.9f);
+                w->writeFromAudioSampleBuffer(r, 0, n);
+            }
+        }
+        // Plays the imported loop and returns how fast its content advances (1.0 = original speed).
+        auto loopSpeed = [&](double tempo, int bars, double nativeBpm, double* impliedBpm = nullptr) {
+            GrooveMorphAudioProcessor p;
+            setParameter(p, "timingMode", 2.0f);
+            setParameter(p, "manualTempo", static_cast<float>(tempo));
+            setParameter(p, "masterIntensity", 0.0f);
+            p.prepareToPlay(48000.0, 256);
+            const auto r = p.importLoopFile(wav, bars, nativeBpm);
+            expect("loop import succeeds", r.wasOk());
+            if (impliedBpm != nullptr) *impliedBpm = p.getLoopBpm();
+            p.setSourceMode(2);
+            std::vector<float> out;
+            run(p, 400, &out);
+            const int a = 20000, z = 90000;
+            return ((out[z] - out[a]) / (static_cast<double>(z - a) / 48000.0)) * secs / 0.9;
+        };
+        {
+            double implied = 0.0;
+            const double at120 = loopSpeed(120.0, 0, 0.0, &implied);
+            expect("auto detects the loop's own tempo (140 BPM)", std::abs(implied - 140.0) < 0.5);
+            expect("at 120 BPM the 140 BPM loop plays slower (pitch follows tempo)", std::abs(at120 - 120.0 / 140.0) < 0.02);
+            expect("at 140 BPM the loop plays at its original speed", std::abs(loopSpeed(140.0, 0, 0.0) - 1.0) < 0.02);
+            expect("explicit loop tempo gives the same", std::abs(loopSpeed(140.0, 0, 140.0) - 1.0) < 0.02);
+            expect("explicit bars gives the same for the right bar count", std::abs(loopSpeed(140.0, 4, 0.0) - 1.0) < 0.02);
+            expect("the wrong bar count plays too fast, which is why auto/BPM exist", loopSpeed(140.0, 2, 0.0) > 1.9);
+
+            GrooveMorphAudioProcessor p;
+            setParameter(p, "timingMode", 2.0f);
+            p.prepareToPlay(48000.0, 256);
+            expect("match tempo needs a loop", !p.matchTempoToLoop());
+            expect("import ok", p.importLoopFile(wav, 0, 0.0).wasOk());
+            expect("match tempo succeeds", p.matchTempoToLoop());
+            expect("manual tempo is now the loop tempo", std::abs(p.parameters.getRawParameterValue("manualTempo")->load() - 140.0f) < 0.6f);
+            p.setSourceMode(2);
+            p.stopInternalTransport();
+            std::vector<float> out;
+            run(p, 40, &out);
+            float peak = 0.0f;
+            for (float v : out) peak = std::max(peak, std::abs(v));
+            expect("a stopped loop source is silent", peak == 0.0f);
+            p.startInternalTransport();
+            out.clear();
+            run(p, 40, &out);
+            peak = 0.0f;
+            for (float v : out) peak = std::max(peak, std::abs(v));
+            expect("a playing loop source makes sound", peak > 0.0f);
+        }
+        wav.deleteFile();
+    }
+
+    // MIDI learn and links: learn on first movement, apply to parameters and to scene effects without undo flooding,
+    // persist with the project, clear on reset, respect previews.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        auto sendCc = [](GrooveMorphAudioProcessor& p, int cc, int value) {
+            juce::AudioBuffer<float> buf(2, 64);
+            buf.clear();
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, cc, value), 0);
+            p.processBlock(buf, midi);
+        };
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 64);
+        sendCc(p, 30, 10); // movement before learning must not be taken as the answer
+        p.servicePendingControllers();
+        p.beginMidiLearn("p:masterIntensity");
+        expect("learning", p.getMidiLearnTarget() == "p:masterIntensity");
+        p.servicePendingControllers();
+        expect("old movement does not complete learning", p.getMidiLinkCc("p:masterIntensity") == -1);
+        sendCc(p, 31, 100);
+        p.servicePendingControllers();
+        expect("first moving controller is linked", p.getMidiLinkCc("p:masterIntensity") == 31 && p.getMidiLearnTarget().isEmpty());
+        sendCc(p, 31, 127);
+        p.servicePendingControllers();
+        expect("linked controller drives the parameter (max)", std::abs(p.parameters.getRawParameterValue("masterIntensity")->load() - 1.0f) < 1.0e-4f);
+        sendCc(p, 31, 0);
+        p.servicePendingControllers();
+        expect("linked controller drives the parameter (min)", p.parameters.getRawParameterValue("masterIntensity")->load() < 1.0e-4f);
+        expect("bad target is refused", !p.linkMidi(5, "nonsense") && !p.linkMidi(200, "p:dryWet"));
+
+        p.beginMidiLearn("p:dryWet");
+        p.cancelMidiLearn();
+        expect("learning can be cancelled", p.getMidiLearnTarget().isEmpty());
+
+        // Scene effect link: depth of effect 1 (ReverseSlice) of the sounding scene, no undo entry per move.
+        expect("scene link", p.linkMidi(40, "s:1:depth"));
+        const auto before = p.getSceneBank();
+        sendCc(p, 40, 64);
+        p.servicePendingControllers();
+        const auto active = p.getActiveVariation();
+        expect("scene depth follows the controller", std::abs(p.getSceneBank().variation(active).settings.operations[1].depth - 64.0f / 127.0f) < 1.0e-3f);
+        const bool couldUndoBefore = p.canUndoSceneEdit();
+        sendCc(p, 40, 100); p.servicePendingControllers();
+        sendCc(p, 40, 20); p.servicePendingControllers();
+        expect("controller moves add no undo entries", p.canUndoSceneEdit() == couldUndoBefore);
+        expect("scene bank really changed", !(p.getSceneBank() == before));
+        p.linkMidi(41, "s:1:slice");
+        sendCc(p, 41, 127); p.servicePendingControllers();
+        expect("slice maps to the top of its range", std::abs(p.getSceneBank().variation(active).settings.operations[1].sliceBeats - 4.0f) < 1.0e-3f);
+        sendCc(p, 41, 0); p.servicePendingControllers();
+        expect("slice maps to the bottom of its range", std::abs(p.getSceneBank().variation(active).settings.operations[1].sliceBeats - 0.0625f) < 1.0e-4f);
+        p.linkMidi(42, "s:1:enabled");
+        sendCc(p, 42, 127); p.servicePendingControllers();
+        expect("enable follows the controller", p.getSceneBank().variation(active).settings.operations[1].enabled);
+        sendCc(p, 42, 0); p.servicePendingControllers();
+        expect("disable follows the controller", !p.getSceneBank().variation(active).settings.operations[1].enabled);
+
+        // A preview owns the scene: controllers do not touch it.
+        p.beginAudition(active);
+        const auto during = p.getSceneBank();
+        sendCc(p, 40, 127); p.servicePendingControllers();
+        expect("no controller edits during a preview", p.getSceneBank() == during);
+        p.revertAudition();
+
+        // Persistence and reset.
+        juce::MemoryBlock state;
+        p.getStateInformation(state);
+        GrooveMorphAudioProcessor q;
+        q.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        expect("links survive a project save and load", q.getMidiLinkCc("p:masterIntensity") == 31 && q.getMidiLinkCc("s:1:depth") == 40);
+        p.resetToDefaults();
+        expect("reset clears the links", p.getMidiLinkCc("p:masterIntensity") == -1 && p.getMidiLinkCc("s:1:depth") == -1);
+    }
+
+    // Reset to defaults: parameters, scenes, source, loop, transport.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 256);
+        setParameter(p, "masterIntensity", 0.25f);
+        setParameter(p, "dryWet", 0.4f);
+        setParameter(p, "manualTempo", 175.0f);
+        setParameter(p, "phraseBars", 8.0f);
+        setParameter(p, "transitionMode", 3.0f);
+        setParameter(p, "bypass", 1.0f);
+        auto edited = p.getSceneBank().variation(2);
+        edited.name = "Mine";
+        edited.settings.operations[0] = {true, 0.3f, 2.0f};
+        p.setVariationName(2, "Mine");
+        p.setVariationSettings(2, edited.settings);
+        p.setSourceMode(1);
+        p.stopInternalTransport();
+        const auto defaultBank = groovemorph::core::scene::SceneBank{};
+        p.resetToDefaults();
+        expect("reset: intensity", std::abs(p.parameters.getRawParameterValue("masterIntensity")->load() - p.parameters.getParameter("masterIntensity")->convertFrom0to1(p.parameters.getParameter("masterIntensity")->getDefaultValue())) < 1.0e-4f);
+        expect("reset: dry/wet", std::abs(p.parameters.getRawParameterValue("dryWet")->load() - p.parameters.getParameter("dryWet")->convertFrom0to1(p.parameters.getParameter("dryWet")->getDefaultValue())) < 1.0e-4f);
+        expect("reset: tempo is back to 120", std::abs(p.parameters.getRawParameterValue("manualTempo")->load() - 120.0f) < 0.01f);
+        expect("reset: phrase bars", std::abs(p.parameters.getRawParameterValue("phraseBars")->load() - p.parameters.getParameter("phraseBars")->convertFrom0to1(p.parameters.getParameter("phraseBars")->getDefaultValue())) < 1.0e-4f);
+        expect("reset: bypass off", p.parameters.getRawParameterValue("bypass")->load() < 0.5f);
+        expect("reset: scenes are factory", p.getSceneBank() == defaultBank);
+        expect("reset: live input source", p.getSourceMode() == 0 && !p.hasLoop());
+        expect("reset: transport plays again", p.isInternalPlaying());
+        expect("reset: undo history is empty", !p.canUndoSceneEdit());
+    }
+
+    // Every interactive control in the editor (including the inspector tabs) explains itself with a tooltip.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 256);
+        std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor());
+        editor->setSize(1290, 740);
+        std::vector<juce::String> missing;
+        std::function<void(juce::Component&)> walk = [&](juce::Component& c) {
+            for (auto* child : c.getChildren())
+            {
+                const bool interactive = dynamic_cast<juce::Slider*>(child) != nullptr || dynamic_cast<juce::ComboBox*>(child) != nullptr
+                                         || dynamic_cast<juce::Button*>(child) != nullptr || dynamic_cast<juce::TextEditor*>(child) != nullptr;
+                // Skip a slider's own text box and other internals that sit inside a control.
+                const bool insideControl = dynamic_cast<juce::Slider*>(&c) != nullptr || dynamic_cast<juce::ComboBox*>(&c) != nullptr;
+                if (interactive && !insideControl)
+                {
+                    auto* client = dynamic_cast<juce::TooltipClient*>(child);
+                    const auto tip = client != nullptr ? client->getTooltip() : juce::String();
+                    if (tip.trim().length() < 12)
+                    {
+                        juce::String text = child->getName();
+                        if (auto* b = dynamic_cast<juce::Button*>(child)) text << " '" << b->getButtonText() << "'";
+                        missing.push_back(juce::String(typeid(*child).name()) + " " + text);
+                    }
+                }
+                walk(*child);
+                // Only the current tab is in the tree; walk every tab's content as well.
+                if (auto* tabs = dynamic_cast<juce::TabbedComponent*>(child))
+                    for (int t = 0; t < tabs->getNumTabs(); ++t)
+                        if (auto* content = tabs->getTabContentComponent(t))
+                            walk(*content);
+            }
+        };
+        walk(*editor);
+        for (const auto& m : missing)
+            std::cout << "no tooltip: " << m << "\n";
+        expect("every control has a tooltip", missing.empty());
+    }
+
+    // Audit fixes: a loaded loop survives prepareToPlay (host rate/buffer change); 384 kHz sessions keep timing.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        const juce::File wav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm_survive_test.wav");
+        {
+            wav.deleteFile();
+            juce::WavAudioFormat fmt;
+            std::unique_ptr<juce::FileOutputStream> os(wav.createOutputStream());
+            std::unique_ptr<juce::AudioFormatWriter> w(fmt.createWriterFor(os.get(), 44100, 1, 16, {}, 0));
+            if (w)
+            {
+                os.release();
+                juce::AudioBuffer<float> r(1, 44100 * 4);
+                for (int i = 0; i < r.getNumSamples(); ++i) r.setSample(0, i, 0.5f * std::sin(0.05f * static_cast<float>(i)));
+                w->writeFromAudioSampleBuffer(r, 0, r.getNumSamples());
+            }
+        }
+        GrooveMorphAudioProcessor p;
+        setParameter(p, "timingMode", 2.0f);
+        p.prepareToPlay(48000.0, 256);
+        expect("44.1 kHz file imports into a 48 kHz session", p.importLoopFile(wav, 2, 0.0).wasOk() && p.hasLoop());
+        expect("the imported loop keeps its duration after resampling", std::abs(p.getLoopSeconds() - 4.0) < 0.01);
+        p.prepareToPlay(96000.0, 512);
+        expect("the loop survives a sample rate change", p.hasLoop() && std::abs(p.getLoopSeconds() - 4.0) < 0.01);
+        p.prepareToPlay(44100.0, 128);
+        expect("and another one", p.hasLoop() && std::abs(p.getLoopSeconds() - 4.0) < 0.01);
+        p.clearLoop();
+        p.prepareToPlay(48000.0, 256);
+        expect("a cleared loop stays cleared", !p.hasLoop());
+        wav.deleteFile();
+
+        GrooveMorphAudioProcessor hi;
+        setParameter(hi, "timingMode", 2.0f);
+        hi.prepareToPlay(384000.0, 512);
+        juce::AudioBuffer<float> buf(2, 512);
+        buf.clear();
+        juce::MidiBuffer midi;
+        hi.processBlock(buf, midi);
+        expect("timing stays valid at 384 kHz", hi.hasValidTiming() && hi.isTransportPlaying());
+    }
+
+    // Right-click menu logic: number parsing, clamping, paste into sliders, combos and toggles.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        using namespace groovemorph::ui;
+        double v = 0.0;
+        expect("plain number", parseNumber("140", v) && v == 140.0);
+        expect("number with unit", parseNumber("  -2.5 BPM ", v) && v == -2.5);
+        expect("decimal comma", parseNumber("1,5", v) && v == 1.5);
+        expect("leading dot", parseNumber(".5", v) && v == 0.5);
+        expect("number inside text", parseNumber("tempo: 128.5 bpm", v) && v == 128.5);
+        expect("not a number", !parseNumber("abc", v) && !parseNumber("", v) && !parseNumber("-", v) && !parseNumber(".", v));
+        expect("format trims zeros", formatNumber(0.25) == "0.25" && formatNumber(140.0) == "140" && formatNumber(-0.0) == "0" && formatNumber(1.0 / 3.0) == "0.333333");
+
+        MenuSlider slider;
+        slider.setRange(20.0, 300.0, 0.01);
+        slider.setValue(120.0, juce::dontSendNotification);
+        expect("typed value is applied", applyTextToSlider(slider, "140") && slider.getValue() == 140.0);
+        expect("too large is clamped", applyTextToSlider(slider, "900") && slider.getValue() == 300.0);
+        expect("too small is clamped", applyTextToSlider(slider, "-5") && slider.getValue() == 20.0);
+        expect("garbage leaves the value alone", !applyTextToSlider(slider, "hello") && slider.getValue() == 20.0);
+        bool committed = false;
+        slider.onDragEnd = [&] { committed = true; };
+        applyTextToSlider(slider, "100");
+        expect("scene sliders get their commit call", committed);
+
+        MenuComboBox combo;
+        combo.addItemList({"Immediate", "Next Beat", "Next Bar"}, 1);
+        expect("combo by name", applyTextToComboBox(combo, "next bar") && combo.getSelectedId() == 3);
+        expect("combo by number", applyTextToComboBox(combo, "2") && combo.getSelectedId() == 2);
+        expect("combo rejects unknown", !applyTextToComboBox(combo, "Whenever") && !applyTextToComboBox(combo, "9") && combo.getSelectedId() == 2);
+
+        MenuToggleButton toggle("x");
+        expect("toggle on/off words", applyTextToToggle(toggle, "on") && toggle.getToggleState() && applyTextToToggle(toggle, "Off") && !toggle.getToggleState());
+        expect("toggle numbers", applyTextToToggle(toggle, "1") && toggle.getToggleState());
+        expect("toggle rejects nonsense", !applyTextToToggle(toggle, "maybe") && toggle.getToggleState());
+
+        // Copy from one control, paste into another through the (test) clipboard.
+        juce::String clip;
+        auto& access = ClipboardAccess::instance();
+        auto savedCopy = access.copy;
+        auto savedPaste = access.paste;
+        access.copy = [&](const juce::String& t) { clip = t; };
+        access.paste = [&] { return clip; };
+        access.copy(formatNumber(0.75));
+        MenuSlider other;
+        other.setRange(0.0, 1.0, 0.01);
+        expect("paste a copied number into another slider", applyTextToSlider(other, access.paste()) && std::abs(other.getValue() - 0.75) < 1e-9);
+        access.copy = savedCopy;
+        access.paste = savedPaste;
     }
 
     if (failures == 0)
