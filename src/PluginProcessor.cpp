@@ -756,12 +756,32 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         autoReturn.disarm();
     }
     auto internalGrid = manualGrid;
-    if (const auto spb = core::PhraseClock::samplesPerMeterBeat(currentSampleRate, manualGrid); spb && *spb > 0.0L)
+    // Samples per beat of the grid the resolver will actually use: host tempo/meter when reported and valid.
+    auto effectiveGrid = manualGrid;
+    if (hostTransport.tempoBpm)
+    {
+        auto candidate = effectiveGrid;
+        candidate.tempoBpm = *hostTransport.tempoBpm;
+        if (core::PhraseClock::samplesPerMeterBeat(currentSampleRate, candidate))
+            effectiveGrid = candidate;
+    }
+    if (hostTransport.meterNumerator && hostTransport.meterDenominator)
+    {
+        auto candidate = effectiveGrid;
+        candidate.meterNumerator = *hostTransport.meterNumerator;
+        candidate.meterDenominator = *hostTransport.meterDenominator;
+        if (core::PhraseClock::samplesPerMeterBeat(currentSampleRate, candidate))
+            effectiveGrid = candidate;
+    }
+    if (const auto spb = core::PhraseClock::samplesPerMeterBeat(currentSampleRate, effectiveGrid); spb && *spb > 0.0L)
     {
         if (freeRunSamplesPerBeat > 0.0L && *spb != freeRunSamplesPerBeat)
         {
-            const long double beats = static_cast<long double>(freeRunSample - freeRunOrigin) / freeRunSamplesPerBeat;
-            freeRunOrigin = static_cast<std::int64_t>(std::llround(static_cast<long double>(freeRunSample) - beats * *spb));
+            // Re-base against the counter the resolver will use: a host sample position (Sample Clock mode
+            // with automated tempo) or the free-run counter. Either way the musical position stays continuous.
+            const long double counter = static_cast<long double>(hostTransport.timeInSamples.value_or(freeRunSample));
+            const long double beats = (counter - static_cast<long double>(freeRunOrigin)) / freeRunSamplesPerBeat;
+            freeRunOrigin = static_cast<std::int64_t>(std::llround(counter - beats * *spb));
         }
         freeRunSamplesPerBeat = *spb;
     }

@@ -1273,6 +1273,43 @@ int main()
             run(p, 100); // about one beat at 140 BPM
             expect("play resumes from the start", p.isTransportPlaying() && p.getBarInPhrase() > 0.0 && p.getBarInPhrase() < 1.0);
         }
+        // Host sample counter with automated tempo in Sample Clock mode (no PPQ): position stays continuous.
+        {
+            GrooveMorphAudioProcessor p;
+            setParameter(p, "timingMode", 2.0f); // Sample Clock
+            p.prepareToPlay(48000.0, 256);
+            p.getTraceRing().setActive(true);
+            FakePlayHead host;
+            host.info.setIsPlaying(true);
+            host.info.setTimeSignature(juce::AudioPlayHead::TimeSignature{4, 4});
+            p.setPlayHead(&host);
+            std::int64_t pos = 0;
+            auto hostRun = [&](double bpm, int blocks) {
+                host.info.setBpm(bpm);
+                for (int b = 0; b < blocks; ++b)
+                {
+                    host.info.setTimeInSamples(pos);
+                    juce::AudioBuffer<float> buf(2, 256);
+                    buf.clear();
+                    juce::MidiBuffer midi;
+                    p.processBlock(buf, midi);
+                    pos += 256;
+                }
+            };
+            hostRun(120.0, 400);
+            const auto before = frames(p).back();
+            hostRun(140.0, 1);
+            const auto after = frames(p).back();
+            const double stepAtNewTempo = 256.0 / 48000.0 * 140.0 / 60.0;
+            expect("host sample counter: tempo automation does not make the position jump",
+                   std::abs((after.beat - before.beat) - stepAtNewTempo) < 0.002);
+            hostRun(140.0, 400);
+            const auto a = frames(p); const auto& x = a[a.size() - 300]; const auto& y = a.back();
+            const double bps = (y.beat - x.beat) / (static_cast<double>(y.sample - x.sample) / 48000.0);
+            expect("host sample counter: beats per second follow the automated tempo",
+                   std::abs(bps - 140.0 / 60.0) < 0.01);
+            p.setPlayHead(nullptr);
+        }
         // A 4-bar loop at 140 BPM (ramp 0..0.9), imported with automatic bars at the default 120 BPM.
         const double secs = 16.0 * 60.0 / 140.0;
         const int sr = 48000;
