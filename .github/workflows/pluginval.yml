@@ -1,0 +1,56 @@
+name: VST3 host compatibility (pluginval)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-pluginval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install JUCE and virtual display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libasound2-dev libjack-jackd2-dev libfreetype6-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxinerama-dev \
+            libxrandr-dev libxext-dev libxrender-dev libgtk-3-dev \
+            xvfb unzip curl
+      - name: Configure and build Linux VST3
+        run: |
+          cmake -S . -B build-pluginval -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build-pluginval --config Release --target GrooveMorphPlugin_VST3 --parallel 2
+      - name: Fetch pinned pluginval v1.0.4
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Linux.zip \
+            -o pluginval.zip
+          mkdir -p validator
+          unzip -q pluginval.zip -d validator
+          find validator -type f -name pluginval -exec chmod +x {} \;
+      - name: Validate VST3 headlessly (strictness 5)
+        run: |
+          set -eu
+          PLUGIN="$(find build-pluginval -type d -name 'GrooveMorph.vst3' -print -quit)"
+          VALIDATOR="$(find validator -type f -name pluginval -print -quit)"
+          test -n "$PLUGIN"
+          test -n "$VALIDATOR"
+          mkdir -p pluginval-logs
+          xvfb-run -a "$VALIDATOR" --validate "$PLUGIN" \
+            --strictness-level 5 --skip-gui-tests --timeout-ms 60000 \
+            --output-dir pluginval-logs
+      - name: Upload validator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrooveMorph-pluginval-linux
+          path: pluginval-logs/
+          if-no-files-found: ignore
+          retention-days: 30
