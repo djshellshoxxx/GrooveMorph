@@ -716,7 +716,11 @@ public:
         enable.setEnabled(free);
         origin.slider.setEnabled(free);
         protect.slider.setEnabled(free);
-        message.setText(locked ? "Placement is locked (Generator tab > Locks)." : "", juce::dontSendNotification);
+        if (static_cast<int>(locked) != lastLocked) // only on change, so canvas feedback ("event limit reached") is not erased
+        {
+            lastLocked = static_cast<int>(locked);
+            message.setText(locked ? "Placement is locked (Generator tab > Locks)." : "", juce::dontSendNotification);
+        }
         convert.setEnabled(!s.control.lane.explicitEvents);
         canvas.setSettingsView(s);
         const int sel = canvas.selected();
@@ -777,6 +781,7 @@ public:
     }
 
 private:
+    int lastLocked = -1;
     MenuToggleButton enable, modeButton, eventEnabled;
     MenuComboBox window, snap;
     juce::Label snapLabel, message;
@@ -843,7 +848,7 @@ public:
             };
         }
         setupLabel(protectLabel, "Never touch");
-        setupLabel(locksTitle, "Locks (protect from generation)", "Locked fields are restored after generation. They do not change what you hear.");
+        setupLabel(locksTitle, "Locks (protect fields)", "A locked field cannot be changed by the generator, by phrase evolution, or by manual edits, whole-scene copies and MIDI controllers while it is locked: edits to it snap back. Locks do not change what you hear by themselves.");
         static const char* lockNames[] = {"Enable", "Depth", "Slice", "Events"};
         static const std::uint8_t lockBits[] = {ctl::lock::enable, ctl::lock::depth, ctl::lock::slice, ctl::lock::events};
         for (std::size_t op = 0; op < gm::operationCount; ++op)
@@ -1159,6 +1164,9 @@ public:
     }
     void refresh(const gm::VariationSettings&) override
     {
+        morphAmount.setEnabled(morphTarget.getSelectedId() > 1); // nothing to morph toward when the target is Off
+        returnTarget.setEnabled(returnBars.getValue() > 0.0);
+        returnUnit.setEnabled(returnBars.getValue() > 0.0);
         const auto t = processor.getAutoReturnTarget();
         returnStatus.setText(t >= 0 ? "Return pending to scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + t))
                                     : "No return pending.",
@@ -1333,7 +1341,7 @@ public:
                 message.setText("Capture could not start.", juce::dontSendNotification);
         };
         importButton.setButtonText("Import file...");
-        importButton.setTooltip("Loads a WAV/AIFF/FLAC file of up to 20 seconds as a loop spanning the chosen number of bars. It plays locked to the beat grid; there is no time stretching, so pitch follows tempo.");
+        importButton.setTooltip("Loads a WAV, AIFF, FLAC or OGG file of up to 20 seconds as a loop. Its tempo comes from the BPM box if filled in, otherwise from the bars choice (Auto works it out). It plays locked to the beat grid at the plugin tempo; there is no time stretching, so pitch follows tempo.");
         importButton.onClick = [this] {
             chooser = std::make_unique<juce::FileChooser>("Choose an audio loop", juce::File{}, "*.wav;*.aif;*.aiff;*.flac;*.ogg");
             chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -1410,10 +1418,14 @@ public:
         {
             case State::Idle:
                 capture.setButtonText("Capture");
-                if (const int why = processor.getLoopCaptureFailure(); why == 1)
-                    message.setText("Capture refused: that many bars would exceed 20 seconds at this tempo.", juce::dontSendNotification);
-                else if (why == 2)
-                    message.setText("Capture stopped because the transport stopped.", juce::dontSendNotification);
+                if (const int why = processor.getLoopCaptureFailure(); why != lastCaptureFailure)
+                {
+                    lastCaptureFailure = why; // report each failure once, so later messages (e.g. "Imported ...") are not overwritten
+                    if (why == 1)
+                        message.setText("Capture refused: that many bars would exceed 20 seconds at this tempo.", juce::dontSendNotification);
+                    else if (why == 2)
+                        message.setText("Capture stopped: the transport stopped or jumped while recording.", juce::dontSendNotification);
+                }
                 break;
             case State::Armed: capture.setButtonText("Waiting for bar line (click to cancel)"); break;
             case State::Recording: capture.setButtonText("Recording... (click to cancel)"); break;
@@ -1424,6 +1436,8 @@ public:
                          juce::dontSendNotification);
         clearLoop.setEnabled(processor.hasLoop());
         matchTempo.setEnabled(processor.hasLoop());
+        crossover.setEnabled(bandMode.getSelectedId() > 1); // the crossover only matters when the bass is split
+        sens.setEnabled(trigger.getSelectedId() > 1);        // sensitivity only matters when a trigger action is chosen
         onsets.setText("Transients detected: " + juce::String(processor.getOnsetCount()), juce::dontSendNotification);
         midiMacros.setToggleState(processor.areMidiMacrosEnabled(), juce::dontSendNotification);
     }
@@ -1467,6 +1481,7 @@ private:
     int barChoice() const { constexpr int values[] = {0, 1, 2, 4, 8}; return values[juce::jlimit(0, 4, bars.getSelectedId() - 1)]; }
     juce::Label sourceTitle, loopInfo, message, bandTitle, bandModeLabel, crossoverLabel, triggerTitle, triggerLabel, sensLabel, onsets;
     MenuComboBox source, bars, bandMode, trigger;
+    int lastCaptureFailure = 0;
     juce::TextButton capture, importButton, clearLoop, matchTempo;
     juce::TextEditor loopBpmField;
     MenuSlider crossover, sens;

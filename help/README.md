@@ -11,6 +11,7 @@
 5. [Troubleshooting](TROUBLESHOOTING.md): silent output, missing timing, held transitions, MIDI, host state.
 6. [Visual guide and screenshot capture](VISUAL-GUIDE.md): arrows, numbered labels, and screenshot verification process.
 7. [The Visual window](VISUAL-WINDOW.md): the live picture of what the plugin is doing to the sound (alpha).
+8. [Right-click menu, MIDI links, Play/Stop and Reset](RIGHT-CLICK-AND-MIDI.md): exact values, copy/paste, MIDI learn, the transport buttons, loop tempo.
 
 ## Scope
 

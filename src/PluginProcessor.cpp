@@ -167,8 +167,14 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
         loopSource.prepare(currentSampleRate);
         loopCapture.prepare(currentSampleRate);
         sampleRateStatus.store(currentSampleRate, std::memory_order_relaxed);
+        // The host may call prepareToPlay again (sample rate or buffer size change): keep the user's loop.
+        if (!republishStoredLoop())
+        {
+            loopSeconds.store(0.0, std::memory_order_relaxed);
+            loopBeatsStatus.store(0.0, std::memory_order_relaxed);
+            loopBpmStatus.store(0.0, std::memory_order_relaxed);
+        }
     }
-    loopSeconds.store(0.0, std::memory_order_relaxed);
     bandLowState.fill(0.0f);
     for (auto& d : onsetDetectors)
         d.prepare(currentSampleRate);
@@ -321,7 +327,11 @@ void GrooveMorphAudioProcessor::applyMidiMacros()
     for (std::size_t slot = 0; slot < 3; ++slot)
         if ((dirty & (1u << slot)) != 0)
             if (auto* parameter = parameters.getParameter(ids[slot]))
+            {
+                parameter->beginChangeGesture();
                 parameter->setValueNotifyingHost(ccValue[slot].load(std::memory_order_relaxed));
+                parameter->endChangeGesture();
+            }
 }
 
 void GrooveMorphAudioProcessor::beginMidiLearn(const juce::String& target)
@@ -685,7 +695,13 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         const float crossover = juce::jlimit(20.0f, 1000.0f, loadParameter(cached.bandCrossover, 120.0f));
         bandCoefficient = static_cast<float>(1.0 - std::exp(-2.0 * juce::MathConstants<double>::pi
                                                             * static_cast<double>(crossover) / currentSampleRate));
-        audioTriggerSel = loadIndex(cached.audioTrigger, 2);
+        {
+            const int previousTrigger = audioTriggerSel;
+            audioTriggerSel = loadIndex(cached.audioTrigger, 2);
+            if (previousTrigger == 0 && audioTriggerSel != 0)
+                for (auto& d : onsetDetectors)
+                    d.reset(); // stale envelopes from before would fire a false onset or hide a real one
+        }
         audioTriggerSensitivity = juce::jlimit(0.0f, 1.0f, loadParameter(cached.audioTriggerSens, 0.5f));
         if (onsetThisBlock)
         {
@@ -783,6 +799,8 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     {
         engine.resetHistory();
         autoReturn.disarm(); // a seek/loop cancels a transient automatic return
+        if (loopCapture.state() == core::LoopCapture::State::Recording)
+            loopCapture.abort(); // a splice of two timeline positions would be a corrupted loop
     }
     previousHostSamplePosition = hostTransport.timeInSamples;
     previousHostPpqPosition = timing ? timing->ppqPosition : std::nullopt;
@@ -803,6 +821,10 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         if (const double phrases = timing->positionInPhrases(); std::isfinite(phrases) && std::abs(phrases) < 1.0e12)
             phraseIndexStatus.store(static_cast<std::int64_t>(std::floor(phrases)), std::memory_order_relaxed);
         beatInBar.store(timing->beatInBar(), std::memory_order_relaxed);
+    }
+    else
+    {
+        transportPlaying.store(false, std::memory_order_relaxed); // never leave a stale "playing" when timing is unusable
     }
 
     const float intensity = juce::jlimit(0.0f, 1.0f, loadParameter(cached.masterIntensity, 0.0f));
@@ -929,9 +951,9 @@ void GrooveMorphAudioProcessor::syncHostVariationParameter()
         return;
     // A token the audio thread never consumed (the value it saw did not change) is stale; drop it so
     // it cannot swallow a later genuine automation write of the same value.
-    if (const int token = expectedParamEcho.load(std::memory_order_acquire);
-        token >= 0 && paramSeenByAudio.load(std::memory_order_acquire) == token)
-        expectedParamEcho.compare_exchange_strong(const_cast<int&>(token), -1, std::memory_order_acq_rel);
+    int token = expectedParamEcho.load(std::memory_order_acquire);
+    if (token >= 0 && paramSeenByAudio.load(std::memory_order_acquire) == token)
+        expectedParamEcho.compare_exchange_strong(token, -1, std::memory_order_acq_rel);
     const int active = static_cast<int>(activeVariation.load(std::memory_order_relaxed));
     const int maxIndex = static_cast<int>(core::variationCount) - 1;
     const int shown = juce::jlimit(0, maxIndex,
@@ -1370,8 +1392,57 @@ void GrooveMorphAudioProcessor::pollLoopCapture()
         loopSeconds.store(seconds, std::memory_order_relaxed);
         loopBeatsStatus.store(loopCapture.loopBeats(), std::memory_order_relaxed);
         loopBpmStatus.store(seconds > 0.0 ? loopCapture.loopBeats() * 60.0 / seconds : 0.0, std::memory_order_relaxed);
+        loopStore.setSize(2, static_cast<int>(samples), false, true, false);
+        for (int c = 0; c < 2; ++c)
+            loopStore.copyFrom(c, 0, channels[c], static_cast<int>(samples));
+        loopStoreRate = sampleRateStatus.load(std::memory_order_relaxed);
+        loopStoreBeats = loopCapture.loopBeats();
     }
     loopCapture.release();
+}
+
+void GrooveMorphAudioProcessor::clearLoop() noexcept
+{
+    const std::lock_guard<std::mutex> lock(loopServiceMutex);
+    loopSource.clear();
+    loopStore.setSize(0, 0);
+    loopStoreRate = 0.0;
+    loopStoreBeats = 0.0;
+    loopSeconds.store(0.0, std::memory_order_relaxed);
+    loopBeatsStatus.store(0.0, std::memory_order_relaxed);
+    loopBpmStatus.store(0.0, std::memory_order_relaxed);
+}
+
+// Caller holds loopServiceMutex. Re-publishes the stored loop at the current sample rate. False when none is stored.
+bool GrooveMorphAudioProcessor::republishStoredLoop()
+{
+    if (loopStore.getNumSamples() < 16 || loopStoreRate <= 0.0 || !(loopStoreBeats > 0.0))
+        return false;
+    const double ratio = loopStoreRate / currentSampleRate;
+    const auto outLength = static_cast<int>(std::llround(static_cast<double>(loopStore.getNumSamples()) / ratio));
+    if (outLength < 16 || outLength > loopSource.capacitySamples())
+    {
+        loopStore.setSize(0, 0);
+        return false;
+    }
+    juce::AudioBuffer<float> out(2, outLength);
+    for (int c = 0; c < 2; ++c)
+    {
+        if (std::abs(ratio - 1.0) < 1.0e-9)
+            out.copyFrom(c, 0, loopStore, juce::jmin(c, loopStore.getNumChannels() - 1), 0, outLength);
+        else
+        {
+            juce::LagrangeInterpolator interpolator;
+            interpolator.process(ratio, loopStore.getReadPointer(juce::jmin(c, loopStore.getNumChannels() - 1)), out.getWritePointer(c), outLength);
+        }
+    }
+    const float* channels[2] = {out.getReadPointer(0), out.getReadPointer(1)};
+    if (!loopSource.load(channels, 2, outLength, loopStoreBeats, 0.0))
+        return false;
+    loopStore = out;
+    loopStoreRate = currentSampleRate;
+    loopSeconds.store(static_cast<double>(outLength) / currentSampleRate, std::memory_order_relaxed);
+    return true;
 }
 
 juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, int bars, double nativeBpm)
@@ -1428,6 +1499,9 @@ juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, i
     loopSeconds.store(seconds, std::memory_order_relaxed);
     loopBeatsStatus.store(mapping.beats, std::memory_order_relaxed);
     loopBpmStatus.store(mapping.nativeBpm, std::memory_order_relaxed);
+    loopStore = resampled;
+    loopStoreRate = deviceRate;
+    loopStoreBeats = mapping.beats;
     return juce::Result::ok();
 }
 
@@ -1496,7 +1570,11 @@ void GrooveMorphAudioProcessor::updateGesture()
     if (gestureRecording)
         gesture.record(fraction, parameter->getValue());
     else if (const float value = gesture.sample(fraction); value >= 0.0f)
+    {
+        parameter->beginChangeGesture();
         parameter->setValueNotifyingHost(value);
+        parameter->endChangeGesture();
+    }
 }
 
 void GrooveMorphAudioProcessor::setEvolution(bool enabled, std::size_t scene, int everyPhrases, float distance,

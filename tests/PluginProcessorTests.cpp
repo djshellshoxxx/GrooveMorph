@@ -1473,6 +1473,98 @@ int main()
         expect("every control has a tooltip", missing.empty());
     }
 
+    // Audit fixes: a loaded loop survives prepareToPlay (host rate/buffer change); 384 kHz sessions keep timing.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        const juce::File wav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm_survive_test.wav");
+        {
+            wav.deleteFile();
+            juce::WavAudioFormat fmt;
+            std::unique_ptr<juce::FileOutputStream> os(wav.createOutputStream());
+            std::unique_ptr<juce::AudioFormatWriter> w(fmt.createWriterFor(os.get(), 44100, 1, 16, {}, 0));
+            if (w)
+            {
+                os.release();
+                juce::AudioBuffer<float> r(1, 44100 * 4);
+                for (int i = 0; i < r.getNumSamples(); ++i) r.setSample(0, i, 0.5f * std::sin(0.05f * static_cast<float>(i)));
+                w->writeFromAudioSampleBuffer(r, 0, r.getNumSamples());
+            }
+        }
+        GrooveMorphAudioProcessor p;
+        setParameter(p, "timingMode", 2.0f);
+        p.prepareToPlay(48000.0, 256);
+        expect("44.1 kHz file imports into a 48 kHz session", p.importLoopFile(wav, 2, 0.0).wasOk() && p.hasLoop());
+        expect("the imported loop keeps its duration after resampling", std::abs(p.getLoopSeconds() - 4.0) < 0.01);
+        p.prepareToPlay(96000.0, 512);
+        expect("the loop survives a sample rate change", p.hasLoop() && std::abs(p.getLoopSeconds() - 4.0) < 0.01);
+        p.prepareToPlay(44100.0, 128);
+        expect("and another one", p.hasLoop() && std::abs(p.getLoopSeconds() - 4.0) < 0.01);
+        p.clearLoop();
+        p.prepareToPlay(48000.0, 256);
+        expect("a cleared loop stays cleared", !p.hasLoop());
+        wav.deleteFile();
+
+        GrooveMorphAudioProcessor hi;
+        setParameter(hi, "timingMode", 2.0f);
+        hi.prepareToPlay(384000.0, 512);
+        juce::AudioBuffer<float> buf(2, 512);
+        buf.clear();
+        juce::MidiBuffer midi;
+        hi.processBlock(buf, midi);
+        expect("timing stays valid at 384 kHz", hi.hasValidTiming() && hi.isTransportPlaying());
+    }
+
+    // Right-click menu logic: number parsing, clamping, paste into sliders, combos and toggles.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        using namespace groovemorph::ui;
+        double v = 0.0;
+        expect("plain number", parseNumber("140", v) && v == 140.0);
+        expect("number with unit", parseNumber("  -2.5 BPM ", v) && v == -2.5);
+        expect("decimal comma", parseNumber("1,5", v) && v == 1.5);
+        expect("leading dot", parseNumber(".5", v) && v == 0.5);
+        expect("number inside text", parseNumber("tempo: 128.5 bpm", v) && v == 128.5);
+        expect("not a number", !parseNumber("abc", v) && !parseNumber("", v) && !parseNumber("-", v) && !parseNumber(".", v));
+        expect("format trims zeros", formatNumber(0.25) == "0.25" && formatNumber(140.0) == "140" && formatNumber(-0.0) == "0" && formatNumber(1.0 / 3.0) == "0.333333");
+
+        MenuSlider slider;
+        slider.setRange(20.0, 300.0, 0.01);
+        slider.setValue(120.0, juce::dontSendNotification);
+        expect("typed value is applied", applyTextToSlider(slider, "140") && slider.getValue() == 140.0);
+        expect("too large is clamped", applyTextToSlider(slider, "900") && slider.getValue() == 300.0);
+        expect("too small is clamped", applyTextToSlider(slider, "-5") && slider.getValue() == 20.0);
+        expect("garbage leaves the value alone", !applyTextToSlider(slider, "hello") && slider.getValue() == 20.0);
+        bool committed = false;
+        slider.onDragEnd = [&] { committed = true; };
+        applyTextToSlider(slider, "100");
+        expect("scene sliders get their commit call", committed);
+
+        MenuComboBox combo;
+        combo.addItemList({"Immediate", "Next Beat", "Next Bar"}, 1);
+        expect("combo by name", applyTextToComboBox(combo, "next bar") && combo.getSelectedId() == 3);
+        expect("combo by number", applyTextToComboBox(combo, "2") && combo.getSelectedId() == 2);
+        expect("combo rejects unknown", !applyTextToComboBox(combo, "Whenever") && !applyTextToComboBox(combo, "9") && combo.getSelectedId() == 2);
+
+        MenuToggleButton toggle("x");
+        expect("toggle on/off words", applyTextToToggle(toggle, "on") && toggle.getToggleState() && applyTextToToggle(toggle, "Off") && !toggle.getToggleState());
+        expect("toggle numbers", applyTextToToggle(toggle, "1") && toggle.getToggleState());
+        expect("toggle rejects nonsense", !applyTextToToggle(toggle, "maybe") && toggle.getToggleState());
+
+        // Copy from one control, paste into another through the (test) clipboard.
+        juce::String clip;
+        auto& access = ClipboardAccess::instance();
+        auto savedCopy = access.copy;
+        auto savedPaste = access.paste;
+        access.copy = [&](const juce::String& t) { clip = t; };
+        access.paste = [&] { return clip; };
+        access.copy(formatNumber(0.75));
+        MenuSlider other;
+        other.setRange(0.0, 1.0, 0.01);
+        expect("paste a copied number into another slider", applyTextToSlider(other, access.paste()) && std::abs(other.getValue() - 0.75) < 1e-9);
+        access.copy = savedCopy;
+        access.paste = savedPaste;
+    }
+
     if (failures == 0)
         std::cout << "PluginProcessorTests: all checks passed\n";
     return failures == 0 ? 0 : 1;

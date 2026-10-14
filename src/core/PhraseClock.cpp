@@ -53,7 +53,7 @@ std::optional<long double> samplesToBoundary(long double position,
 std::optional<long double> PhraseClock::samplesPerMeterBeat(
     double sampleRate, const PhraseGrid& grid) noexcept
 {
-    if (!std::isfinite(sampleRate) || sampleRate < 8000.0 || sampleRate > 192000.0
+    if (!std::isfinite(sampleRate) || sampleRate < 8000.0 || sampleRate > 384000.0
         || !std::isfinite(grid.tempoBpm) || grid.tempoBpm < 20.0 || grid.tempoBpm > 300.0
         || grid.meterNumerator < 1 || grid.meterNumerator > 32
         || !isSupportedDenominator(grid.meterDenominator)

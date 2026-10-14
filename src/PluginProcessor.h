@@ -196,13 +196,7 @@ public:
     double getLoopBpm() const noexcept { return loopBpmStatus.load(std::memory_order_relaxed); }
     // Sets the manual tempo parameter to the loop's native tempo. False when there is no loop or the tempo is out of range.
     bool matchTempoToLoop();
-    void clearLoop() noexcept
-    {
-        loopSource.clear();
-        loopSeconds.store(0.0, std::memory_order_relaxed);
-        loopBeatsStatus.store(0.0, std::memory_order_relaxed);
-        loopBpmStatus.store(0.0, std::memory_order_relaxed);
-    }
+    void clearLoop() noexcept;
     bool hasLoop() const noexcept { return loopSource.hasLoop(); }
     double getLoopSeconds() const noexcept { return loopSeconds.load(std::memory_order_relaxed); }
     void pollLoopCapture();
@@ -415,6 +409,11 @@ private:
     groovemorph::core::LoopSource loopSource;
     groovemorph::core::LoopCapture loopCapture;
     std::atomic<double> loopSeconds{0.0};
+    // Message-thread copy of the loop at its sample rate, so it survives prepareToPlay (guarded by loopServiceMutex).
+    juce::AudioBuffer<float> loopStore;
+    double loopStoreRate = 0.0;
+    double loopStoreBeats = 0.0;
+    bool republishStoredLoop();
     std::atomic<double> loopBeatsStatus{0.0};
     std::atomic<double> loopBpmStatus{0.0};
     std::atomic<double> sampleRateStatus{48000.0};

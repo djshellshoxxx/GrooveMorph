@@ -120,6 +120,39 @@ int main()
     }
     expect("garbage valid", allValid);
 
+    // A hostile blob of bad lines cannot make the recovery report grow without bound.
+    {
+        std::string hostile = "groovemorph-scenes v1\n";
+        for (int i = 0; i < 20000; ++i)
+            hostile += "variation.0.op.repeat.depth=notanumber\n";
+        const auto r = SceneSerializer::deserialize(hostile);
+        expect("report is bounded", r.report.messages.size() <= 65);
+        expect("report says more were suppressed", !r.report.messages.empty() && r.report.messages.back().find("suppressed") != std::string::npos);
+        expect("still recovered, not defaulted", r.report.status == LoadStatus::Recovered && valid(r.bank));
+    }
+    // A scene blob from a NEWER format is not readable: defaults plus a message that says so (the processor keeps
+    // the user's current scenes in that case).
+    {
+        const auto r = SceneSerializer::deserialize("groovemorph-scenes v2\nactive=1\n");
+        expect("newer version is reported", r.report.status == LoadStatus::Defaulted && !r.report.messages.empty()
+                                                && r.report.messages.front().find("newer") != std::string::npos);
+        const auto none = SceneSerializer::deserialize("");
+        expect("empty text defaults", none.report.status == LoadStatus::Defaulted);
+    }
+    // Two scenes on one MIDI note load exactly as saved (status Ok) but the report mentions the conflict.
+    {
+        SceneBank bank;
+        auto map = bank.midiNoteMap();
+        map.notes[1] = map.notes[0];
+        bank.setMidiNoteMap(map);
+        const auto r = SceneSerializer::deserialize(SceneSerializer::serialize(bank));
+        expect("duplicate notes load unchanged", r.report.status == LoadStatus::Ok && r.bank.midiNoteMap().notes[1] == r.bank.midiNoteMap().notes[0]);
+        bool mentioned = false;
+        for (const auto& m : r.report.messages)
+            mentioned = mentioned || m.find("more than one scene") != std::string::npos;
+        expect("duplicate notes are mentioned", mentioned);
+    }
+
     if (failures == 0)
         std::cout << "SceneSerializerTests passed\n";
     return failures == 0 ? 0 : 1;
