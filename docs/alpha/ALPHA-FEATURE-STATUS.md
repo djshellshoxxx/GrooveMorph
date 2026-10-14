@@ -1,0 +1,38 @@
+# Alpha feature status
+
+Windows x64 Standalone **alpha 2** (exploratory; not a beta, not production). Status words are used
+strictly: *Complete and tested* / *Implemented, partially tested* / *Partially implemented* /
+*GUI-only / not functional* / *Specification only* / *Not implemented* / *Blocked by dependency*.
+"Tested" means automated tests on Linux (GCC and Clang, ASan/UBSan for the portable core) and Windows CI.
+No feature was tested in a DAW, with audio hardware, or by listening.
+
+| Feature | Status | What works | What is unfinished | Known defects | Next action |
+|---|---|---|---|---|---|
+| Original runtime (4 scenes, 5 effects, Scheduler, MIDI, audition, undo, state) | Implemented, partially tested | Unchanged canonical engine; all earlier tests pass | Native host/device QA (issue #19) | See KNOWN-ISSUES | Issue #19 |
+| Standalone free-run clock | Implemented, partially tested | Standalone ignores the wrapper's transport and runs the Sample Clock | Not verified on a real Windows audio device | - | Verify on hardware |
+| A01 / C01 Phrase placement + event lanes | Implemented, partially tested | Window (full/custom/last bar), every-N cadence, origin, snap grid, downbeat protect; events (max 32/scene) with depth, own slice, priority, optional cycle restart at onset; drag/resize/nudge/delete; convert; sample-accurate edges at any block size; legacy states load | 256-event capacity; split-at-boundary and scale-events commands; conflict badge on meter change; overlap check ignores per-lane loop rings; automated GUI interaction tests | Events saved for a longer phrase wrap into a shorter one (drawn wrapped; no conflict badge) | Scale-events command |
+| A02 Host Variation parameter sync | Implemented, partially tested | Parameter = requested variation; realigned after completion/cancel/GUI/MIDI/auto-return; never written from the audio thread | Real-host automation behaviour | A host in write mode may record the realignment | Test in REAPER |
+| A03 Variation generator | Implemented, partially tested | Seed, style, distance, candidates, never-touch ops, locks, session history, isolated preview, Apply/Revert/Undo, deterministic | History not saved; no candidate gallery | None known | Persist history |
+| A04 Scene management | Implemented, partially tested | Duplicate, Copy FX, reset scene/effect, clear placement, rename, undo/redo, sounding/queued/editing indicators; whole-scene operations keep the destination's locked fields | Fade policy; stable operation automation IDs | None known | Native host check |
+| C02 Variation distance | Partially implemented | Distance 0..1 blend (depth linear, slice log, enable flip >= 0.5) | Richer distance metric | None known | Define a metric |
+| C03 Change permissions | Partially implemented | Per-effect locks (Enable/Depth/Slice/Events) and placement lock; enforced after generation AND on manual edits, previews, history recall and whole-scene operations | Per-event locks; protected temporal regions; "Protect first beat" region (downbeat protect is a separate audio-side control) | None known | Regions |
+| C04 Transition phase | Specification only | - | Everything | - | Scheduler phase policy |
+| C05 Automatic return | Partially implemented | After 1-32 bars or phrases return to previous or A-D on the bar line (sample accurate); cancelled by a new request, Cancel, seek | "Dry" target | None known | Dry target |
+| C06 Activity limits | Implemented, partially tested | Max effects at once with per-effect and per-event priority (live); spacing and coverage via explicit Analyze/Reduce (locked lanes kept, conflict reported) | Reduce ignores lane loop rings | None known | Loop-aware reduce |
+| F01 Controlled generation | Partially implemented | Delivered by A03 | Pattern-level (event) generation | - | Generate events |
+| F02 Scene morphing | Partially implemented | Host-automatable morph target + amount blends effect settings between scenes | Morph of placement/events; editor preview | Large slice changes rely on the engine's 3 ms crossfades | Listening tests |
+| F03 Groove protection | Implemented, partially tested | Downbeat protect (silence effects for 0-4 beats each bar); band split "Protect lows" with 40-400 Hz crossover | Steeper (higher-order) crossover | First-order crossover is gentle (6 dB/oct) | Listening tests |
+| F04 Performance mode | Implemented, partially tested | Perform tab: scene launch, transition, trigger/cancel, Intensity/Dry-Wet/Morph macros, MIDI CC macros | Dedicated large-format layout; macro mapping UI | None known | Layout |
+| F05 Phrase evolution | Implemented, partially tested | Every N phrases the chosen scene sounds as a deterministic variation of its stored settings (seed/style/distance); never edits scenes or saved state; locks respected | Persistence; evolving more than one scene; preview of upcoming steps | Steps apply on a ~20 Hz timer (up to ~50 ms after the boundary) | Persist settings |
+| F06 Polyrhythmic lanes | Implemented, partially tested | Per-lane loop length in beats (events repeat on their own ring, independent of the phrase) | Canvas does not draw the loop ring; per-lane tempo ratios | Overlap checks ignore loop rings | Draw loop tiles |
+| F07 Audio-triggered actions | Implemented, partially tested | Transient detector requests next scene or fires a queued transition; sensitivity; transient counter | Only scene actions; no per-band detection | Warm-up ignores the first 50 ms; sustained dense material can retrigger | Tuning on real material |
+| F08 Generation history | Partially implemented | Session history (24 entries), exact recall for the same scene | Persistence; compare view | History is lost on editor/project close | Persist |
+| F09 Audio import and capture | Implemented, partially tested | Capture N bars from the bar line (refuses >20 s, aborts if the transport stops); import WAV/AIFF/FLAC up to 20 s; beat-locked loop playback as the input source | Time stretching (pitch follows tempo); waveform display; persistence of loop audio | Loop audio is not saved with the project | Stretching |
+| F10 Multiband | Partially implemented | Two-band selective processing: "Lows only" / "Protect lows" | More than two bands; per-band effect settings | See F03 | Band design |
+| F11 Gesture recording | Implemented, partially tested | Record/play one phrase of Morph/Intensity/Dry-Wet movement by phrase position; clears when the target changes | Persistence; higher update rate; multiple lanes | ~20 Hz resolution; not saved | Persist |
+| F12 Expanded MIDI / formats | Partially implemented | MIDI macros (CC 20/21/22 for Intensity/Dry-Wet/Morph, program change selects scenes); existing note mapping unchanged | CLAP and other formats (deferred by project scope); learnable CC mapping | CC values are applied at ~20 Hz | Learn mode |
+| Demo loop | Implemented, partially tested | Deterministic drum loop, identical regardless of block splits (unit tested) | Not audibly verified by the author | Level/tonality unreviewed | Listen |
+| Windows Standalone alpha package | See BUILD-MANIFEST.md | Built and packaged by `windows-alpha.yml` | No interactive GUI test on a real Windows desktop by the author | - | Manual evaluation |
+
+Deviations from `docs/control-specs`: events use meter-beat ticks (960/beat) instead of quarter-note ticks; scene-control
+keys are optional keys in format v1 rather than a v2 header; capacity is 32 events per scene.

@@ -3,7 +3,15 @@
 #include <JuceHeader.h>
 
 #include "core/Scheduler.h"
+#include "core/control/AutoReturn.h"
+#include "core/control/PlacementEvaluator.h"
+#include "core/control/VariationBlend.h"
 #include "core/TransportResolver.h"
+#include "core/control/GestureLane.h"
+#include "core/dsp/DemoSource.h"
+#include "core/dsp/LoopSource.h"
+#include "core/variation/CandidateBuilder.h"
+#include "core/dsp/OnsetDetector.h"
 #include "core/dsp/RhythmEngine.h"
 #include "core/scene/AuditionSession.h"
 #include "core/scene/MidiNoteMap.h"
@@ -31,7 +39,8 @@
 //
 // Operation settings (enable/depth/slice per variation and operation) are scene-bank state,
 // not host parameters (spec 9: MIDI mappings and scene contents are state data).
-class GrooveMorphAudioProcessor final : public juce::AudioProcessor
+class GrooveMorphAudioProcessor final : public juce::AudioProcessor,
+                                        private juce::Timer
 {
 public:
     // Stable host parameter IDs (GM-FR-007). Never repurpose.
@@ -45,11 +54,21 @@ public:
     static constexpr const char* transitionModeId = "transitionMode";
     static constexpr const char* timingModeId = "timingMode";
     static constexpr const char* bypassId = "bypass";
+    // Appended for the alpha (F02 morph, C05 automatic return). Never repurpose.
+    static constexpr const char* morphTargetId = "morphTarget";
+    static constexpr const char* morphAmountId = "morphAmount";
+    static constexpr const char* autoReturnBarsId = "autoReturnBars";
+    static constexpr const char* autoReturnTargetId = "autoReturnTarget";
+    static constexpr const char* autoReturnUnitId = "autoReturnUnit";
+    static constexpr const char* bandModeId = "bandMode";
+    static constexpr const char* bandCrossoverId = "bandCrossover";
+    static constexpr const char* audioTriggerId = "audioTrigger";
+    static constexpr const char* audioTriggerSensId = "audioTriggerSens";
 
     static constexpr double bypassFadeSeconds = 0.010;
 
     GrooveMorphAudioProcessor();
-    ~GrooveMorphAudioProcessor() override = default;
+    ~GrooveMorphAudioProcessor() override { stopTimer(); }
 
     const juce::String getName() const override { return "GrooveMorph"; }
     bool acceptsMidi() const override { return true; }
@@ -113,6 +132,66 @@ public:
     std::int64_t getLastSwitchSample() const noexcept { return lastSwitchSample.load(std::memory_order_relaxed); }
     // Number of MIDI note events seen (lets the UI show "MIDI unavailable" when it stays 0).
     std::uint32_t getMidiNoteEventCount() const noexcept { return midiNoteEvents.load(std::memory_order_relaxed); }
+    // Host Variation parameter semantics (A02): the parameter is the REQUESTED variation. While a
+    // quantized request is pending it shows the request; once the request completes, is cancelled,
+    // or the sounding variation changes through the GUI/MIDI/auto-return, the message thread
+    // realigns it to the sounding variation. Never called from the audio thread (host
+    // notification). Public so tests can drive it without a message loop.
+    void syncHostVariationParameter();
+    // Input source (F09): 0 = live input, 1 = built-in demo drum loop, 2 = captured/imported loop.
+    // The demo and loop sources replace the input while the transport is playing. Not a host
+    // parameter and not saved in project state.
+    void setSourceMode(int mode) noexcept { sourceMode.store(juce::jlimit(0, 2, mode), std::memory_order_relaxed); }
+    int getSourceMode() const noexcept { return sourceMode.load(std::memory_order_relaxed); }
+    void setDemoSourceEnabled(bool enabled) noexcept { setSourceMode(enabled ? 1 : 0); }
+    bool isDemoSourceEnabled() const noexcept { return getSourceMode() == 1; }
+    // Loop capture/import (message thread). Capture records the pre-effect signal for N bars starting
+    // on the next bar line while the transport plays; pollLoopCapture() (timer) publishes it.
+    bool armLoopCapture(int bars);
+    void cancelLoopCapture() noexcept { loopCapture.cancel(); }
+    groovemorph::core::LoopCapture::State getLoopCaptureState() const noexcept { return loopCapture.state(); }
+    // Why the last capture produced no loop: 0 none, 1 longer than 20 s, 2 transport stopped.
+    int getLoopCaptureFailure() const noexcept { return loopCapture.failure(); }
+    // Loads an audio file (WAV/AIFF/FLAC/...; up to 20 s) as a loop spanning `bars` bars.
+    juce::Result importLoopFile(const juce::File& file, int bars);
+    void clearLoop() noexcept { loopSource.clear(); loopSeconds.store(0.0, std::memory_order_relaxed); }
+    bool hasLoop() const noexcept { return loopSource.hasLoop(); }
+    double getLoopSeconds() const noexcept { return loopSeconds.load(std::memory_order_relaxed); }
+    void pollLoopCapture();
+    // Gesture lane (F11, message thread): records one phrase of movement of a macro parameter (0 Morph
+    // amount, 1 Intensity, 2 Dry/Wet) and plays it back by phrase position at timer rate (~20 Hz).
+    void setGestureTarget(int target);
+    int getGestureTarget() const noexcept { return gestureTarget; }
+    void setGestureRecording(bool record);
+    void setGesturePlaying(bool play);
+    void clearGesture();
+    bool isGestureRecording() const noexcept { return gestureRecording; }
+    bool isGesturePlaying() const noexcept { return gesturePlaying; }
+    int getGestureFill() const noexcept { return gesture.filledBins(); }
+    void updateGesture();
+    // Phrase evolution (F05): every N phrases the chosen scene is replaced, for sounding only, by a
+    // deterministic candidate generated from its stored settings. Stored scenes and saved state are
+    // never changed, and the sequence is reproducible from the seed.
+    struct EvolutionSettings { bool enabled; std::size_t scene; int everyPhrases; float distance; int style; };
+    EvolutionSettings getEvolutionSettings() const;
+    void setEvolution(bool enabled, std::size_t scene, int everyPhrases, float distance, int style,
+                      std::uint64_t seed);
+    bool isEvolving() const;
+    std::uint32_t getEvolutionStep() const;
+    void updateEvolution();
+    // Grid used by the phrase editor: the audio thread's resolved meter/phrase when available,
+    // otherwise the manual parameters.
+    groovemorph::core::control::GridContext getGridContext() const noexcept;
+    // MIDI macros (F12): when enabled, CC 20/21/22 drive Intensity / Dry-Wet / Morph amount and
+    // program change 0-3 requests scenes. CC values are applied to the host parameters on the
+    // message thread (applyMidiMacros), never from the audio thread. Not saved in project state.
+    void setMidiMacrosEnabled(bool enabled) noexcept { midiMacros.store(enabled, std::memory_order_relaxed); }
+    bool areMidiMacrosEnabled() const noexcept { return midiMacros.load(std::memory_order_relaxed); }
+    void applyMidiMacros();
+    // Number of audio-trigger onsets detected (F07), for the UI meter.
+    std::uint32_t getOnsetCount() const noexcept { return onsetCount.load(std::memory_order_relaxed); }
+    // Automatic-return status for the UI: scene index the pending return will switch to, or -1.
+    int getAutoReturnTarget() const noexcept { return autoReturnTargetStatus.load(std::memory_order_relaxed); }
     // Queues a switch using the current transitionMode parameter.
     void requestVariation(std::size_t index) noexcept;
     void triggerManualSwitch() noexcept { uiTrigger.store(true, std::memory_order_release); }
@@ -129,6 +208,10 @@ public:
     void setVariationName(std::size_t index, std::string_view name);
     void setMidiNoteMap(const groovemorph::core::scene::MidiNoteMap& map);
     void setSceneSeed(std::uint64_t seed);
+    // Entire-scene duplicate (settings, placement/lane/permissions and name). One undo entry.
+    [[nodiscard]] bool duplicateVariation(std::size_t source, std::size_t destination);
+    // Factory-reset one scene. One undo entry.
+    void resetVariation(std::size_t index);
     bool undoSceneEdit();
     bool redoSceneEdit();
     bool canUndoSceneEdit() const;
@@ -155,6 +238,14 @@ private:
         bool auditioning = false;
     };
 
+    void timerCallback() override
+    {
+        syncHostVariationParameter();
+        applyMidiMacros();
+        pollLoopCapture();
+        updateGesture();
+        updateEvolution();
+    }
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     groovemorph::core::HostTransport readHostTransport() const;
     groovemorph::core::TransitionMode currentTransitionMode() const noexcept;
@@ -169,6 +260,8 @@ private:
     void renderSegment(juce::AudioBuffer<float>& buffer, int numChannels, int start, int length,
                        const std::optional<groovemorph::core::ResolvedTiming>& blockTiming,
                        std::size_t variation, float wetAmount, float bypassTarget) noexcept;
+    // Effective settings for a scene: morph blend (F02) applied; placement is applied per slice.
+    groovemorph::core::VariationSettings effectiveSettings(std::size_t variation) const noexcept;
     void process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, bool forceBypass) noexcept;
 
     // Cache APVTS lookup results once; the callback only loads atomic scalars.
@@ -183,6 +276,15 @@ private:
         std::atomic<float>* activeVariation = nullptr;
         std::atomic<float>* transitionMode = nullptr;
         std::atomic<float>* timingMode = nullptr;
+        std::atomic<float>* morphTarget = nullptr;
+        std::atomic<float>* morphAmount = nullptr;
+        std::atomic<float>* autoReturnBars = nullptr;
+        std::atomic<float>* autoReturnTarget = nullptr;
+        std::atomic<float>* autoReturnUnit = nullptr;
+        std::atomic<float>* bandMode = nullptr;
+        std::atomic<float>* bandCrossover = nullptr;
+        std::atomic<float>* audioTrigger = nullptr;
+        std::atomic<float>* audioTriggerSens = nullptr;
     } cached;
     juce::AudioParameterBool* bypassParameter = nullptr;
 
@@ -215,11 +317,24 @@ private:
     float bypassGain = 0.0f; // 0 = processed, 1 = dry
     float bypassStep = 1.0f;
     int lastSeenVariationParam = 0;
+    groovemorph::core::control::AutoReturn autoReturn;
+    int morphTargetIndex = -1;   // -1 = off; scene whose settings are blended in
+    float morphWeight = 0.0f;
+    // F03/F10 band split (first-order complementary crossover) and F07 audio trigger.
+    int bandModeSel = 0;          // 0 full band, 1 protect lows, 2 lows only
+    float bandCoefficient = 0.0f;
+    std::array<float, 2> bandLowState{};
+    juce::AudioBuffer<float> bandBypass;
+    std::array<groovemorph::core::OnsetDetector, 2> onsetDetectors;
+    int audioTriggerSel = 0;      // 0 off, 1 next scene, 2 trigger queued
+    float audioTriggerSensitivity = 0.5f;
+    bool onsetThisBlock = false;
 
     // UI -> audio.
     std::atomic<int> uiRequest{-1};
     std::atomic<int> uiReset{-1};
     std::atomic<bool> uiResyncParam{false};
+    std::atomic<int> expectedParamEcho{-1}; // value the message thread wrote to the host param
     std::atomic<bool> uiTrigger{false};
     std::atomic<bool> uiCancel{false};
 
@@ -236,6 +351,32 @@ private:
     std::atomic<std::int64_t> samplesUntilSwitch{-1};
     std::atomic<std::int64_t> lastSwitchSample{-1};
     std::atomic<std::uint32_t> midiNoteEvents{0};
+    std::atomic<int> paramSeenByAudio{-1};  // variation parameter value the audio thread last read
+    std::atomic<int> autoReturnTargetStatus{-1};
+    std::atomic<int> sourceMode{0};
+    groovemorph::core::LoopSource loopSource;
+    groovemorph::core::LoopCapture loopCapture;
+    std::atomic<double> loopSeconds{0.0};
+    std::atomic<double> sampleRateStatus{48000.0};
+    mutable std::mutex loopServiceMutex; // message-thread loop services vs prepareToPlay; never taken by the audio thread
+    std::atomic<double> phraseFractionStatus{0.0};
+    std::atomic<std::int64_t> phraseIndexStatus{0};
+    groovemorph::core::control::GestureLane gesture;
+    int gestureTarget = 0;
+    bool gestureRecording = false, gesturePlaying = false;
+    // Evolution state (guarded by modelMutex).
+    bool evolutionOn = false;
+    std::size_t evolutionScene = 0;
+    int evolutionEvery = 1;
+    groovemorph::core::variation::GeneratorSettings evolutionSettings;
+    std::uint32_t evolutionStep = 0;
+    std::int64_t lastEvolutionPhrase = -1;
+    std::atomic<bool> midiMacros{false};
+    std::array<std::atomic<float>, 3> ccValue{};
+    std::atomic<unsigned> ccDirty{0};
+    std::atomic<std::uint32_t> onsetCount{0};
+    std::atomic<int> resolvedBeatsPerBar{0};
+    std::atomic<int> resolvedPhraseBars{0};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GrooveMorphAudioProcessor)
 };

@@ -33,6 +33,7 @@ bool sanitize(VariationSettings& settings) noexcept
     bool changed = false;
     for (auto& op : settings.operations)
         changed = sanitize(op) || changed;
+    changed = control::sanitize(settings.control) || changed;
     return changed;
 }
 
@@ -55,7 +56,7 @@ bool sameSettings(const VariationSettings& a, const VariationSettings& b) noexce
     for (std::size_t i = 0; i < operationCount; ++i)
         if (!sameSettings(a.operations[i], b.operations[i]))
             return false;
-    return true;
+    return control::sameControl(a.control, b.control);
 }
 
 Variation SceneBank::defaultVariation(std::size_t index)
@@ -130,6 +131,22 @@ bool SceneBank::copyVariationSettings(std::size_t source, std::size_t destinatio
         return false;
     variations[destination].settings = sourceSettings;
     return true;
+}
+
+bool SceneBank::duplicateVariation(std::size_t source, std::size_t destination) noexcept
+{
+    if (source >= variationCount || destination >= variationCount || source == destination)
+        return false;
+    if (variations[destination] == variations[source])
+        return false;
+    variations[destination] = variations[source];
+    return true;
+}
+
+void SceneBank::resetVariation(std::size_t index) noexcept
+{
+    if (index < variationCount)
+        variations[index] = defaultVariation(index);
 }
 
 void SceneBank::setActiveIndex(std::size_t index) noexcept

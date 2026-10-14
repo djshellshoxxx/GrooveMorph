@@ -63,6 +63,13 @@ public:
     // active scene and seed. False on invalid, self or semantically equal copy.
     [[nodiscard]] bool copyVariationSettings(std::size_t source, std::size_t destination) noexcept;
 
+    // Duplicate an entire scene (effect settings, placement/lane/permissions AND name) into
+    // another slot. Preserves MIDI mapping, active scene and seed. False on invalid, self or
+    // identical copy.
+    [[nodiscard]] bool duplicateVariation(std::size_t source, std::size_t destination) noexcept;
+    // Restore the factory scene (settings and name) for one slot.
+    void resetVariation(std::size_t index) noexcept;
+
     [[nodiscard]] std::size_t activeIndex() const noexcept { return active; }
     void setActiveIndex(std::size_t index) noexcept; // clamped
 
