@@ -143,6 +143,30 @@ int main()
         expect("not prepared after release", !processor.isPrepared());
     }
 
+    // Scene settings copy is one undoable transaction, independent of host state.
+    {
+        GrooveMorphAudioProcessor processor;
+        const auto original = processor.getSceneBank();
+        expect("copy A effects into B", processor.copyVariationSettings(0, 1));
+        const auto copied = processor.getSceneBank();
+        expect("processor copy changes only destination effects",
+               groovemorph::core::scene::sameSettings(copied.variation(1).settings,
+                                                     original.variation(0).settings));
+        expect("processor copy preserves B name and MIDI",
+               copied.variation(1).name == original.variation(1).name &&
+               copied.midiNoteMap() == original.midiNoteMap());
+        expect("processor copy leaves source intact", copied.variation(0) == original.variation(0));
+        expect("processor copy can undo", processor.undoSceneEdit() &&
+               processor.getSceneBank() == original);
+        expect("processor copy can redo", processor.redoSceneEdit() &&
+               processor.getSceneBank() == copied);
+        expect("copy same effects is no-op", !processor.copyVariationSettings(0, 1));
+        processor.beginAudition(1);
+        expect("copy blocked during audition", !processor.copyVariationSettings(2, 1));
+        processor.revertAudition();
+        expect("invalid copy rejected", !processor.copyVariationSettings(0, 99));
+    }
+
     // GM-FR-005: intensity 0 is the dry path, bit for bit, through processBlock.
     {
         GrooveMorphAudioProcessor processor;
