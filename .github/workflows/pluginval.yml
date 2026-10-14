@@ -76,8 +76,14 @@ jobs:
           $validator = Get-ChildItem -Path validator -Filter 'pluginval.exe' -File -Recurse | Select-Object -First 1
           if (-not $plugin -or -not $validator) { throw 'VST3 bundle or pluginval executable missing' }
           New-Item -ItemType Directory -Path pluginval-logs -Force | Out-Null
-          & $validator.FullName --validate $plugin.FullName --strictness-level 5 --skip-gui-tests --timeout-ms 60000 --output-dir pluginval-logs
-          if ($LASTEXITCODE -ne 0) { throw "pluginval failed with exit code $LASTEXITCODE" }
+          # pluginval.exe is a Windows GUI-subsystem binary: PowerShell's call
+          # operator may leave LASTEXITCODE unset even when validation succeeded.
+          # Start an explicit process and wait for its actual exit code instead.
+          $arguments = '--validate "' + $plugin.FullName + '" --strictness-level 5 --skip-gui-tests --timeout-ms 60000 --output-dir pluginval-logs'
+          $result = Start-Process -FilePath $validator.FullName -ArgumentList $arguments -PassThru -Wait -NoNewWindow
+          if ($null -eq $result.ExitCode -or $result.ExitCode -ne 0) {
+            throw "pluginval failed with exit code $($result.ExitCode)"
+          }
       - name: Upload validator evidence
         if: always()
         uses: actions/upload-artifact@v4
