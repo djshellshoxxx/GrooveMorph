@@ -19,10 +19,16 @@ int failures = 0;
 
 void expect(std::string_view name, bool condition)
 {
+    // Every check is logged (flushed) so a crash in CI shows the last check reached.
+    // ctest only prints this output for a failing test.
     if (!condition)
     {
         std::cerr << name << ": check failed\n";
         ++failures;
+    }
+    else
+    {
+        std::cerr << "ok: " << name << '\n' << std::flush;
     }
 }
 
