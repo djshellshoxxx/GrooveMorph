@@ -6,6 +6,7 @@
 #include "core/trace/TraceRing.h"
 #include "core/viz/Ledger.h"
 #include "core/viz/PlanBuilder.h"
+#include "core/viz/StageModel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,6 +29,8 @@ VisualContent::VisualContent(GrooveMorphAudioProcessor& p) : processor(p), frame
     setTitle("GrooveMorph visual feedback");
     addAndMakeVisible(weaveView);
     addAndMakeVisible(ledgerView);
+    addAndMakeVisible(stationsView);
+    addAndMakeVisible(orbitView);
 }
 
 VisualContent::~VisualContent()
@@ -63,7 +66,13 @@ void VisualContent::resized()
     const int ledgerWidth = juce::jlimit(260, 340, area.getWidth() / 4);
     ledgerView.setBounds(area.removeFromRight(ledgerWidth));
     area.removeFromRight(12);
+    const int bottomHeight = juce::jlimit(170, 230, area.getHeight() / 3);
+    auto bottom = area.removeFromBottom(bottomHeight);
+    area.removeFromBottom(12);
     weaveView.setBounds(area);
+    orbitView.setBounds(bottom.removeFromRight(juce::jlimit(240, 320, bottom.getWidth() / 3)));
+    bottom.removeFromRight(12);
+    stationsView.setBounds(bottom);
 }
 
 void VisualContent::refresh()
@@ -117,27 +126,28 @@ void VisualContent::refresh()
         params.viewStartBeat = params.nowBeat - inkFrontPosition * params.spanBeats;
     }
     data.params = params;
+
+    // Committed scene (bank copied at about 4 Hz) with morph applied, as the engine will render it.
+    const auto nowMs = juce::Time::getMillisecondCounter();
+    if (nowMs - bankFetchedAt > 250u)
+    {
+        cachedBank = processor.getSceneBank();
+        bankFetchedAt = nowMs;
+    }
+    const std::size_t activeIndex = std::min<std::size_t>(static_cast<std::size_t>(std::max(0, status.activeScene)), groovemorph::core::variationCount - 1);
+    auto scene = cachedBank.variation(activeIndex).settings;
+    const auto* morphTargetParam = processor.parameters.getRawParameterValue("morphTarget");
+    const auto* morphAmountParam = processor.parameters.getRawParameterValue("morphAmount");
+    const int morphIndex = morphTargetParam != nullptr ? static_cast<int>(std::lround(morphTargetParam->load())) - 1 : -1;
+    const float morphAmount = morphAmountParam != nullptr ? juce::jlimit(0.0f, 1.0f, morphAmountParam->load()) : 0.0f;
+    if (morphIndex >= 0 && morphIndex < 4 && static_cast<std::size_t>(morphIndex) != activeIndex && morphAmount > 0.0f)
+        scene = groovemorph::core::control::morph(scene, cachedBank.variation(static_cast<std::size_t>(morphIndex)).settings, morphAmount);
+    auto sceneNow = scene;
     if (timed)
     {
         std::vector<viz::Thread> heard(static_cast<std::size_t>(threads));
         heard.resize(viz::buildWeave(window, params, heard.data(), heard.size()));
         data.heard = std::move(heard);
-
-        // The scene bank is copied at about 4 Hz; the plan uses the committed active scene (morph applied).
-        const auto nowMs = juce::Time::getMillisecondCounter();
-        if (nowMs - bankFetchedAt > 250u)
-        {
-            cachedBank = processor.getSceneBank();
-            bankFetchedAt = nowMs;
-        }
-        const std::size_t active = std::min<std::size_t>(status.activeScene, groovemorph::core::variationCount - 1);
-        auto scene = cachedBank.variation(active).settings;
-        const auto* morphTargetParam = processor.parameters.getRawParameterValue("morphTarget");
-        const auto* morphAmountParam = processor.parameters.getRawParameterValue("morphAmount");
-        const int morphIndex = morphTargetParam != nullptr ? static_cast<int>(std::lround(morphTargetParam->load())) - 1 : -1;
-        const float morphAmount = morphAmountParam != nullptr ? juce::jlimit(0.0f, 1.0f, morphAmountParam->load()) : 0.0f;
-        if (morphIndex >= 0 && morphIndex < 4 && static_cast<std::size_t>(morphIndex) != active && morphAmount > 0.0f)
-            scene = groovemorph::core::control::morph(scene, cachedBank.variation(static_cast<std::size_t>(morphIndex)).settings, morphAmount);
 
         const double spb = static_cast<double>(last->samplesPerBeat);
         // Planned threads read back into the past (up to 4 slice-lengths), so the plan starts before the view.
@@ -162,8 +172,26 @@ void VisualContent::refresh()
         std::vector<viz::Thread> planned(static_cast<std::size_t>(threads));
         planned.resize(viz::buildPlannedWeave(ctx, params, tentativeFrom, planned.data(), planned.size()));
         data.planned = std::move(planned);
+        for (const auto& seg : segments)
+            if (params.nowBeat >= seg.startBeat && params.nowBeat < seg.endBeat)
+            {
+                sceneNow = seg.settings;
+                break;
+            }
     }
     weaveView.setData(std::move(data));
+
+    // 5. Chain stations and scene orbit.
+    {
+        std::array<std::uint8_t, groovemorph::core::operationCount> locks{};
+        for (std::size_t i = 0; i < locks.size(); ++i)
+            locks[i] = scene.control.permissions.operationLocks[i];
+        stationsView.setStages(viz::buildStages(scene, sceneNow, locks, last),
+                               status.previewing ? "PREVIEW: not the committed scene" : (timed ? "" : "effects are bypassed while timing is unavailable"));
+        const double spbNow = timed ? static_cast<double>(last->samplesPerBeat) : 0.0;
+        orbitView.setOrbit(viz::buildOrbit(status.activeScene, status.queuedScene, status.samplesUntilSwitch, spbNow, morphIndex,
+                                           morphAmount, processor.getAutoReturnTarget(), status.previewing));
+    }
 }
 
 VisualWindow::VisualWindow(GrooveMorphAudioProcessor& processor, std::function<void()> onClose)
