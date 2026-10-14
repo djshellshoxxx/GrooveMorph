@@ -236,7 +236,7 @@ void GrooveMorphAudioProcessorEditor::applySceneSettings(groovemorph::core::Vari
     // C03: locked fields are kept at their stored values for manual edits too. The lock
     // configuration being edited is kept; the locks in effect are those of the stored scene.
     const auto stored = audioProcessor.getSceneBank().variation(editingIndex).settings;
-    if (groovemorph::core::control::enforcePermissions(stored, settings, true) > 0)
+    if (groovemorph::core::control::enforcePermissions(stored, settings, true, audioProcessor.getGridContext().phraseTicks()) > 0)
         lockNoticeUntil = juce::Time::getMillisecondCounter() + 3000;
     editedVariation.settings = settings;
     if (audioProcessor.isAuditioning()) audioProcessor.setAuditionEdit(editedVariation);
@@ -249,7 +249,7 @@ void GrooveMorphAudioProcessorEditor::previewCandidate(const groovemorph::core::
     // Generated or recalled candidates still honour the locks that are in force now.
     auto settings = candidateSettings;
     const auto stored = audioProcessor.getSceneBank().variation(editingIndex).settings;
-    if (groovemorph::core::control::enforcePermissions(stored, settings, true) > 0)
+    if (groovemorph::core::control::enforcePermissions(stored, settings, true, audioProcessor.getGridContext().phraseTicks()) > 0)
         lockNoticeUntil = juce::Time::getMillisecondCounter() + 3000;
     if (!audioProcessor.isAuditioning())
     {

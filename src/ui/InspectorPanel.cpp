@@ -1265,6 +1265,8 @@ public:
                 if (pl.regionCount < ctl::maxProtectedRegions)
                     pl.regions[pl.regionCount++] = ctl::ProtectedRegion{0, ctl::ticksPerBeat};
             });
+            if (const auto count = access.settings().control.placement.regionCount; count > 0)
+                regionSelect.setSelectedId(static_cast<int>(count), juce::dontSendNotification); // select the new region
         };
         regionRemove.setButtonText("Remove region");
         regionRemove.setTooltip("Removes the selected protected region.");

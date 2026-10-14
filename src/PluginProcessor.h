@@ -355,6 +355,9 @@ private:
     std::atomic<bool> uiRestart{false};
     std::atomic<double> phaseShiftStatus{0.0};
     double phaseShiftBeats = 0.0; // audio thread: pattern position = transport position + shift
+    bool phaseNeedsReset = true;  // audio thread: re-resolve the shift for the active scene (Preserve policy)
+    double lastPhaseGridBeats = 0.0;
+    int previousBandModeSel = 0, previousBandSlopeSel = 0;
 
     // Audio -> UI.
     std::atomic<bool> prepared{false};

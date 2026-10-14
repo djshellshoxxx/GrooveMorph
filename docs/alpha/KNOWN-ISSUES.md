@@ -30,3 +30,9 @@ Still open (not fixed, not hidden):
 - Per-scene transition smoothing time (C04), loop-aware Reduce, Linkwitz-Riley crossover.
 - No software licence is declared; the owner must choose one.
 - No DAW, audio-device or listening tests have been performed.
+
+## Full bug check of PR #28 (2026-10-14)
+
+Three read-only audits plus ASan/UBSan/TSan core runs and clang-tidy found and I fixed: ticking "Lock event" deleted the event and un-ticking duplicated it (lock flags are now lock configuration; new events over a locked one are dropped); the old scene's last samples before a switch used the new scene's phase; the demo/loop source and loop capture followed the shifted pattern beat; a seek reset the phase offset to 0 instead of the active scene's offset (also re-resolved on meter/phrase change, reset and prepare); a Restart request was lost when no timing was available; gesture playback and the Variation echo were sent to the host as change gestures every 50 ms and the gesture lock was held while calling the host; stale crossover filter state after a mode/slope change; evolution distance overflow on hostile state; the added protected region was not selected; the gesture text format depended on the C locale.
+
+Known and not fixed: C04 reads the phase configuration at switch time, not request time (editing the scene between request and launch changes the launch); the editor fit uses the primary display only and a host-applied scale factor overrides it; the crossover coefficient is not smoothed against fast automation; a non-finite input sample can still reach the output through the dry path; morph ignores the target scene's phase, regions and locks.

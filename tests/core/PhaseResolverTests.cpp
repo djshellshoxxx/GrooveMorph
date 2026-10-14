@@ -129,6 +129,44 @@ int main()
                    && back.lane.events[0].locked && !back.lane.events[1].locked
                    && scene::SceneSerializer::serialize(loaded.bank) == text);
     }
+    // Toggling the per-event lock is a lock-configuration edit: it never loses or duplicates the event.
+    {
+        VariationSettings stored;
+        stored.control.lane.explicitEvents = true;
+        stored.control.lane.count = 1;
+        stored.control.lane.events[0] = LaneEvent{1, true, 0, 100, 1.0f, 0.0f, 50, false, false};
+        VariationSettings lockIt = stored;
+        lockIt.control.lane.events[0].locked = true;
+        enforcePermissions(stored, lockIt, true);
+        expect("locking an event keeps it, now locked", lockIt.control.lane.count == 1 && lockIt.control.lane.events[0].locked);
+
+        VariationSettings storedLocked = lockIt;
+        VariationSettings unlockIt = storedLocked;
+        unlockIt.control.lane.events[0].locked = false;
+        enforcePermissions(storedLocked, unlockIt, true);
+        expect("unlocking leaves one unlocked event", unlockIt.control.lane.count == 1 && !unlockIt.control.lane.events[0].locked);
+
+        VariationSettings moved = storedLocked;
+        moved.control.lane.events[0].locked = false;
+        moved.control.lane.events[0].onsetTicks = 50; // edited while locked
+        const auto restored = enforcePermissions(storedLocked, moved, true);
+        expect("an edit of a locked event is undone without duplicating it",
+               restored > 0 && moved.control.lane.count == 1 && moved.control.lane.events[0].onsetTicks == 0
+                   && moved.control.lane.events[0].locked);
+
+        VariationSettings overlapAdd = storedLocked;
+        overlapAdd.control.lane.count = 2;
+        overlapAdd.control.lane.events[1] = LaneEvent{1, true, 50, 100, 1.0f, 0.0f, 50, false, false};
+        enforcePermissions(storedLocked, overlapAdd, true, 960);
+        expect("a new event over a locked one is dropped", overlapAdd.control.lane.count == 1
+                                                               && overlapAdd.control.lane.events[0].onsetTicks == 0);
+        VariationSettings elsewhere = storedLocked;
+        elsewhere.control.lane.count = 2;
+        elsewhere.control.lane.events[1] = LaneEvent{1, true, 500, 100, 1.0f, 0.0f, 50, false, false};
+        enforcePermissions(storedLocked, elsewhere, true, 960);
+        expect("a new event elsewhere is kept", elsewhere.control.lane.count == 2);
+    }
+
     if (failures == 0)
         std::cout << "PhaseResolverTests passed\n";
     return failures == 0 ? 0 : 1;

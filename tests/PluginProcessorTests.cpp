@@ -372,6 +372,20 @@ int main()
         const double local2 = std::fmod(beat2 + processor.getPhaseShiftBeats(), 16.0);
         expect("restart command restarts the active scene", processor.getActiveVariation() == 0
                                                                 && (local2 < 1e-6 || 16.0 - local2 < 1e-6));
+        // A scene with a +1 beat offset keeps its offset after a seek (Preserve policy re-resolved).
+        auto offsetScene = processor.getSceneBank().variation(0).settings;
+        offsetScene.control.phase.offsetBeats = 1.0f;
+        processor.setVariationSettings(0, offsetScene);
+        processor.restartActiveScene();
+        sample += 512;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        sample += 90000;
+        setTransport(playHead, sample);
+        processSilence(processor, 512);
+        expect("a seek keeps the active scene's own offset", std::abs(processor.getPhaseShiftBeats() - 1.0) < 1e-9);
+        offsetScene.control.phase.offsetBeats = 0.0f;
+        processor.setVariationSettings(0, offsetScene);
         sample += 100000; // a seek returns to the transport's own phase
         setTransport(playHead, sample);
         processSilence(processor, 512);
