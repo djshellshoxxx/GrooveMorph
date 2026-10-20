@@ -54,8 +54,8 @@ jobs:
           vst3="build/GrooveMorphPlugin_artefacts/Release/VST3/GrooveMorph.vst3"
           test -d "$app"
           test -d "$vst3"
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/GrooveMorph"
-          lipo -verify_arch arm64 x86_64 "$vst3/Contents/MacOS/GrooveMorph"
+          lipo "$app/Contents/MacOS/GrooveMorph" -verify_arch arm64 x86_64
+          lipo "$vst3/Contents/MacOS/GrooveMorph" -verify_arch arm64 x86_64
 
       - name: Package alpha artifacts
         env:
