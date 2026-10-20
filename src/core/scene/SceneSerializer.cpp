@@ -5,6 +5,10 @@
 #include <charconv>
 #include <cmath>
 #include <exception>
+#include <iomanip>
+#include <limits>
+#include <locale>
+#include <sstream>
 #include <system_error>
 #include <type_traits>
 
@@ -17,9 +21,82 @@ constexpr std::array<std::string_view, operationCount> opKeys{
 
 std::string formatFloat(float v)
 {
-    std::array<char, 64> buf{};
-    const auto res = std::to_chars(buf.data(), buf.data() + buf.size(), v); // shortest round-trip
-    return std::string(buf.data(), res.ptr);
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << std::setprecision(std::numeric_limits<float>::max_digits10) << v;
+    return out.str();
+}
+
+bool parseFloat(std::string_view text, float& value) noexcept
+{
+    if (text.empty())
+        return false;
+    std::size_t pos = 0;
+    bool negative = false;
+    if (text[pos] == '-')
+    {
+        negative = true;
+        if (++pos == text.size())
+            return false;
+    }
+
+    long double significand = 0.0L;
+    int fractionalDigits = 0;
+    bool hasDigit = false;
+    while (pos < text.size() && text[pos] >= '0' && text[pos] <= '9')
+    {
+        hasDigit = true;
+        significand = significand * 10.0L + static_cast<long double>(text[pos++] - '0');
+        if (!std::isfinite(significand))
+            return false;
+    }
+    if (pos < text.size() && text[pos] == '.')
+    {
+        ++pos;
+        while (pos < text.size() && text[pos] >= '0' && text[pos] <= '9')
+        {
+            hasDigit = true;
+            significand = significand * 10.0L + static_cast<long double>(text[pos++] - '0');
+            if (!std::isfinite(significand))
+                return false;
+            ++fractionalDigits;
+        }
+    }
+    if (!hasDigit)
+        return false;
+
+    int exponent = 0;
+    if (pos < text.size() && (text[pos] == 'e' || text[pos] == 'E'))
+    {
+        ++pos;
+        bool exponentNegative = false;
+        if (pos < text.size() && (text[pos] == '+' || text[pos] == '-'))
+            exponentNegative = text[pos++] == '-';
+        const auto exponentStart = pos;
+        while (pos < text.size() && text[pos] >= '0' && text[pos] <= '9')
+        {
+            if (exponent < 10000)
+                exponent = exponent * 10 + (text[pos] - '0');
+            ++pos;
+        }
+        if (pos == exponentStart)
+            return false;
+        if (exponentNegative)
+            exponent = -exponent;
+    }
+    if (pos != text.size())
+        return false;
+
+    exponent -= fractionalDigits;
+    if (exponent > 5000 || exponent < -5000)
+        return false;
+    const long double parsed = significand * std::pow(10.0L, static_cast<long double>(exponent));
+    const long double signedValue = negative ? -parsed : parsed;
+    const float converted = static_cast<float>(signedValue);
+    if (!std::isfinite(converted) || (significand != 0.0L && converted == 0.0f))
+        return false;
+    value = converted;
+    return true;
 }
 
 template <typename T>
@@ -27,8 +104,16 @@ bool parseNumber(std::string_view s, T& out) noexcept
 {
     if (s.empty())
         return false;
-    const auto res = std::from_chars(s.data(), s.data() + s.size(), out);
-    return res.ec == std::errc{} && res.ptr == s.data() + s.size();
+    if constexpr (std::is_floating_point_v<T>)
+    {
+        static_assert(std::is_same_v<T, float>);
+        return parseFloat(s, out);
+    }
+    else
+    {
+        const auto res = std::from_chars(s.data(), s.data() + s.size(), out);
+        return res.ec == std::errc{} && res.ptr == s.data() + s.size();
+    }
 }
 
 // Single-digit index below `limit` (variations: variationCount, operations: operationCount).

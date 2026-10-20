@@ -79,6 +79,97 @@ int main()
     expect("protected unchanged", buildCandidate(source, g).changedOperations == 0);
     g.protectedOperations = 0;
 
+    // Event-pattern generation is an explicit generator action and uses the same
+    // seed/candidate inputs as the operation candidate.
+    g.generateEventPatterns = true;
+    g.phraseTicks = 4 * 4 * control::ticksPerBeat;
+    g.distance = 1.0f;
+    const auto patternA = buildCandidate(source, g);
+    const auto patternB = buildCandidate(source, g);
+    expect("event generation enables explicit events", patternA.settings.control.lane.explicitEvents);
+    expect("event generation produces events", patternA.settings.control.lane.count > 0);
+    expect("event-only candidate is reported as changed", patternA.changedEvents);
+    expect("event generation is deterministic", control::sameControl(patternA.settings.control, patternB.settings.control));
+    bool patternChanged = false;
+    for (std::uint32_t c = 1; c < 32 && !patternChanged; ++c)
+    {
+        g.candidate = c;
+        patternChanged = !control::sameControl(patternA.settings.control, buildCandidate(source, g).settings.control);
+    }
+    expect("event candidates vary", patternChanged);
+    g.candidate = 0;
+
+    g.distance = 0.0f;
+    const auto noPatternAtZero = buildCandidate(source, g);
+    expect("distance zero preserves lane", control::sameControl(source.control, noPatternAtZero.settings.control));
+    g.distance = 1.0f;
+
+    // Locked events retain their exact data while unlocked lanes can gain a generated pattern.
+    VariationSettings eventLocked = source;
+    eventLocked.control.lane.explicitEvents = true;
+    eventLocked.control.lane.loopBeats[0] = 3;
+    control::LaneEvent fixed;
+    fixed.operation = 0;
+    fixed.onsetTicks = 123;
+    fixed.durationTicks = 456;
+    fixed.depth = 0.37f;
+    fixed.locked = true;
+    eventLocked.control.lane.events[0] = fixed;
+    eventLocked.control.lane.count = 1;
+    const auto protectedLane = buildCandidate(eventLocked, g).settings.control.lane;
+    bool foundLockedEvent = false;
+    for (std::size_t i = 0; i < protectedLane.count; ++i)
+    {
+        const auto& event = protectedLane.events[i];
+        if (event.operation == fixed.operation && event.onsetTicks == fixed.onsetTicks
+            && event.durationTicks == fixed.durationTicks && event.depth == fixed.depth && event.locked)
+            foundLockedEvent = true;
+    }
+    expect("locked event retained exactly", foundLockedEvent);
+    expect("lane loop lengths retained", protectedLane.loopBeats[0] == 3);
+
+    // The operation-level Events lock preserves that lane's events; placement lock freezes the lane.
+    VariationSettings operationLocked = eventLocked;
+    operationLocked.control.permissions.operationLocks[0] |= control::lock::events;
+    const auto operationLockedLane = buildCandidate(operationLocked, g).settings.control.lane;
+    std::size_t operationLockedEventCount = 0;
+    bool retainedOperationLockedEvent = false;
+    for (std::size_t i = 0; i < operationLockedLane.count; ++i)
+        if (operationLockedLane.events[i].operation == 0)
+        {
+            ++operationLockedEventCount;
+            retainedOperationLockedEvent = operationLockedLane.events[i].onsetTicks == fixed.onsetTicks;
+        }
+    expect("events-locked lane retained", operationLockedEventCount == 1 && retainedOperationLockedEvent);
+    g.protectedOperations = 1u;
+    const auto protectedOperationLane = buildCandidate(eventLocked, g).settings.control.lane;
+    bool preservedProtectedOperation = false;
+    for (std::size_t i = 0; i < protectedOperationLane.count; ++i)
+        if (protectedOperationLane.events[i].operation == 0
+            && protectedOperationLane.events[i].onsetTicks == fixed.onsetTicks)
+            preservedProtectedOperation = true;
+    expect("protected operation events retained", preservedProtectedOperation);
+    g.protectedOperations = 0;
+    VariationSettings placementLocked = eventLocked;
+    placementLocked.control.permissions.placementLocked = true;
+    expect("placement lock freezes event generation", control::sameControl(placementLocked.control,
+                                                                            buildCandidate(placementLocked, g).settings.control));
+
+    // Generated events never overlap protected regions and remain within fixed lane capacity.
+    VariationSettings protectedRegion = source;
+    protectedRegion.control.placement.regionCount = 1;
+    protectedRegion.control.placement.regions[0] = {0, control::ticksPerBeat};
+    const auto protectedPattern = buildCandidate(protectedRegion, g).settings.control.lane;
+    bool outsideProtected = true;
+    for (std::size_t i = 0; i < protectedPattern.count; ++i)
+    {
+        const auto& event = protectedPattern.events[i];
+        outsideProtected = outsideProtected && !(event.onsetTicks < control::ticksPerBeat);
+    }
+    expect("generated events avoid protected region", outsideProtected);
+    expect("generated events fit capacity", protectedPattern.count <= control::maxLaneEvents);
+    g.generateEventPatterns = false;
+
     // Output always valid.
     for (std::uint32_t c = 0; c < 64; ++c)
     {

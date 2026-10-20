@@ -521,7 +521,15 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
         int n = std::min(maxBlock, length - done);
         const int offset = start + done;
         for (int c = 0; c < numChannels; ++c)
+        {
             channels[static_cast<std::size_t>(c)] = buffer.getWritePointer(c, offset);
+            // Sanitize once at the processor input boundary so every later path
+            // (dry/bypass, band complement, onset detection and history) sees the
+            // same finite sample. Keeping the check bounded and in-place is RT safe.
+            for (int i = 0; i < n; ++i)
+                if (!std::isfinite(channels[static_cast<std::size_t>(c)][i]))
+                    channels[static_cast<std::size_t>(c)][i] = 0.0f;
+        }
 
         core::RhythmTiming rhythm;
         core::control::GridContext gridContext;

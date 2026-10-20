@@ -1,5 +1,7 @@
 #include "ui/visual/LedgerView.h"
 
+#include <algorithm>
+
 namespace groovemorph::ui::visual
 {
 LedgerView::LedgerView()
@@ -47,7 +49,7 @@ void LedgerView::paint(juce::Graphics& g)
         g.drawFittedText(juce::String(ledger.bannerText), box.reduced(8.0f, 2.0f).toNearestInt(), juce::Justification::centredLeft, 2);
         y += 42.0f;
     }
-    const float rowHeight = juce::jmin(40.0f, (static_cast<float>(getHeight()) - y - 8.0f) / static_cast<float>(juce::jmax<std::size_t>(1, ledger.rows.size())));
+    const float rowHeight = juce::jmin(40.0f, (static_cast<float>(getHeight()) - y - 8.0f) / static_cast<float>(std::max<std::size_t>(1, ledger.rows.size())));
     for (const auto& row : ledger.rows)
     {
         g.setColour(palette::dim);

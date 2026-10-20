@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <string_view>
 
 using groovemorph::core::TimingSource;
@@ -227,7 +228,10 @@ int main()
                     for (int i = 0; i < 256; ++i)
                         buffer.setSample(c, i, rng.nextFloat() * 2.0f - 1.0f);
                 if (block == 3)
+                {
                     buffer.setSample(0, 5, std::nanf(""));
+                    buffer.setSample(1, 7, std::numeric_limits<float>::infinity());
+                }
                 juce::AudioBuffer<float> input(buffer);
                 juce::MidiBuffer midi;
                 split.processBlock(buffer, midi);
@@ -236,13 +240,35 @@ int main()
                     {
                         const float in = input.getSample(c, i);
                         const float out = buffer.getSample(c, i);
-                        if (block > 3)
+                        if (block >= 3)
                             finite = finite && std::isfinite(out);
+                        if (block == 3 && ((c == 0 && i == 5) || (c == 1 && i == 7)))
+                            finite = finite && out == 0.0f;
                         if (block != 3 && std::isfinite(in))
                             exact = exact && std::memcmp(&in, &out, sizeof(float)) == 0;
                     }
             }
-            expect("band split at wet 0 is bit-exact and survives NaN", exact && finite);
+            expect("band split at wet 0 preserves finite samples and sanitizes NaN/Inf immediately", exact && finite);
+        }
+
+        // The host bypass path also has to sanitize the current block, not only
+        // prevent non-finite samples from poisoning state in later blocks.
+        {
+            GrooveMorphAudioProcessor bypassed;
+            bypassed.prepareToPlay(48000.0, 256);
+            juce::AudioBuffer<float> buffer(2, 256);
+            buffer.clear();
+            buffer.setSample(0, 5, std::nanf(""));
+            buffer.setSample(1, 7, std::numeric_limits<float>::infinity());
+            juce::MidiBuffer midi;
+            bypassed.processBlockBypassed(buffer, midi);
+            bool finiteAndSanitized = true;
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    finiteAndSanitized = finiteAndSanitized && std::isfinite(buffer.getSample(c, i));
+            finiteAndSanitized = finiteAndSanitized && buffer.getSample(0, 5) == 0.0f
+                                 && buffer.getSample(1, 7) == 0.0f;
+            expect("host bypass sanitizes NaN and infinity in the current block", finiteAndSanitized);
         }
 
         // Nonzero intensity actually transforms (sanity check that the null test is meaningful).

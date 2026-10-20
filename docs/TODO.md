@@ -10,7 +10,7 @@ release validation evidence. Check active PRs before claiming ownership.
 Windows Standalone alpha work: see [alpha feature status](alpha/ALPHA-FEATURE-STATUS.md),
 [known issues](alpha/KNOWN-ISSUES.md) and [test results](alpha/TEST-RESULTS.md). Delivered subsets:
 A01/C01 placement + event lanes, A02 host Variation sync, A03/C02/C03 generator with locks, A04 scene tools,
-C05 auto-return, C06 activity limits, F02 morph, F03 downbeat protection, F08 session history, demo loop,
+C05 auto-return, C06 activity limits, F02 morph, F03 downbeat protection, F08 local generation history, demo loop,
 Standalone free-run clock fix, and (merged alpha) C04 start phase, per-event locks and cycle restart, protected regions,
 F04-F07 and F09-F12 subsets, the Visual window, right-click/MIDI learn, 12 dB crossover option. Still open: per-scene
 transition smoothing, loop-aware Reduce, Linkwitz-Riley crossover, CLAP; native host/device QA (issue #19).
