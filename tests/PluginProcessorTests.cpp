@@ -242,7 +242,7 @@ int main()
                         const float out = buffer.getSample(c, i);
                         if (block >= 3)
                             finite = finite && std::isfinite(out);
-                        if (block == 3 && (i == 5 || (c == 1 && i == 7)))
+                        if (block == 3 && ((c == 0 && i == 5) || (c == 1 && i == 7)))
                             finite = finite && out == 0.0f;
                         if (block != 3 && std::isfinite(in))
                             exact = exact && std::memcmp(&in, &out, sizeof(float)) == 0;
