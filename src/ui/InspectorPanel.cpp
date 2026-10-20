@@ -1050,7 +1050,7 @@ private:
                                 ? "Candidate changes nothing (try Regenerate, a bolder style or more distance)."
                                 : changed.isEmpty() ? "Generated rhythmic event pattern."
                                                     : "Changed: " + changed.joinIntoString(", ");
-        if (c.changedEvents && changed.isNotEmpty())
+        if (c.changedEvents && !changed.isEmpty())
             text << "  |  rhythmic event pattern changed";
         if (c.permissionRestores > 0)
             text << "  |  locks restored " << juce::String(c.permissionRestores) << " field(s)";
