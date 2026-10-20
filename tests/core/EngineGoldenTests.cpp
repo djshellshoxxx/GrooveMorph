@@ -83,6 +83,19 @@ struct Case { int which; float intensity; std::uint64_t expected; };
 int main(int argc, char** argv) {
     const bool print = argc > 1 && std::string(argv[1]) == "--print";
     // Captured with --print from the engine before the visual-feedback changes (commit 3ace82d lineage).
+#if defined(__arm64__) || defined(__aarch64__)
+    // ARM64 uses different floating-point code generation than the x86 fixtures below.
+    // Captured from the universal macOS ARM64 slice; split-invariance is still checked separately.
+    static const Case cases[] = {
+        {0, 1.0f, 0x9399db518d1e5d35ull},
+        {1, 1.0f, 0x649bdc0b714a1d95ull},
+        {2, 1.0f, 0x3ea34ee76438c39bull},
+        {3, 1.0f, 0x35e15e1bdfa6ea77ull},
+        {4, 1.0f, 0x84a7027b6f4d9a26ull},
+        {5, 1.0f, 0x0ac8402b08a19726ull},
+        {5, 0.8f, 0x938c81491c7ebde6ull},
+    };
+#else
     static const Case cases[] = {
         {0, 1.0f, 0x3b84ca641ed65247ull},
         {1, 1.0f, 0x6942f7a964b3d1f6ull},
@@ -92,6 +105,7 @@ int main(int argc, char** argv) {
         {5, 1.0f, 0x6b28fb68ddbe3bf0ull},
         {5, 0.8f, 0xd39ae5188a08655cull},
     };
+#endif
     int failures = 0;
     for (const auto& c : cases) {
         const auto h128 = run(c.which, 128, c.intensity);
