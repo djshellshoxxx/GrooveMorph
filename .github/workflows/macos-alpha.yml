@@ -1,0 +1,155 @@
+name: macOS Standalone and VST3 alpha
+
+# Builds one universal macOS package (arm64 + x86_64). Publishing is explicit:
+# choose workflow_dispatch and set publish=true after reviewing the run artifacts.
+on:
+  pull_request:
+  push:
+    branches: [main, 'claude/**']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a GitHub prerelease with the macOS packages attached'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 100
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        id: meta
+        run: |
+          version="0.1.0-alpha.macos.${GITHUB_RUN_NUMBER}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Configure universal macOS build
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          -DBUILD_TESTING=ON
+
+      - name: Build Standalone, VST3 and tests
+        run: cmake --build build --config Release --parallel 3
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          ctest --test-dir build --build-config Release --output-on-failure --parallel 2 2>&1 | tee ctest-macos.log
+
+      - name: Verify universal application and plugin
+        run: |
+          app="build/GrooveMorphPlugin_artefacts/Release/Standalone/GrooveMorph.app"
+          vst3="build/GrooveMorphPlugin_artefacts/Release/VST3/GrooveMorph.vst3"
+          test -d "$app"
+          test -d "$vst3"
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/GrooveMorph"
+          lipo -verify_arch arm64 x86_64 "$vst3/Contents/MacOS/GrooveMorph"
+
+      - name: Package alpha artifacts
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          stage="GrooveMorph-${VERSION}-mac-universal"
+          mkdir -p "$stage"
+          ditto "build/GrooveMorphPlugin_artefacts/Release/Standalone/GrooveMorph.app" "$stage/GrooveMorph.app"
+          ditto "build/GrooveMorphPlugin_artefacts/Release/VST3/GrooveMorph.vst3" "$stage/GrooveMorph.vst3"
+          for doc in ALPHA-FEATURE-STATUS.md KNOWN-ISSUES.md USER-TEST-GUIDE.md TEST-RESULTS.md; do
+            cp "docs/alpha/$doc" "$stage/"
+          done
+          cp help/GENERATOR.md "$stage/GENERATOR-HELP.md"
+          cp ctest-macos.log "$stage/"
+          cat > "$stage/README-ALPHA.txt" <<'EOF'
+          GrooveMorph macOS universal Standalone + VST3 ALPHA
+
+          This exploratory build is unsigned and not notarized. macOS may require
+          you to approve opening it in Privacy & Security. The Standalone app can
+          be run directly. Install GrooveMorph.vst3 by copying it to:
+            ~/Library/Audio/Plug-Ins/VST3/
+          Restart your DAW and rescan VST3 plugins.
+
+          Read ALPHA-FEATURE-STATUS.md and KNOWN-ISSUES.md before testing. No DAW,
+          audio-device, listening, signing, notarization, or installer checks are
+          claimed by this automated build.
+          EOF
+          app_sha=$(shasum -a 256 "$stage/GrooveMorph.app/Contents/MacOS/GrooveMorph" | awk '{print $1}')
+          vst_sha=$(shasum -a 256 "$stage/GrooveMorph.vst3/Contents/MacOS/GrooveMorph" | awk '{print $1}')
+          cat > "$stage/BUILD-MANIFEST.md" <<EOF
+          # Build manifest
+
+          - Version: ${VERSION}
+          - Commit: ${COMMIT_SHA}
+          - Ref: ${REF_NAME}
+          - Workflow run: ${RUN_URL}
+          - Runner: macos-15, CMake Release, universal arm64 + x86_64, deployment target 11.0
+          - Standalone executable SHA-256: ${app_sha}
+          - VST3 binary SHA-256: ${vst_sha}
+          - CTest: passed (see ctest-macos.log)
+          - Signing/notarization: not performed; packages are unsigned
+          - Not performed: DAW hosting, audio-device playback, listening tests, installer
+          EOF
+          standalone_bundle="${stage}-standalone"
+          vst3_bundle="${stage}-vst3"
+          mkdir -p "$standalone_bundle" "$vst3_bundle"
+          ditto "$stage/GrooveMorph.app" "$standalone_bundle/GrooveMorph.app"
+          ditto "$stage/GrooveMorph.vst3" "$vst3_bundle/GrooveMorph.vst3"
+          for bundle in "$standalone_bundle" "$vst3_bundle"; do
+            cp "$stage/README-ALPHA.txt" "$stage/BUILD-MANIFEST.md" "$stage/ALPHA-FEATURE-STATUS.md" \
+              "$stage/KNOWN-ISSUES.md" "$stage/USER-TEST-GUIDE.md" "$stage/TEST-RESULTS.md" \
+              "$stage/GENERATOR-HELP.md" "$bundle/"
+          done
+          ditto -c -k --sequesterRsrc --keepParent "$standalone_bundle" "${stage}-standalone.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$vst3_bundle" "${stage}-vst3.zip"
+          shasum -a 256 "${stage}-standalone.zip" > "${stage}-standalone.zip.sha256"
+          shasum -a 256 "${stage}-vst3.zip" > "${stage}-vst3.zip.sha256"
+          # Also publish one convenience bundle containing both formats and QA docs.
+          ditto -c -k --sequesterRsrc --keepParent "$stage" "${stage}-all-formats.zip"
+          shasum -a 256 "${stage}-all-formats.zip" > "${stage}-all-formats.zip.sha256"
+
+      - name: Upload macOS alpha artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrooveMorph-macOS-universal-Alpha
+          path: |
+            GrooveMorph-*-mac-universal-standalone.zip
+            GrooveMorph-*-mac-universal-standalone.zip.sha256
+            GrooveMorph-*-mac-universal-vst3.zip
+            GrooveMorph-*-mac-universal-vst3.zip.sha256
+            GrooveMorph-*-mac-universal-all-formats.zip
+            GrooveMorph-*-mac-universal-all-formats.zip.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+  release:
+    needs: build
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-alpha]'))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: GrooveMorph-macOS-universal-Alpha
+      - name: Create prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v$VERSION" GrooveMorph-*.zip GrooveMorph-*.zip.sha256 \
+            --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --prerelease --title "GrooveMorph $VERSION (macOS universal alpha)" \
+            --notes "Exploratory unsigned macOS universal alpha (Standalone + VST3). Built from ${{ github.sha }}. Read the included feature status and known issues. No DAW, audio-device or listening tests, code signing or notarization have been performed."

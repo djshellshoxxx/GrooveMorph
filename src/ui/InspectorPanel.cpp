@@ -4,11 +4,14 @@
 #include "PluginProcessor.h"
 #include "core/control/PlacementEvaluator.h"
 #include "core/control/SceneControl.h"
+#include "core/scene/SceneSerializer.h"
 #include "core/variation/CandidateBuilder.h"
 
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <iomanip>
+#include <sstream>
 
 namespace gm = groovemorph::core;
 namespace ctl = groovemorph::core::control;
@@ -865,6 +868,19 @@ public:
         generate.setTooltip("Builds a candidate from the STORED scene and auditions it. Nothing is committed: "
                             "use 'Apply preview' to keep it or 'Revert preview' to discard it. Replaces unapplied preview edits.");
         generate.onClick = [this] { run(); };
+        galleryGenerate.setButtonText("Generate 3 options");
+        galleryGenerate.setTooltip("Generate three deterministic options from the stored scene. Choose any card to audition it; apply or revert with the preview controls.");
+        galleryGenerate.onClick = [this] { runGallery(); };
+        generateEvents.setButtonText("Generate event patterns");
+        generateEvents.setTooltip("Create seeded rhythmic event lanes as part of each candidate. Replaces unlocked patterns; locked events stay. Generated events obey operation/event locks, Never touch operations and protected regions.");
+        generateEvents.onClick = [this] { settings.generateEventPatterns = generateEvents.getToggleState(); };
+        for (std::size_t i = 0; i < galleryButtons.size(); ++i)
+        {
+            galleryButtons[i].setButtonText("Option " + juce::String(i + 1));
+            galleryButtons[i].setTooltip("Audition this generated option against the current input. Apply preview to keep it or revert to discard it.");
+            galleryButtons[i].setEnabled(false);
+            galleryButtons[i].onClick = [this, i] { previewGalleryOption(i); };
+        }
         previous.setButtonText("<");
         previous.setTooltip("Previous candidate number for this seed.");
         previous.onClick = [this] { if (settings.candidate > 0) { --settings.candidate; run(); } };
@@ -874,7 +890,7 @@ public:
         setupLabel(candidateLabel, "");
         setupLabel(resultLabel, "No candidate generated yet.");
         history.setTextWhenNothingSelected("Generation history");
-        history.setTooltip("Previous candidates of this session. Selecting one regenerates it exactly "
+        history.setTooltip("Recent candidates saved on this computer. Selecting one regenerates it exactly "
                            "from its recorded source scene, seed, style, distance and candidate number.");
         history.onChange = [this] { recall(); };
         for (std::size_t i = 0; i < gm::operationCount; ++i)
@@ -912,10 +928,13 @@ public:
         lockPlacement.setButtonText("Lock placement");
         lockPlacement.setTooltip("Generation and distance never change the phrase placement window, cadence or origin.");
         lockPlacement.onClick = [this] { edit([this](auto& s) { s.control.permissions.placementLocked = lockPlacement.getToggleState(); }); };
-        for (auto* c : std::initializer_list<juce::Component*>{&style, &styleLabel, &seedLabel, &seedEditor, &newSeed, &generate, &previous,
+        loadPersistentHistory();
+        for (auto* c : std::initializer_list<juce::Component*>{&style, &styleLabel, &seedLabel, &seedEditor, &newSeed, &generate, &galleryGenerate, &generateEvents, &previous,
                                                                &regenerate, &candidateLabel, &resultLabel, &history, &protectLabel,
                                                                &locksTitle, &lockPlacement})
             addAndMakeVisible(*c);
+        for (auto& button : galleryButtons)
+            addAndMakeVisible(button);
         style.onChange = [this] { settings.style = static_cast<gvar::Style>(style.getSelectedId() - 1); };
         updateCandidateLabel();
     }
@@ -934,6 +953,8 @@ public:
         lockPlacement.setToggleState(s.control.permissions.placementLocked, juce::dontSendNotification);
         distance.set(settings.distance);
         history.setEnabled(!entries.empty());
+        for (std::size_t i = 0; i < galleryButtons.size(); ++i)
+            galleryButtons[i].setEnabled(galleryEntryValid[i] && galleryEntries[i].scene == access.editingIndex());
     }
 
     void resized() override
@@ -956,6 +977,11 @@ public:
         previous.setBounds(r.removeFromLeft(36).reduced(2, 0));
         regenerate.setBounds(r.removeFromLeft(110).reduced(2, 0));
         candidateLabel.setBounds(r);
+        r = nextRow(area, 28);
+        galleryGenerate.setBounds(r.removeFromLeft(150));
+        for (auto& button : galleryButtons)
+            button.setBounds(r.removeFromLeft(r.getWidth() / (3 - static_cast<int>(&button - galleryButtons.data()))).reduced(2, 0));
+        generateEvents.setBounds(nextRow(area));
         resultLabel.setBounds(nextRow(area, 40));
         history.setBounds(nextRow(area));
         area.removeFromTop(6);
@@ -980,10 +1006,14 @@ private:
 
     gvar::GeneratorSettings settings;
     std::deque<Entry> entries;
+    std::array<Entry, 3> galleryEntries{};
+    std::array<bool, 3> galleryEntryValid{};
     MenuComboBox style, history;
     juce::Label styleLabel, seedLabel, protectLabel, locksTitle, candidateLabel, resultLabel;
     juce::TextEditor seedEditor;
-    juce::TextButton newSeed, generate, previous, regenerate;
+    juce::TextButton newSeed, generate, galleryGenerate, previous, regenerate;
+    MenuToggleButton generateEvents;
+    std::array<juce::TextButton, 3> galleryButtons;
     SliderRow distance;
     std::array<MenuToggleButton, gm::operationCount> protectOp;
     std::array<juce::Label, gm::operationCount> lockRowLabel;
@@ -1016,8 +1046,12 @@ private:
         for (std::size_t i = 0; i < gm::operationCount; ++i)
             if ((c.changedOperations & (1u << i)) != 0)
                 changed.add(operationNames[static_cast<int>(i)]);
-        juce::String text = changed.isEmpty() ? "Candidate changes nothing (try Regenerate, a bolder style or more distance)."
-                                              : "Changed: " + changed.joinIntoString(", ");
+        juce::String text = changed.isEmpty() && !c.changedEvents
+                                ? "Candidate changes nothing (try Regenerate, a bolder style or more distance)."
+                                : changed.isEmpty() ? "Generated rhythmic event pattern."
+                                                    : "Changed: " + changed.joinIntoString(", ");
+        if (c.changedEvents && changed.isNotEmpty())
+            text << "  |  rhythmic event pattern changed";
         if (c.permissionRestores > 0)
             text << "  |  locks restored " << juce::String(c.permissionRestores) << " field(s)";
         text << "  |  Previewing: use Apply preview / Revert preview.";
@@ -1026,13 +1060,63 @@ private:
     void run()
     {
         readSeedQuiet();
+        configureEventGeneration();
         const auto source = access.storedSettings();
         const auto candidate = gvar::buildCandidate(source, settings);
         entries.push_front({source, settings, access.editingIndex()});
         if (entries.size() > 24)
             entries.pop_back();
+        savePersistentHistory();
         rebuildHistory();
         describe(candidate);
+        updateCandidateLabel();
+        access.previewCandidate(candidate.settings);
+    }
+
+    void runGallery()
+    {
+        readSeedQuiet();
+        configureEventGeneration();
+        const auto source = access.storedSettings();
+        galleryEntryValid.fill(true);
+        for (std::size_t i = 0; i < galleryEntries.size(); ++i)
+        {
+            auto candidateSettings = settings;
+            candidateSettings.candidate = settings.candidate + static_cast<std::uint32_t>(i);
+            galleryEntries[i] = {source, candidateSettings, access.editingIndex()};
+            const auto candidate = gvar::buildCandidate(source, candidateSettings);
+            entries.push_front(galleryEntries[i]);
+            galleryButtons[i].setEnabled(true);
+            unsigned changedCount = 0;
+            for (auto mask = candidate.changedOperations; mask != 0; mask >>= 1u)
+                changedCount += mask & 1u;
+            galleryButtons[i].setButtonText("Option " + juce::String(i + 1) + " · #" + juce::String(candidateSettings.candidate + 1)
+                                             + " · " + juce::String(changedCount) + " ops"
+                                             + (candidate.changedEvents ? " + pattern" : ""));
+            if (entries.size() > 24)
+                entries.pop_back();
+        }
+        settings.candidate += static_cast<std::uint32_t>(galleryEntries.size());
+        rebuildHistory();
+        savePersistentHistory();
+        previewGalleryOption(0);
+    }
+
+    void previewGalleryOption(std::size_t index)
+    {
+        if (index >= galleryEntries.size() || !galleryEntryValid[index])
+            return;
+        const auto& entry = galleryEntries[index];
+        if (entry.scene != access.editingIndex())
+        {
+            resultLabel.setText("That option belongs to scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + entry.scene))
+                                    + ". Select that scene in the Edit combo first.", juce::dontSendNotification);
+            return;
+        }
+        const auto candidate = gvar::buildCandidate(entry.source, entry.settings);
+        describe(candidate);
+        resultLabel.setText("Auditioning option " + juce::String(index + 1) + ". " + resultLabel.getText(), juce::dontSendNotification);
+        settings.candidate = entry.settings.candidate;
         updateCandidateLabel();
         access.previewCandidate(candidate.settings);
     }
@@ -1054,6 +1138,90 @@ private:
                                 + "  d=" + juce::String(e.settings.distance, 2), id);
             ++id;
         }
+    }
+
+    juce::File historyFile() const
+    {
+        return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("GrooveMorph").getChildFile("generator-history.txt");
+    }
+
+    void savePersistentHistory() const
+    {
+        std::ostringstream output;
+        output << "groovemorph-generator-history 2\n";
+        output << std::setprecision(9);
+        for (const auto& entry : entries)
+        {
+            gm::scene::SceneBank sourceBank;
+            sourceBank.setVariationSettings(0, entry.source);
+            const auto sourceText = gm::scene::SceneSerializer::serialize(sourceBank);
+            output << "entry " << entry.scene << ' ' << entry.settings.seed << ' '
+                   << static_cast<int>(entry.settings.style) << ' ' << entry.settings.distance << ' '
+                   << entry.settings.candidate << ' ' << entry.settings.protectedOperations << ' '
+                   << (entry.settings.generateEventPatterns ? 1 : 0) << ' ' << entry.settings.phraseTicks << '\n'
+                   << sourceText << "end-entry\n";
+        }
+        const auto file = historyFile();
+        if (!file.getParentDirectory().createDirectory().failed())
+            file.replaceWithText(juce::String(output.str()));
+    }
+
+    void loadPersistentHistory()
+    {
+        const auto file = historyFile();
+        if (!file.existsAsFile() || file.getSize() <= 0 || file.getSize() > 1024 * 1024)
+            return;
+        const auto content = file.loadFileAsString().toStdString();
+        std::istringstream input(content);
+        std::string line;
+        if (!std::getline(input, line) || line != "groovemorph-generator-history 2")
+            return;
+        while (entries.size() < 24 && std::getline(input, line))
+        {
+            if (line.empty())
+                continue;
+            Entry entry;
+            int styleIndex = 0;
+            int generateEventsValue = 0;
+            std::istringstream header(line);
+            std::string marker;
+            if (!(header >> marker >> entry.scene >> entry.settings.seed >> styleIndex >> entry.settings.distance
+                         >> entry.settings.candidate >> entry.settings.protectedOperations >> generateEventsValue
+                         >> entry.settings.phraseTicks)
+                || marker != "entry" || entry.scene >= gm::variationCount || styleIndex < 0 || styleIndex > 2
+                || (generateEventsValue != 0 && generateEventsValue != 1)
+                || entry.settings.phraseTicks <= 0 || !std::isfinite(entry.settings.distance))
+                break;
+            entry.settings.style = static_cast<gvar::Style>(styleIndex);
+            entry.settings.generateEventPatterns = generateEventsValue != 0;
+            std::string sourceText, sourceLine;
+            bool ended = false;
+            while (std::getline(input, sourceLine))
+            {
+                if (sourceLine == "end-entry")
+                {
+                    ended = true;
+                    break;
+                }
+                sourceText += sourceLine;
+                sourceText.push_back('\n');
+            }
+            if (!ended)
+                break;
+            const auto sourceBank = gm::scene::SceneSerializer::deserialize(sourceText);
+            if (sourceBank.report.status == gm::scene::LoadStatus::Defaulted)
+                continue;
+            entry.source = sourceBank.bank.variation(0).settings;
+            entries.push_back(std::move(entry));
+        }
+        rebuildHistory();
+    }
+
+    void configureEventGeneration()
+    {
+        settings.generateEventPatterns = generateEvents.getToggleState();
+        settings.phraseTicks = processor.getGridContext().phraseTicks();
     }
     void recall()
     {
@@ -1887,8 +2055,8 @@ public:
             "Implemented (automated tests; not tried in a DAW or by ear):\n"
             " - Placement window/cadence/origin/snap, downbeat protect, up to 4 protected regions, event lanes\n"
             "   with per-event depth, slice, priority, cycle restart and lock; per-lane loop lengths\n"
-            " - Generator: seed, style, distance, candidates, locks (also hold for manual edits),\n"
-            "   preview/apply/revert, session history\n"
+            " - Generator: seed, style, distance, three-option gallery, event-pattern generation, locks,\n"
+            "   preview/apply/revert, locally saved 24-entry history\n"
             " - Scenes: duplicate, reset, copy FX, rename, undo/redo, morph, auto-return (bars/phrases),\n"
             "   scene start phase (follow / restart / snap to next beat, offset, Restart scene now)\n"
             " - Limits: effects at once + priority; spacing/coverage via Reduce; Events x2 and /2\n"
@@ -1899,7 +2067,8 @@ public:
             " - Host Variation parameter follows the sounding scene\n\n"
             "Not implemented / limited in this alpha:\n"
             " - Per-scene transition smoothing time; Linkwitz-Riley or steeper crossovers; loop-aware Reduce\n"
-            " - No time stretching for loops; loop audio and history are not saved with the project\n"
+            " - No time stretching for loops; loop audio is not saved with the project. Generator history\n"
+            "   is saved locally on this computer, not embedded in the DAW project\n"
             "   (gesture curve, evolution settings and MIDI links are); gestures run at ~20 Hz\n"
             " - Capture is stereo-limited, 20 s max; CLAP and other formats\n\n"
             "Untested: real DAW hosts, audio hardware, listening quality.",

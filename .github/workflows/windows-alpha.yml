@@ -9,6 +9,7 @@ name: Windows Standalone alpha
 on:
   push:
     branches:
+      - main
       - 'claude/**'
   workflow_dispatch:
     inputs:
@@ -84,6 +85,7 @@ jobs:
           foreach ($doc in 'ALPHA-FEATURE-STATUS.md','KNOWN-ISSUES.md','USER-TEST-GUIDE.md','TEST-RESULTS.md') {
             Copy-Item "docs/alpha/$doc" $stage
           }
+          Copy-Item help/GENERATOR.md (Join-Path $stage 'GENERATOR-HELP.md')
           Copy-Item ctest.log (Join-Path $stage 'ctest-windows.log')
           if (Test-Path windows-desktop-screenshot.png) { Copy-Item windows-desktop-screenshot.png $stage }
           $sha = (Get-FileHash (Join-Path $stage 'GrooveMorph.exe') -Algorithm SHA256).Hash.ToLower()
