@@ -1,7 +1,14 @@
 # F11 Gesture recording and playback
 
-Status: IMPLEMENTED (one lane, one phrase), spec COMPLETE with W10 targets. Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED (one lane, one phrase). Beta audit: write threshold added; processor rows open (TODO B-02). Updated 2026-10-20 by the A1 completeness audit.
 Replaces draft `docs/expansion/features/F11-GESTURE-RECORDER.md` (PR #6).
+
+
+## Beta audit status (2026-10-20)
+
+- Built by the audit: playback writes the target only when the value moved by more than 1/512 (`GestureLane::worthWriting`), and the DECISIONS entry that claimed playback is bracketed was corrected. Playback stays unbracketed by design.
+- Open: processor tests for target change, record/play exclusivity and seek continuity (F11-T05, T07 partly, B-02); multiple lanes and higher resolution than the 20 Hz timer (F11-T08, B-06).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -47,11 +54,11 @@ Perform tab: "Gesture lane (records one phrase of movement)", target combo (Morp
 | F11-T01 | Empty lane returns -1; exact bin; interpolation up/down; wrap; clamped and wrapped inputs; clear | EXISTS | `tests/core/LoopSourceTests.cpp` (lane cases are hosted in this file: "empty lane", "two bins", "exact bin", "interpolates up", "wraps back down", "clamped and wrapped", "cleared") |
 | F11-T02 | Serialization restores every bin; hostile text skipped; oversized text ignored | EXISTS | `tests/core/SceneControlTests.cpp` "gesture restores every bin", "hostile gesture text is skipped, not trusted", "oversized gesture text is ignored" |
 | F11-T03 | Record then play back the recorded value; clear | EXISTS | `tests/PluginProcessorTests.cpp` "gesture recorded", "gesture plays back the recorded value", "gesture cleared" |
-| F11-T04 | Target and bins restored from a project; legacy project without `Gesture` loads | PARTIAL ("gesture target restored" exists); legacy-fixture MISSING | PluginProcessorTests |
-| F11-T05 | Changing target clears the lane; record and play are exclusive | MISSING | processor test |
-| F11-T06 | Playback does not write the parameter when stopped or when the sampled value is within 1/512 (target 5) | MISSING, owned by W10 | processor test with a parameter listener |
-| F11-T07 | Playback follows phrase wrap and seek (phrase fraction continuity) | MISSING | processor test |
-| F11-T08 | Higher resolution than the 20 Hz timer; multiple lanes | MISSING (feature absent) | deferred |
+| F11-T04 | Target and bins restored from a project; legacy project without `Gesture` loads | PARTIAL | `PluginProcessorTests.cpp` "gesture target restored" Target restore is asserted; a dedicated legacy-project-without-Gesture fixture is not. |
+| F11-T05 | Changing target clears the lane; record and play are exclusive | DEFERRED | Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
+| F11-T06 | Playback does not write the parameter when stopped or when the sampled value is within 1/512 (target 5) | DEFERRED | Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
+| F11-T07 | Playback follows phrase wrap and seek (phrase fraction continuity) | PARTIAL | `LoopSourceTests.cpp` "wraps back down"; `PluginProcessorTests.cpp` "gesture plays back the recorded value" Phrase-fraction wrap and interpolation of the lane are tested at core level; seek continuity in the processor is not. |
+| F11-T08 | Higher resolution than the 20 Hz timer; multiple lanes | DEFERRED | Higher resolution than the 20 Hz timer and multiple lanes are not built. Open as TODO B-06. |
 
 ## 8. Gaps
 

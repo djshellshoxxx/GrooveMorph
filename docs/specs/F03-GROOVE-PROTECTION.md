@@ -1,8 +1,16 @@
 # F03 Groove protection
 
-Status: IMPLEMENTED (downbeat protection, protected regions, low-band protection), spec COMPLETE with W3 target for the crossover.
+Status: IMPLEMENTED (downbeat protection, protected regions, Classic and Linkwitz-Riley band split). Beta audit: F03-T06 open (TODO B-09). Updated 2026-10-20 by the A1 completeness audit.
 Written 2026-10-20 against `c83e8b2`. Replaces draft `docs/expansion/features/F03-GROOVE-PROTECTION.md` (PR #6).
 Cross-refs: [C03](../control-specs/features/C03-CHANGE-PERMISSIONS.md), [F10](F10-MULTIBAND.md).
+
+
+## Beta audit status (2026-10-20)
+
+- Built: `bandTopology` (Classic / Linkwitz-Riley 12 / Linkwitz-Riley 24) appended after `bandSlope`; the choice list of `bandSlope` was not lengthened (section 7 target met in spirit; `docs/specs/W3-LR-CROSSOVER.md` is the detail).
+- Added by the audit: the 4-beat protect span is capped at one bar in 3 and 7 beat bars (F03-T10).
+- Open: the Classic 12 dB/oct split is JUCE-side code with no portable test (F03-T06, B-09).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -64,13 +72,13 @@ Downbeat: Place tab slider "Protect downbeat (beats)". Regions: Limit tab ("Add 
 | F03-T03 | Regions and per-event locks round-trip through the scene format | EXISTS | PhaseResolverTests "phase, regions and locks round-trip", "regions load without a recovery warning" |
 | F03-T04 | Protect lows keeps bass through a closed gate; Lows only gates bass; Full band gates both | EXISTS | `tests/PluginProcessorTests.cpp` "full band: gate silences both tones", "protect lows: bass survives the closed gate, highs are gated", "lows only: highs bypass the closed gate, bass is gated" |
 | F03-T05 | Wet 0 band split is finite/exact and NaN/Inf are sanitised | EXISTS | PluginProcessorTests "band split at wet 0 preserves finite samples and sanitizes NaN/Inf immediately" |
-| F03-T06 | 12 dB/oct slope: effected-band rolloff at 2 octaves | MISSING as automated test (DECISIONS records one offline measurement) | add portable filter test once the split is moved to core (W3) |
-| F03-T07 | Linkwitz-Riley crossover (target section 7): low+high magnitude sum flat within 0.1 dB, both bands phase matched, no state discontinuity on parameter sweeps | MISSING, owned by W3 | `tests/core/CrossoverTests.cpp` (W3) |
-| F03-T08 | Bit-exact dry when the engine leaves a band unchanged, for every slope option | EXISTS for 6/12; MISSING for LR | W3 |
-| F03-T09 | Crossover or mode changes during playback do not click (peak step bounded) | MISSING | W3 |
-| F03-T10 | Protect span is capped at one bar (`min(barTicks, protect*960)`) in 3/4 and 7/8 with protect = 4 beats | MISSING | add SceneControlTests case |
+| F03-T06 | 12 dB/oct slope: effected-band rolloff at 2 octaves | DEFERRED | The Classic 12 dB/oct split lives in PluginProcessor.cpp (JUCE) and was measured offline once (DECISIONS); no portable test exists. Open as TODO B-09. |
+| F03-T07 | Linkwitz-Riley crossover (target section 7): low+high magnitude sum flat within 0.1 dB, both bands phase matched, no state discontinuity on parameter sweeps | EXISTS | `CrossoverTests.cpp` "F10-T03 flat sum"; `CrossoverTests.cpp` "F10-T03 low -6 dB at fc"; `CrossoverTests.cpp` "W3-LR-T03 identical input gives identical channels" |
+| F03-T08 | Bit-exact dry when the engine leaves a band unchanged, for every slope option | EXISTS | `CrossoverTests.cpp (label F03-T08)` |
+| F03-T09 | Crossover or mode changes during playback do not click (peak step bounded) | EXISTS | `CrossoverTests.cpp` "F10-T06 sweep step bounded"; `CrossoverTests.cpp` "W3-LR-T08 no onset click" |
+| F03-T10 | Protect span is capped at one bar (`min(barTicks, protect*960)`) in 3/4 and 7/8 with protect = 4 beats | EXISTS | `CompletenessTests.cpp (label F03-T10)` |
 
-## 7. Gaps and target behavior
+## 7. Linkwitz-Riley split (implemented by W3 as `bandTopology`; remaining deferrals listed)
 
 - Owner W3: Linkwitz-Riley split. Target: LR4 (two cascaded Butterworth 2nd-order stages, 24 dB/oct) for low and high, with the
   band routed around the effects passed through the same filter pair so the recombined sum is flat in magnitude (it is an all-pass in

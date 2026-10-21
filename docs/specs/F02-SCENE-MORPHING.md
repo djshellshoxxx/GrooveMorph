@@ -1,8 +1,16 @@
 # F02 Scene morphing
 
-Status: IMPLEMENTED (effect settings only), spec COMPLETE with target behavior for W3. Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED (effect settings, placement, regions and lane events; W3-MORPH). Beta audit: processor-level checks F02-T06 are open (TODO B-02). Updated 2026-10-20 by the A1 completeness audit.
 Replaces draft `docs/expansion/features/F02-SCENE-MORPHING.md` (PR #6). The draft's minimum-cost event correspondence is
 replaced by the simpler deterministic rules in section 8.
+
+
+## Beta audit status (2026-10-20)
+
+- Built: `morph()` blends settings AND control state per section 8 and `docs/specs/W3-MORPH.md`; the processor evaluates it off the per-sample path.
+- Section 8 below is now the as-built behavior, not a target. Deviations are recorded in `docs/coordination/DECISIONS.md`.
+- Open: a processor test that a morph target equal to the sounding scene is a no-op (F02-T06, B-02); the editor does not preview the morph result.
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -54,16 +62,16 @@ The editor does not preview the morph result as a diagram.
 | ID | Check | Status | Location |
 |---|---|---|---|
 | F02-T01 | Weight 0 keeps `a`; one-sided operations fade out/in | EXISTS | `tests/core/SceneControlTests.cpp` "morph weight 0 keeps a", "morph fades out", "morph fades in" |
-| F02-T02 | Two-sided depth linear, slice log-linear midpoint | MISSING | add to SceneControlTests |
-| F02-T03 | Non-finite / out-of-range weight is safe | MISSING | add to SceneControlTests |
-| F02-T04 | Parameters exist, are restored, default Off/0 | EXISTS (existence) | PluginProcessorTests "new parameters exist"; restore case MISSING |
+| F02-T02 | Two-sided depth linear, slice log-linear midpoint | EXISTS | `CompletenessTests.cpp (label F02-T02)` |
+| F02-T03 | Non-finite / out-of-range weight is safe | EXISTS | `CompletenessTests.cpp (label F02-T03)` |
+| F02-T04 | Parameters exist, are restored, default Off/0 | PARTIAL | `PluginProcessorTests.cpp` "new parameters exist"; `PluginProcessorTests.cpp` "state restores intensity" Parameter existence and defaults are asserted; a morphTarget/morphAmount restore round trip is not separately asserted (generic APVTS restore is: state restores intensity/tempo/meter). |
 | F02-T05 | CC 22 macro drives `morphAmount` | EXISTS | PluginProcessorTests "CC 22 sets morph amount" |
-| F02-T06 | Morph target equal to the sounding scene is a no-op | MISSING | processor test |
-| F02-T07 | Morph does not change stored scenes or undo history | MISSING | processor test |
-| F02-T08 | Placement/event morph per section 8 (weight 0 identity, weight 1 equals target control, monotonic coverage, capacity bound, no allocation) | MISSING, owned by W3 | `tests/core/MorphControlTests.cpp` (W3) |
-| F02-T09 | Block-split independence of a morphed render | MISSING | processor test |
+| F02-T06 | Morph target equal to the sounding scene is a no-op | DEFERRED | Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. The pure morph() is covered; the 'target equals sounding scene' guard in effectiveSettings is not. |
+| F02-T07 | Morph does not change stored scenes or undo history | EXISTS | `MorphControlTests.cpp` "F02-T08h inputs unchanged"; `PluginProcessorTests.cpp` "stored scene is untouched"; `PluginProcessorTests.cpp` "evolution does not modify the saved scene bank" morph() takes const inputs and the processor evaluates it on the audio-thread snapshot copy; a dedicated processor assertion on the undo stack is not present. |
+| F02-T08 | Placement/event morph per section 8 (weight 0 identity, weight 1 equals target control, monotonic coverage, capacity bound, no allocation) | EXISTS | `MorphControlTests.cpp` "F02-T08a weight 0 is a"; `MorphControlTests.cpp` "F02-T08b placement from b"; `MorphControlTests.cpp` "F02-T08g capacity bound" |
+| F02-T09 | Block-split independence of a morphed render | EXISTS | `W3ProcessorTests.cpp` "W3-MORPH is deterministic across block sizes"; `W3ProcessorTests.cpp` "W3-MORPH baseline (no morph) is block-size independent" |
 
-## 8. Gaps and target behavior (owner W3: "morph of placement + events")
+## 8. Placement and event morph (implemented by W3; this was the target and is now the behavior)
 
 Today placement window, events, regions, activity limits and phase always come from scene `a`. Target (W3 may refine; any
 deviation must be recorded in `docs/coordination/DECISIONS.md`):

@@ -23,6 +23,13 @@ Events thinner than about 16 pixels used to be hard to grab. Now a plain drag **
 resizes the end and **Alt-drag** resizes the start. A small tab above a thin event marks the place to grab, and
 clicking within a few pixels of it counts as a hit.
 
+## Scene shortcuts (editor window)
+
+When the editor window has focus and you are not typing in a text box: **1, 2, 3, 4** request scene A to D with the
+current Transition mode, **T** fires a queued switch (Manual transition mode), **Esc** cancels the queued switch, and
+**Space** starts and stops the internal transport (Standalone). Shortcuts with Ctrl, Alt, Shift or Cmd are left alone.
+These keys are new in the beta build and have not been tried on a real desktop yet.
+
 ## "N events past the phrase end"
 
 If you shorten the phrase or change the meter, events keep their positions, so some may now lie beyond the end and

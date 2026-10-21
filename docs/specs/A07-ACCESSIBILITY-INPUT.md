@@ -1,7 +1,15 @@
 # A07 Accessibility, keyboard, scaling and screen reader
 
-Status: SPEC COMPLETE, implementation owned by W10 (keyboard event creation, accessibility). Written 2026-10-20 against `c83e8b2`.
+Status: PARTIALLY IMPLEMENTED. Lane keyboard authoring, accessible names, thin-event handles, phrase-end badge, scene shortcuts 1-4/T/Esc; UI scale, F1, capped-slice indicator and screen-reader pass are not built (TODO B-04, B-01). Updated 2026-10-20 by the A1 completeness audit.
 Source item: `docs/TODO.md` A07 ("help entrypoint, effective slice-limit feedback, keyboard/scaling QA"). Related: [F04](F04-PERFORMANCE-MODE.md), `docs/visual-feedback/SPEC.md`.
+
+
+## Beta audit status (2026-10-20)
+
+- Built (W10, compiled in CI only): section 3.2 subset in `LaneCanvas` (Left/Right/Up/Down/Enter/Insert/N/Delete/Esc) and accessible names (UI-AX-1). Built by the audit: scene shortcuts 1-4, T, Esc (section 3.1).
+- Not built: Ctrl/Cmd+Z in the editor (the Undo button exists), F1 help, Tab to next event, Alt+Left/Right resize, L to lock, the UI scale setting (3.4), the capped-slice indicator (3.6), reduce motion outside the Visual window.
+- Nothing here has been used with a screen reader or on a real desktop (B-01).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -74,15 +82,15 @@ UI-only. No audio-thread changes. Announcements and cursor updates run on the me
 | ID | Check | Status | Location |
 |---|---|---|---|
 | A07-T01 | Visual views have accessible names and descriptions; Esc handled; unrelated keys not swallowed | EXISTS | `tests/PluginProcessorTests.cpp` "every view has an accessible name", "escape is handled", "unrelated keys are not swallowed" |
-| A07-T02 | Palette distinctness / contrast checks | EXISTS (palette) | `tests/core/PaletteTests.cpp`; contrast ratios per 3.5 MISSING |
-| A07-T03 | Editor shortcut keys 1-4, T, Esc, undo/redo, F1 behave per 3.1 and are ignored in text fields | MISSING, owned by W10 | `tests/PluginProcessorTests.cpp` editor section |
-| A07-T04 | Keyboard-only event creation, selection, resize, lock on the canvas with validation messages | MISSING, owned by W10 | editor test with synthetic `KeyPress` |
-| A07-T05 | Every component under the editor and inspector has a non-empty accessible title; no two sibling controls share an identical title | MISSING, owned by W10 | editor test walking the component tree |
-| A07-T06 | Focus traversal visits all controls in visual order without traps | MISSING (native UI) | editor test + manual |
-| A07-T07 | UI scale setting persists across editor reopen; editor is usable (no clipped text) at 75/100/125/150/200% | MISSING, owned by W10 | editor test + `tools/EditorSnapshot.cpp` screenshots |
-| A07-T08 | Reduce motion honored by all animated elements | PARTIAL ("reduce motion can be turned on" for the Visual window) | W10 |
-| A07-T09 | Screen reader pass (NVDA/Narrator on Windows, VoiceOver on macOS) of the core workflow | MISSING (manual; record in QA ledger) | `docs/qa/` ledger entry |
-| A07-T10 | Capped-slice indicator appears when the requested slice exceeds the effective limit | MISSING, owned by W10 | editor test |
+| A07-T02 | Palette distinctness / contrast checks | EXISTS | `PaletteTests.cpp` "ink on panel >= 4.5"; `PaletteTests.cpp` "dim text on slate >= 4.5"; `PaletteTests.cpp` "warning text on slate >= 4.5" |
+| A07-T03 | Editor shortcut keys 1-4, T, Esc, undo/redo, F1 behave per 3.1 and are ignored in text fields | MANUAL | `PluginEditor.cpp` "A07 / F04 section 3.1" Keys 1-4, T and Esc are now implemented in PluginEditor::keyPressed (A1 audit); no editor-level test exists and nothing was typed in a real window (B-01). |
+| A07-T04 | Keyboard-only event creation, selection, resize, lock on the canvas with validation messages | MANUAL | `InspectorPanel.cpp` "Keyboard cursor" Lane keyboard (Left/Right/Up/Down/Enter/Insert/N/Delete/Esc) is implemented in LaneCanvas; interaction is unverified without a display (W10-UI-ISSUES UI-KB-1, B-01). |
+| A07-T05 | Every component under the editor and inspector has a non-empty accessible title; no two sibling controls share an identical title | EXISTS | `PluginProcessorTests.cpp` "UI-AX-1 every control has an accessible name"; `PluginProcessorTests.cpp` "every control has a tooltip" Names are asserted by constructing the editor in the processor test binary (CI only). Sibling-title uniqueness is not asserted. |
+| A07-T06 | Focus traversal visits all controls in visual order without traps | MANUAL | Focus order is JUCE's default; no traversal test and no keyboard-only pass on a real desktop (B-01). |
+| A07-T07 | UI scale setting persists across editor reopen; editor is usable (no clipped text) at 75/100/125/150/200% | DEFERRED | No user UI-scale setting exists (only the automatic fit scale in PluginEditor.cpp). Open as TODO B-04. |
+| A07-T08 | Reduce motion honored by all animated elements | MANUAL | `PluginProcessorTests.cpp` "reduce motion can be turned on" Reduce motion exists for the Visual window only; nothing else animates. Preference tested at the processor level. |
+| A07-T09 | Screen reader pass (NVDA/Narrator on Windows, VoiceOver on macOS) of the core workflow | MANUAL | Screen reader pass (NVDA/Narrator/VoiceOver) has not been done (B-01). |
+| A07-T10 | Capped-slice indicator appears when the requested slice exceeds the effective limit | DEFERRED | Capped-slice indicator is not built; the limit is only in tooltips. Open as TODO B-04. |
 
 ## 7. Non-goals
 

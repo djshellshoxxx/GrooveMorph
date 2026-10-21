@@ -1,7 +1,15 @@
 # F09 Audio import, phrase capture and loop playback
 
-Status: IMPLEMENTED (beat-locked loop, varispeed), spec COMPLETE with W4 targets (stretch, persistence, waveform).
+Status: IMPLEMENTED (beat-locked loop, optional WSOLA stretch, loop saved in the project, waveform overview; W4). Beta audit: listening and big-project checks open (TODO B-01). Updated 2026-10-20 by the A1 completeness audit.
 Written 2026-10-20 against `c83e8b2`. Replaces draft `docs/expansion/features/F09-AUDIO-IMPORT-CAPTURE.md` (PR #6).
+
+
+## Beta audit status (2026-10-20)
+
+- Section 8 below is the as-built design: `loopStretch` parameter (default off), `LoopAudio` child (16-bit coded, CRC-checked, 20 s / 10 MiB), `WaveformPeaks`. See `docs/specs/W4-LOOP-STRETCH-PERSIST.md`.
+- The saved audio is 16-bit, not the 24-bit FLAC first drafted; processor round trip is within one 16-bit step.
+- Open: stretch quality by ear, a native Windows/macOS state round trip with a large loop (B-01).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -64,14 +72,14 @@ Input tab (`InputTab`): input source selector (live / demo / loop), bars combo (
 | F09-T04 | Loop mapping: auto bars, explicit BPM, explicit bars, 3/4, invalid inputs | EXISTS | `tests/core/LoopImportTests.cpp` (all) |
 | F09-T05 | Import through the processor: wav loads, auto tempo, plays at original speed at native tempo, bad file/bars/tempo rejected | EXISTS | `tests/PluginProcessorTests.cpp` "wav imports", "loop import succeeds", "at 140 BPM the loop plays at its original speed", "missing file rejected", "bad bar count rejected", "bad loop tempo rejected" |
 | F09-T06 | Loop plays locked to the bar grid; stopped source is silent; capture with placement active has no duplicated spans | EXISTS | PluginProcessorTests "loop plays back locked to the bar grid", "a stopped loop source is silent", "captured loop has no duplicated spans when placement splits segments" |
-| F09-T07 | Pitch-preserving stretch (target 8.1): at tempo/native = 0.5, 0.75, 1.25, 2.0 the dominant frequency of a 1 kHz sine loop stays within 10 cents; output length and beat lock unchanged | MISSING, owned by W4 | `tests/core/LoopStretchTests.cpp` |
-| F09-T08 | Stretch is deterministic and block-split independent; re-stretch publishes through the existing double buffer without audio glitches (no discontinuity above the loop's own content) | MISSING, owned by W4 | W4 |
-| F09-T09 | Loop persistence round trip in project state (8.2): save, restore into a fresh processor, render equals the original within the codec tolerance (lossless FLAC: bit-exact) | MISSING, owned by W4 | `tests/PluginProcessorTests.cpp` |
-| F09-T10 | Oversized/corrupt `Loop` state is rejected and the previous loop kept; legacy project without `Loop` loads | MISSING, owned by W4 | W4 (legacy-fixture test required by the workplan rules) |
-| F09-T11 | Waveform data (8.3): min/max peaks deterministic for a known sine, bounded size, safe for NaN/empty | MISSING, owned by W4 | `tests/core/LoopWaveformTests.cpp` |
-| F09-T12 | Sample-rate change keeps and resamples the stored loop | MISSING (code `republishStoredLoop` exists) | processor test |
+| F09-T07 | Pitch-preserving stretch (target 8.1): at tempo/native = 0.5, 0.75, 1.25, 2.0 the dominant frequency of a 1 kHz sine loop stays within 10 cents; output length and beat lock unchanged | EXISTS | `TimeStretcherTests.cpp` "ST-2 pitch within 10 cents"; `TimeStretcherTests.cpp` "ST-1 length" |
+| F09-T08 | Stretch is deterministic and block-split independent; re-stretch publishes through the existing double buffer without audio glitches (no discontinuity above the loop's own content) | PARTIAL | `TimeStretcherTests.cpp` "ST-7 worker delivers newest"; `TimeStretcherTests.cpp` "ST-6 seam step bounded r=" Stretch determinism is implicit (no randomness) and the worker publishes the newest job; a bit-for-bit repeat comparison and a click measurement at publish are not asserted. |
+| F09-T09 | Loop persistence round trip in project state (8.2): save, restore into a fresh processor, render equals the original within the codec tolerance (lossless FLAC: bit-exact) | EXISTS | `PluginProcessorTests.cpp` "W4 loop restored"; `PluginProcessorTests.cpp` "W4 restored loop plays the saved audio (16-bit quantised)"; `PluginProcessorTests.cpp` "W4 saved blob present" Saved audio is 16-bit coded, so equality holds within one 16-bit step, not bit-exact float. |
+| F09-T10 | Oversized/corrupt `Loop` state is rejected and the previous loop kept; legacy project without `Loop` loads | EXISTS | `PluginProcessorTests.cpp` "W4 corrupted blob rejected"; `PluginProcessorTests.cpp` "W4 state without LoopAudio leaves the loop alone"; `PluginProcessorTests.cpp` "W4 unknown version rejected with warning" |
+| F09-T11 | Waveform data (8.3): min/max peaks deterministic for a known sine, bounded size, safe for NaN/empty | EXISTS | `LoopBlobTests.cpp` "WF-1 exact min/max"; `LoopBlobTests.cpp` "WF-1 nan counted as 0"; `LoopBlobTests.cpp` "WF-1 invalid" |
+| F09-T12 | Sample-rate change keeps and resamples the stored loop | EXISTS | `PluginProcessorTests.cpp` "the loop survives a sample rate change" |
 
-## 8. Gaps and target behavior (owner W4)
+## 8. Stretch, persistence and waveform (implemented by W4; as-built detail in W4-LOOP-STRETCH-PERSIST.md, which wins where they differ)
 
 ### 8.1 Pitch-preserving stretch
 Mode `Stretch: Off (varispeed, today) | On`. When On, the loop is rendered OFFLINE (message thread or a worker, never the audio thread) into the

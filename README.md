@@ -1,16 +1,15 @@
 # GrooveMorph
 
-GrooveMorph is an alpha-stage phrase-aware rhythmic audio effect. The integrated MVP provides four editable variations, five rhythmic transformations and selectable musical/sample timing.
+GrooveMorph is a beta-stage phrase-aware rhythmic audio effect. It provides four editable variations, seven rhythmic transformations, selectable musical/sample timing, presets, Euclid patterns, Print to WAV and an Easy mode.
 
 ## Current approved direction
 
 - C++20, CMake, and JUCE
-- VST3 and JUCE Standalone targets
-- Windows x64 and Linux x86_64 as provisional build targets
+- VST3, JUCE Standalone and CLAP targets
+- Windows x64, Linux x86_64 and macOS build targets (CLAP and macOS are CI-built only)
 - REAPER as the first reference host on both operating systems
-- CLAP deferred unless the owner reopens that decision
 - Phrase variations and quantized transitions using bounded short-window operations
-- Full phrase capture and pitch-preserving time stretch deferred
+- Optional pitch-preserving loop stretch (WSOLA) is built; it has not been listened to
 
 Agent workflows are available in [skills/README.md](skills/README.md): full Superpowers, ten DSP/JUCE skills, and token-efficient communication skills without Antigravity protocols. See [AGENTS.md](AGENTS.md) and the [completion-session prompt](docs/COMPLETION_PROMPT.md) for the current branch-integration handoff.
 
@@ -32,24 +31,18 @@ cmake --build build-core
 ctest --test-dir build-core --output-on-failure
 ```
 
-The full VST3 and Standalone targets fetch JUCE 8.0.7 on first configuration. See [GETTING_STARTED.md](GETTING_STARTED.md) for platform dependencies and target names.
+The full VST3, Standalone and CLAP targets fetch JUCE 8.0.7 on first configuration. See [GETTING_STARTED.md](GETTING_STARTED.md) for platform dependencies and target names.
 
 ## Current status
 
-Updated 2026-10-14. Alpha status: [feature status](docs/alpha/ALPHA-FEATURE-STATUS.md), [known issues](docs/alpha/KNOWN-ISSUES.md), [user test guide](docs/alpha/USER-TEST-GUIDE.md). Review the [prioritized TODO list](docs/TODO.md),
-[release readiness and DAW acceptance matrix](docs/qa/DAW_AUDIO_RELEASE_READINESS.md),
-and [feature audit](docs/feature-audit/FEATURE_AUDIT_2026-10-13.md).
-The integrated runtime and modular improvements are on main. PR #9's portable
-deterministic variation planner is merged, but its generator/GUI workflow is not
-implemented. PR #14's six musical-control specifications are merged and the
-controls are partly implemented in the alpha (see docs/alpha/ALPHA-FEATURE-STATUS.md). PRs #15–#18 added MIDI collision diagnostics,
-undoable Copy FX, bounded host effect-tail reporting and cross-platform pluginval
-plus numerical audio regressions. PR #6 remains an incomplete draft specification
-workspace and is intentionally unmerged.
+Updated 2026-10-20 (beta). Read the [TODO](docs/TODO.md) for open work (B-01 to B-11), the
+generated [completeness matrix](docs/specs/COMPLETENESS-MATRIX.md) for spec, test, code and UI per requirement,
+[feature status](docs/alpha/ALPHA-FEATURE-STATUS.md), [known issues](docs/alpha/KNOWN-ISSUES.md) and the
+[release readiness matrix](docs/qa/DAW_AUDIO_RELEASE_READINESS.md).
 
-Both Windows and Linux VST3 pass headless pluginval strictness level 5 in GitHub
-Actions. The CI checks omit GUI tests and the standalone Steinberg SDK validator.
-Native REAPER/project recall, audio-device playback, listening/alias analysis,
-CPU/deadline/heap instrumentation, product licensing and deployment QA remain
-unverified. **Passing CI does not mean production or DAW certification.**
-Track these gates in [issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19).
+The portable core has automated tests that pass on Linux. The JUCE targets are built by GitHub
+workflows. Nobody has yet tested the beta in a DAW, on audio hardware, by listening, with a screen
+reader, or loaded the CLAP in a CLAP host, and some editor and processor changes are compiled in CI
+only. The product licence is not chosen (see [third-party notices](THIRD-PARTY-NOTICES.md)).
+**Passing CI does not mean production or DAW certification.**
+Track native QA in [issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19), which is open.

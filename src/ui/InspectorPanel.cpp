@@ -10,12 +10,14 @@
 #include "core/control/SceneControl.h"
 #include "core/scene/SceneSerializer.h"
 #include "core/variation/CandidateBuilder.h"
+#include "core/variation/GeneratorHistory.h"
 
 #include <algorithm>
 #include <cmath>
 #include <deque>
 #include <iomanip>
 #include <iterator>
+#include <vector>
 #include <sstream>
 
 namespace gm = groovemorph::core;
@@ -1219,12 +1221,7 @@ public:
     }
 
 private:
-    struct Entry
-    {
-        gm::VariationSettings source;
-        gvar::GeneratorSettings settings;
-        std::size_t scene = 0;
-    };
+    using Entry = gvar::HistoryEntry; // codec and tests: src/core/variation/GeneratorHistory.*
 
     gvar::GeneratorSettings settings;
     std::deque<Entry> entries;
@@ -1370,72 +1367,23 @@ private:
 
     void savePersistentHistory() const
     {
-        std::ostringstream output;
-        output << "groovemorph-generator-history 2\n";
-        output << std::setprecision(9);
-        for (const auto& entry : entries)
-        {
-            gm::scene::SceneBank sourceBank;
-            sourceBank.setVariationSettings(0, entry.source);
-            const auto sourceText = gm::scene::SceneSerializer::serialize(sourceBank);
-            output << "entry " << entry.scene << ' ' << entry.settings.seed << ' '
-                   << static_cast<int>(entry.settings.style) << ' ' << entry.settings.distance << ' '
-                   << entry.settings.candidate << ' ' << entry.settings.protectedOperations << ' '
-                   << (entry.settings.generateEventPatterns ? 1 : 0) << ' ' << entry.settings.phraseTicks << '\n'
-                   << sourceText << "end-entry\n";
-        }
         const auto file = historyFile();
         if (!file.getParentDirectory().createDirectory().failed())
-            file.replaceWithText(juce::String(output.str()));
+            file.replaceWithText(juce::String(gvar::serializeHistory(std::vector<Entry>(entries.begin(), entries.end()))));
     }
 
     void loadPersistentHistory()
     {
         const auto file = historyFile();
-        if (!file.existsAsFile() || file.getSize() <= 0 || file.getSize() > 1024 * 1024)
+        if (!file.existsAsFile() || file.getSize() <= 0
+            || file.getSize() > static_cast<juce::int64>(gvar::maxHistoryFileBytes))
             return;
-        const auto content = file.loadFileAsString().toStdString();
-        std::istringstream input(content);
-        std::string line;
-        if (!std::getline(input, line) || line != "groovemorph-generator-history 2")
-            return;
-        while (entries.size() < 24 && std::getline(input, line))
+        const auto parsed = gvar::parseHistory(file.loadFileAsString().toStdString());
+        for (const auto& entry : parsed)
         {
-            if (line.empty())
-                continue;
-            Entry entry;
-            int styleIndex = 0;
-            int generateEventsValue = 0;
-            std::istringstream header(line);
-            std::string marker;
-            if (!(header >> marker >> entry.scene >> entry.settings.seed >> styleIndex >> entry.settings.distance
-                         >> entry.settings.candidate >> entry.settings.protectedOperations >> generateEventsValue
-                         >> entry.settings.phraseTicks)
-                || marker != "entry" || entry.scene >= gm::variationCount || styleIndex < 0 || styleIndex > 2
-                || (generateEventsValue != 0 && generateEventsValue != 1)
-                || entry.settings.phraseTicks <= 0 || !std::isfinite(entry.settings.distance))
+            if (entries.size() >= gvar::maxHistoryEntries)
                 break;
-            entry.settings.style = static_cast<gvar::Style>(styleIndex);
-            entry.settings.generateEventPatterns = generateEventsValue != 0;
-            std::string sourceText, sourceLine;
-            bool ended = false;
-            while (std::getline(input, sourceLine))
-            {
-                if (sourceLine == "end-entry")
-                {
-                    ended = true;
-                    break;
-                }
-                sourceText += sourceLine;
-                sourceText.push_back('\n');
-            }
-            if (!ended)
-                break;
-            const auto sourceBank = gm::scene::SceneSerializer::deserialize(sourceText);
-            if (sourceBank.report.status == gm::scene::LoadStatus::Defaulted)
-                continue;
-            entry.source = sourceBank.bank.variation(0).settings;
-            entries.push_back(std::move(entry));
+            entries.push_back(entry);
         }
         rebuildHistory();
     }
@@ -2352,7 +2300,7 @@ public:
         text.setCaretVisible(false);
         text.setTooltip("Honest list of what this alpha implements and what it does not (read only).");
         text.setText(
-            "ALPHA FEATURE STATUS (see docs/alpha/ALPHA-FEATURE-STATUS.md)\n\n"
+            "BETA FEATURE STATUS (see docs/alpha/ALPHA-FEATURE-STATUS.md)\n\n"
             "Implemented (automated tests; not tried in a DAW or by ear):\n"
             " - Placement window/cadence/origin/snap, downbeat protect, up to 4 protected regions, event lanes\n"
             "   with per-event depth, slice, priority, cycle restart and lock; per-lane loop lengths\n"
@@ -2361,18 +2309,18 @@ public:
             " - Scenes: duplicate, reset, copy FX, rename, undo/redo, morph, auto-return (bars/phrases),\n"
             "   scene start phase (follow / restart / snap to next beat, offset, Restart scene now)\n"
             " - Limits: effects at once + priority; spacing/coverage via Reduce; Events x2 and /2\n"
-            " - Input: demo loop, capture/import loop (beat-locked), band split (6 or 12 dB/oct), audio\n"
-            "   trigger, MIDI CC/program-change macros (tick MIDI macros first)\n"
+            " - Input: demo loop, capture/import loop (beat-locked, optional stretch to host tempo, saved in the\n"
+            "   project), band split (Classic 6/12 dB or Linkwitz-Riley 12/24 dB), audio trigger,\n"
+            "   MIDI CC/program-change macros (tick MIDI macros first)\n"
             " - Perform: scene launch, macros, gesture lane, phrase evolution\n"
             " - Print: record the processed output for N bars to a 24-bit WAV, drag it into the DAW (untested)\n"
             " - Right-click on any control: exact value, copy/paste, reset, MIDI learn; Visual window\n"
             " - Host Variation parameter follows the sounding scene\n\n"
-            "Not implemented / limited in this alpha:\n"
-            " - Per-scene transition smoothing time; Linkwitz-Riley or steeper crossovers; loop-aware Reduce\n"
-            " - No time stretching for loops; loop audio is not saved with the project. Generator history\n"
-            "   is saved locally on this computer, not embedded in the DAW project\n"
+            "Not implemented / limited in this beta:\n"
+            " - Loop stretch is WSOLA only (ratio 0.5 to 2.0); saved loop audio is 16-bit\n"
+            " - Generator history is saved locally on this computer, not embedded in the DAW project\n"
             "   (gesture curve, evolution settings and MIDI links are); gestures run at ~20 Hz\n"
-            " - Capture is stereo-limited, 20 s max; CLAP and other formats\n\n"
+            " - Capture is stereo-limited, 20 s max; only two crossover bands; AU, AAX and LV2 are not planned\n\n"
             "Untested: real DAW hosts, audio hardware, listening quality.",
             false);
         addAndMakeVisible(text);

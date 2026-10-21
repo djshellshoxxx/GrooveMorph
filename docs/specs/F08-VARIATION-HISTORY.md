@@ -1,8 +1,15 @@
 # F08 Generation history and recall
 
-Status: IMPLEMENTED (local candidate history), spec COMPLETE. Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED (local candidate history; codec in core). Beta audit: embedding in the project is a draft requirement, not built (TODO B-08). Updated 2026-10-20 by the A1 completeness audit.
 Replaces draft `docs/expansion/features/F08-VARIATION-HISTORY.md` (PR #6). The draft's branching revision graph and project-embedded
 history are NOT implemented. Scene undo/redo (separate mechanism) is documented here for clarity.
+
+
+## Beta audit status (2026-10-20)
+
+- Built by the audit: the history file codec moved from `InspectorPanel.cpp` to `src/core/variation/GeneratorHistory.{h,cpp}` with the same format (`groovemorph-generator-history 2`), tested by `tests/core/GeneratorHistoryTests.cpp` (F08-T04..T07).
+- Open: history inside the DAW project (F08-T08, B-08). The decision to keep it a local file stands until the owner asks.
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -51,10 +58,10 @@ Gen tab: "Generation history" combo (disabled when empty), entry text "#N scene 
 | F08-T01 | Undo depth, redo, new edit clears redo, bounded | EXISTS | `tests/core/SceneUndoAuditionTests.cpp` "depth 2", "undo to b0", "redo to b1", "new edit clears redo", "bounded undo steps" |
 | F08-T02 | Audition commit is one undo step; revert leaves the bank | EXISTS | SceneUndoAuditionTests "commit undoable", "revert leaves bank"; PluginProcessorTests "undo refused during audition" |
 | F08-T03 | Any candidate is exactly reproducible from stored inputs | EXISTS (builder determinism) | CandidateBuilderTests "same inputs same candidate" |
-| F08-T04 | History file round trip: write 24 entries, reload, recall equals original candidate | MISSING (logic lives in the UI file; extract to `src/core/variation/GeneratorHistory.{h,cpp}` with the same format, then test) | `tests/core/GeneratorHistoryTests.cpp` |
-| F08-T05 | Hostile history file (huge, truncated, wrong header, NaN) is rejected without crash | MISSING | same |
-| F08-T06 | 25th entry evicts the oldest; order stable | MISSING | same |
-| F08-T07 | Legacy history version (`... 1`) is ignored, not misparsed | MISSING | same |
+| F08-T04 | History file round trip: write 24 entries, reload, recall equals original candidate | EXISTS | `GeneratorHistoryTests.cpp (label F08-T04)` |
+| F08-T05 | Hostile history file (huge, truncated, wrong header, NaN) is rejected without crash | EXISTS | `GeneratorHistoryTests.cpp (label F08-T05)` |
+| F08-T06 | 25th entry evicts the oldest; order stable | EXISTS | `GeneratorHistoryTests.cpp (label F08-T06)` |
+| F08-T07 | Legacy history version (`... 1`) is ignored, not misparsed | EXISTS | `GeneratorHistoryTests.cpp (label F08-T07)` |
 | F08-T08 | Project-embedded history (draft requirement) | NOT PLANNED for Beta; record as a decision if the owner wants it | n/a |
 
 ## 8. Gaps

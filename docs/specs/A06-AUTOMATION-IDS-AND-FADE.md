@@ -1,7 +1,15 @@
 # A06 Stable per-operation automation IDs and whole-scene fade policy
 
-Status: SPEC COMPLETE, implementation owned by W10 (IDs) and W3 (smoothing hooks). Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED as the W10 variant: `op<N>Enable/Depth/Slice` trims. The fifteen `fx<X>Mode/Depth/Slice` ids in section 3 were NOT built. Updated 2026-10-20 by the A1 completeness audit.
 Source item: `docs/TODO.md` A06 ("define stable operation automation IDs, full-scene duplicate and fade policy"). Related: [F12](F12-MIDI-CLAP-PLATFORMS.md), [F02](F02-SCENE-MORPHING.md), C04.
+
+
+## Beta audit status (2026-10-20)
+
+- As built (`docs/specs/W10-OP-TRIMS.md`): three parameters per operation, generated in a loop from `operationCount` (21 for seven operations), overlaying the sounding scene after morph and before placement; neutral values are bit-identical.
+- Section 6 (whole-scene fade) stands: replacement uses the engine ramps; C04 per-scene smoothing (0-250 ms, W3) governs scene switches only.
+- Open: processor test of trim order and the activity limit (A06-T07, B-02); host automation in REAPER (A06-T09, B-01).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -18,7 +26,7 @@ Source item: `docs/TODO.md` A06 ("define stable operation automation IDs, full-s
   fades of 3 ms (`RhythmEngine.h`). History is bounded to 4 s. There is no longer-duration scene fade. C04's per-scene smoothing time is not implemented (owner W3).
 - Duplicating onto the SOUNDING scene while the transport plays therefore changes the sound with a 3 ms ramp per parameter, not a musical fade.
 
-## 3. Operation overrides (new host parameters, owner W10)
+## 3. Operation overrides (SUPERSEDED by W10-OP-TRIMS: shipped as `op<N>Enable/Depth/Slice`, three per operation; the table below is the original draft)
 
 Design rule: automation must never rewrite scenes. The new parameters are a LIVE LAYER applied to the effective settings after morph and before placement gating
 (`GrooveMorphAudioProcessor::effectiveSettings`). Neutral values reproduce today's sound exactly, so old projects are unchanged.
@@ -48,7 +56,7 @@ APVTS parameters only. No scene keys, no format change. Older projects lack the 
 
 ## 5. Real-time and threading
 
-The audio thread reads fifteen cached atomics once per `process()` call (`ParameterCache` additions) and applies them to a stack copy of `VariationSettings`. No allocation, no locks. The `effectiveSettings` result is
+The audio thread reads 3 x operationCount cached atomics once per `process()` call (`ParameterCache` additions) and applies them to a stack copy of `VariationSettings`. No allocation, no locks. The `effectiveSettings` result is
 already computed per segment; overrides must be applied in the same function so the evaluator and engine see one consistent view.
 
 ## 6. Whole-scene fade policy (decision)
@@ -69,13 +77,13 @@ No new tab. The Perform tab may show the live layer as a compact strip (Mode / D
 |---|---|---|---|
 | A06-T01 | Copy FX copies settings only, undoable, refused during audition | EXISTS | `tests/PluginProcessorTests.cpp` "copy A effects into B", "processor copy can undo", "copy blocked during audition"; `tests/core/SceneBankTests.cpp` "copy preserves target name" |
 | A06-T02 | Whole-scene duplicate/reset keep the destination's locked fields; undoable | EXISTS | PluginProcessorTests "duplicate keeps the destination's locked depth", "reset keeps locked fields", "duplicate undo"; SceneControlTests "duplicate scene", "reset scene" |
-| A06-T03 | The 15 override parameters exist with the exact IDs/ranges/defaults above and survive a state round trip; legacy state restores neutral | MISSING, owned by W10 | `tests/PluginProcessorTests.cpp` + legacy fixture |
-| A06-T04 | Neutral overrides render bit-identically to the current engine output | MISSING, owned by W10 | processor render test |
-| A06-T05 | Mode On/Off, Depth scale and Slice shift change the render as specified; scenes and undo stack untouched | MISSING, owned by W10 | processor test |
-| A06-T06 | Replacing the sounding scene during playback: maximum sample-to-sample step of the output stays within the bound of an equal-length steady render of the louder scene (record the bound with the fixture) | MISSING | processor render test |
-| A06-T07 | Overrides participate in the activity limit and are applied after morph | MISSING, owned by W10 | processor test |
-| A06-T08 | pluginval strictness 5 still passes with 15 more parameters | CI | `.github/workflows/pluginval.yml` |
-| A06-T09 | Native host: automation lane for `fxGateDepth` records and plays back in REAPER | MISSING (manual, issue #19) | QA ledger |
+| A06-T03 | The `op<N>Enable/Depth/Slice` trims exist for every operation with the IDs/ranges/defaults of W10-OP-TRIMS, every earlier id is unchanged, and a legacy state restores neutral | EXISTS | `PluginProcessorTests.cpp` "A06-06 a trim exists for every operation and kind"; `PluginProcessorTests.cpp` "A06-06 every earlier parameter id still exists"; `PluginProcessorTests.cpp` "A06-08 trims absent from an old state return to default" As built the parameters are op<N>Enable/Depth/Slice (3 per operation), not the 15 fx<X> ids first drafted. |
+| A06-T04 | Neutral trims render bit-identically to the output without them | EXISTS | `OperationTrimsTests.cpp` "A06-02 bit identical"; `PluginProcessorTests.cpp` "A06-07 returning the trim to default restores the reference output" |
+| A06-T05 | Enable Off/On, Depth scale and Slice multiplier change the render as specified; stored scenes and the undo stack are untouched | EXISTS | `OperationTrimsTests.cpp` "A06-03 force on"; `OperationTrimsTests.cpp` "A06-03 depth multiplies"; `OperationTrimsTests.cpp` "A06-03 slice multiplies" |
+| A06-T06 | Replacing the sounding scene during playback: maximum sample-to-sample step of the output stays within the bound of an equal-length steady render of the louder scene (record the bound with the fixture) | PARTIAL | `DspRhythmEngineTests.cpp` "variation switch bounded"; `TransitionSmoothingTests.cpp` "W3-C04S-T03 3 ms and 50 ms fades stay within the signal's own step" Engine-level: a settings switch while playing stays within the signal's own step with the 3 ms ramps and with up to 250 ms smoothing. A processor render of duplicate/reset on the sounding scene is not asserted (TODO B-02). |
+| A06-T07 | Trims are applied after morph and the activity limit sees the trimmed enable mask | DEFERRED | Order is by construction in effectiveSettings (morph, then trims, then the placement mask from the trimmed settings, docs/specs/W10-OP-TRIMS.md) but no test asserts it. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
+| A06-T08 | pluginval strictness 5 still passes with 3 x operationCount more parameters | CHECKED | `pluginval.yml` "strictness 5" pluginval strictness 5 runs headless on Linux and Windows in CI; no run for the 3N trim parameters has been read by this audit. |
+| A06-T09 | Native host: automation lane for `op2Depth` records and plays back in REAPER | MANUAL | Native host: automation lane for op2Depth in REAPER; open under issue #19 (B-01). |
 
 ## 9. Non-goals
 

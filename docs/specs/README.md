@@ -1,7 +1,7 @@
 # GrooveMorph specification index
 
-Updated 2026-10-20 (Beta workplan, worker W1). Baseline: main `c83e8b2`. Every planned feature and TODO item below has an implementation-grade spec:
-objective, exact parameter IDs and ranges, state keys, real-time and threading behavior, UI wiring, acceptance tests with IDs (each marked EXISTS or MISSING with its location), gaps with owners, non-goals.
+Updated 2026-10-20 (Beta workplan, worker W1; statuses refreshed by the A1 completeness audit). The generated join of every acceptance ID to tests, code and UI is [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md); open items use the TODO IDs B-01..B-11 in [../TODO.md](../TODO.md). Baseline: main `c83e8b2`. Every planned feature and TODO item below has an implementation-grade spec:
+objective, exact parameter IDs and ranges, state keys, real-time and threading behavior, UI wiring, acceptance tests with IDs (each marked EXISTS, PARTIAL, MANUAL, DEFERRED or MISSING with its location or reason), gaps with owners, non-goals.
 The F01-F12 specs describe the feature AS IMPLEMENTED in `src/` plus the remaining gaps; they replace the INCOMPLETE drafts in unmerged PR #6 (`spec/groovemorph-expansion-v1`, `docs/expansion/`), which are not in main.
 
 How to read a spec: the acceptance table is the contract. A feature is only done when every ID has a passing test or a recorded reason. "Owned by Wn" names the Beta worker that closes the gap (workplan: `docs/coordination/BETA-WORKPLAN.md` on the integration branch).
@@ -10,31 +10,31 @@ How to read a spec: the acceptance table is the contract. A feature is only done
 
 | ID | Spec | Status in code | Main gaps (owner) |
 |---|---|---|---|
-| F01 | [Controlled generation](F01-CONTROLLED-GENERATION.md) | Implemented subset | golden fixture, capacity 256 (W3), Euclid/chance (W6) |
-| F02 | [Scene morphing](F02-SCENE-MORPHING.md) | Effect settings only | placement and event morph (W3) |
-| F03 | [Groove protection](F03-GROOVE-PROTECTION.md) | Implemented subset | Linkwitz-Riley (W3) |
-| F04 | [Performance mode](F04-PERFORMANCE-MODE.md) | Implemented subset | keyboard control, thread safety (W10) |
-| F05 | [Phrase evolution](F05-PHRASE-EVOLUTION.md) | One scene | multi-scene, preview (unowned) |
-| F06 | [Polyrhythmic lanes](F06-POLYRHYTHMIC-LANES.md) | Per-lane loop ring | loop-aware Reduce (W3), ring drawing (unowned) |
-| F07 | [Audio triggers](F07-AUDIO-TRIGGERS.md) | Scene actions only | tuning on real material (unowned) |
-| F08 | [Generation history](F08-VARIATION-HISTORY.md) | Local file + scene undo | codec extraction and tests (unowned) |
-| F09 | [Audio import and capture](F09-AUDIO-IMPORT-CAPTURE.md) | Varispeed loop | stretch, persistence, waveform (W4) |
-| F10 | [Multiband](F10-MULTIBAND.md) | Two bands | LR crossover (W3); N-band deferred |
-| F11 | [Gesture recorder](F11-GESTURE-RECORDER.md) | One lane | write throttling, DECISIONS fix (W10) |
-| F12 | [MIDI, CLAP and platforms](F12-MIDI-CLAP-PLATFORMS.md) | MIDI + VST3/Standalone | CLAP (W9), conflict policy and IDs (W10) |
+| F01 | [Controlled generation](F01-CONTROLLED-GENERATION.md) | Implemented | Generate/Apply UI run (B-01) |
+| F02 | [Scene morphing](F02-SCENE-MORPHING.md) | Implemented (settings, placement, events) | processor no-op test (B-02) |
+| F03 | [Groove protection](F03-GROOVE-PROTECTION.md) | Implemented (Classic + LR) | Classic 12 dB test (B-09) |
+| F04 | [Performance mode](F04-PERFORMANCE-MODE.md) | Implemented + keys 1-4/T/Esc | large layout, thread test (B-01, B-02) |
+| F05 | [Phrase evolution](F05-PHRASE-EVOLUTION.md) | One scene | processor rows (B-02); multi-scene, preview (B-06) |
+| F06 | [Polyrhythmic lanes](F06-POLYRHYTHMIC-LANES.md) | Loop ring + loop-aware Reduce | ring drawing (B-04) |
+| F07 | [Audio triggers](F07-AUDIO-TRIGGERS.md) | Scene actions only | tuning on real material (B-07) |
+| F08 | [Generation history](F08-VARIATION-HISTORY.md) | Local file, core codec tested | project embedding (B-08) |
+| F09 | [Audio import and capture](F09-AUDIO-IMPORT-CAPTURE.md) | Stretch, persistence, waveform | listening, big-project round trip (B-01) |
+| F10 | [Multiband](F10-MULTIBAND.md) | Two bands, Classic + LR | N-band (B-06) |
+| F11 | [Gesture recorder](F11-GESTURE-RECORDER.md) | One lane, write threshold | processor rows (B-02); multi-lane (B-06) |
+| F12 | [MIDI, CLAP and platforms](F12-MIDI-CLAP-PLATFORMS.md) | MIDI + VST3/Standalone/CLAP | CLAP in a host (B-11), CC policy, soft pickup (B-05) |
 
 ## TODO-item specs (no other owner)
 
 | ID | Spec | Implementation owner |
 |---|---|---|
-| A04 | [MIDI duplicate-assignment policy](A04-MIDI-CONFLICT-POLICY.md) (recommends auto-swap with undoable notice) | W10 |
+| A04 | [MIDI duplicate-assignment policy](A04-MIDI-CONFLICT-POLICY.md) (shipped as the W10 Swap/Cancel dialog; see W10-MIDI-ASSIGN) | W10 |
 | A06 | [Automation IDs and whole-scene fade policy](A06-AUTOMATION-IDS-AND-FADE.md) | W10 (IDs), W3 (smoothing hook) |
 | A07 | [Accessibility, keyboard, scaling, screen reader](A07-ACCESSIBILITY-INPUT.md) | W10 |
 | R01 | [Release licensing and third-party notices](R01-LICENSING-NOTICES.md) (decision record; license not chosen) | W9 with the product owner |
 
 ## Beta feature specs (written by their implementing workers)
 
-These files are created by the workers named below on their own branches and arrive at integration. Links resolve after merge; until then they are listed as pending in the link check.
+These files are merged on the beta branch.
 
 | ID | Spec | Worker |
 |---|---|---|
