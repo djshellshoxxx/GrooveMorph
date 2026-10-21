@@ -20,6 +20,7 @@
 #include "core/scene/SceneBank.h"
 #include "core/scene/SceneSerializer.h"
 #include "core/scene/UndoStack.h"
+#include "PresetManager.h"
 
 #include <array>
 #include <atomic>
@@ -86,10 +87,11 @@ public:
             + groovemorph::core::RhythmEngine::crossfadeSeconds;
     }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
+    // N02: host programs = factory presets then user presets (see docs/specs/N02-PRESETS.md).
+    int getNumPrograms() override { return juce::jmax(1, presetManager.count()); }
+    int getCurrentProgram() override;
+    void setCurrentProgram(int index) override { (void) applyPreset(index); }
+    const juce::String getProgramName(int index) override { return presetManager.nameAt(index); }
     void changeProgramName(int, const juce::String&) override {}
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
@@ -279,6 +281,22 @@ public:
     // Result of the last scene-state restore (GM-FR-010 recovery reporting).
     groovemorph::core::scene::LoadReport getLastSceneLoadReport() const;
 
+    // ---- Presets (N02, message thread) ----
+    PresetManager& getPresetManager() noexcept { return presetManager; }
+    // Replaces the four scenes with the preset's as ONE undoable bank edit (published through the normal
+    // snapshot handoff) and writes the preset's optional host parameters. False when the index is invalid
+    // or a preview is active.
+    bool applyPreset(int index);
+    // Name of the preset the scenes were last loaded from / saved as; empty when none.
+    juce::String getCurrentPresetName() const;
+    // True when the four scenes differ from the loaded preset (or no preset is loaded).
+    bool isPresetModified() const;
+    // Saves the current four scenes (plus the optional host parameters) as a user preset and makes it current.
+    PresetManager::Result saveCurrentAsPreset(const juce::String& name, const juce::String& category,
+                                              const juce::StringArray& tags, bool overwrite);
+    // Marks a preset (e.g. after rename or delete) as the loaded one, or clears it when name is empty.
+    void setCurrentPresetName(const juce::String& name);
+
 private:
     struct PublishedScene
     {
@@ -343,6 +361,9 @@ private:
     // Message-thread model.
     mutable std::mutex modelMutex;
     groovemorph::core::scene::UndoStack undoStack;
+    PresetManager presetManager;
+    std::string currentPresetName;                                  // guarded by modelMutex
+    std::optional<groovemorph::core::scene::SceneBank> currentPresetBank; // guarded by modelMutex
     groovemorph::core::scene::AuditionSession audition;
     groovemorph::core::scene::LoadReport lastLoadReport;
 

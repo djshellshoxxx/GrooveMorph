@@ -255,6 +255,8 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     access.previewing = [this] { return audioProcessor.isAuditioning(); };
     inspector = std::make_unique<groovemorph::ui::InspectorPanel>(audioProcessor, std::move(access));
     addAndMakeVisible(*inspector);
+    presetBar.onChanged = [this] { refreshSceneControls(); };
+    addAndMakeVisible(presetBar);
     refreshSceneControls();
     // Small displays (e.g. 1024x768): shrink the whole editor to fit instead of cropping it.
     if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
@@ -380,6 +382,7 @@ void GrooveMorphAudioProcessorEditor::finishPreview(bool apply)
 void GrooveMorphAudioProcessorEditor::timerCallback()
 {
     updateTransportButtons();
+    presetBar.refresh();
     timingLabel.setText(describeTiming(audioProcessor), juce::dontSendNotification);
     const auto bank = audioProcessor.getSceneBank();
     const auto active = audioProcessor.getActiveVariation();
@@ -518,6 +521,7 @@ void GrooveMorphAudioProcessorEditor::resized()
     demoButton.setBounds(contentWidth() - 240, 16, 110, 30);
     visualButton.setBounds(contentWidth() - 340, 16, 90, 30);
     if (inspector != nullptr) inspector->setBounds(contentWidth(), 8, inspectorWidth - 8, getHeight() - 16);
+    presetBar.setBounds(20, 692, contentWidth() - 40, 40); // N02: preset bar in the free strip under the MIDI row
     intensitySlider.setBounds(144, 56, column - 124, 30);
     dryWetSlider.setBounds(20 + column + 110, 56, column - 110, 30);
     timingMode.setBounds(144, 94, column - 134, 30);
