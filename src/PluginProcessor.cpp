@@ -1828,6 +1828,7 @@ void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
         // N05: which editor view was open. Absent in state saved before Easy mode (then the full view opens).
         juce::ValueTree uiTree(uiTreeType);
         uiTree.setProperty("easyMode", isEasyMode(), nullptr);
+        uiTree.setProperty("scale", getUiScalePercent(), nullptr);
         state.removeChild(state.getChildWithName(uiTreeType), nullptr);
         state.appendChild(uiTree, nullptr);
     }
@@ -1888,6 +1889,7 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
     {
         const auto uiTree = restoredState.getChildWithName(uiTreeType);
         setEasyMode(uiTree.isValid() && static_cast<bool>(uiTree.getProperty("easyMode", false)));
+        setUiScalePercent(uiTree.isValid() ? static_cast<int>(uiTree.getProperty("scale", 100)) : 100);
         if (uiTree.isValid())
             restoredState.removeChild(uiTree, nullptr);
     }
