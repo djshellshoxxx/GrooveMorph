@@ -12,6 +12,7 @@
 #include "core/dsp/DemoSource.h"
 #include "core/MidiLinks.h"
 #include "core/dsp/LoopSource.h"
+#include "core/dsp/OutputCapture.h"
 #include "core/variation/CandidateBuilder.h"
 #include "core/dsp/OnsetDetector.h"
 #include "core/dsp/RhythmEngine.h"
@@ -193,7 +194,33 @@ public:
     // bars: 1..16, or 0 = automatic. nativeBpm: the loop's own tempo, or 0 = unknown. nativeBpm wins over bars
     // (see core/dsp/LoopImport.h). The file is resampled to the device rate. The result is readable through
     // getLoopBeats()/getLoopBpm() for the UI to report what was decided.
-    juce::Result importLoopFile(const juce::File& file, int bars, double nativeBpm = 0.0);
+    // trimToSeconds > 0 uses only that much of the start of the file (a print with a tail); 0 = whole file.
+    juce::Result importLoopFile(const juce::File& file, int bars, double nativeBpm = 0.0, double trimToSeconds = 0.0);
+
+    // ---- Print to WAV (N04, message thread) ----
+    // Records the processed output for `bars` bars from the next bar line while the transport plays.
+    // The panel polls takePrintResult() (about 20 Hz) and writes the file; see core/dsp/OutputCapture.h.
+    struct PrintResult
+    {
+        juce::AudioBuffer<float> audio;  // stereo, body + optional tail
+        double sampleRate = 48000.0;
+        int bodySamples = 0;             // bar-aligned part (without the tail)
+        int bars = 0;
+        int beatsPerBar = 4;
+        double bpm = 120.0;              // tempo at the start of the print
+        bool wetOnly = false;
+        bool wetOnlyApplied = false;     // false when wet-only was requested but Intensity * Dry/Wet was too small for a block
+        juce::String sceneName;
+    };
+    bool armPrint(int bars, bool wetOnly, bool includeTail);
+    void cancelPrint() noexcept { outputCapture.cancel(); }
+    groovemorph::core::OutputCapture::State getPrintState() const noexcept { return outputCapture.state(); }
+    groovemorph::core::OutputCapture::Failure getPrintFailure() const noexcept { return outputCapture.failure(); }
+    double getPrintProgress() const noexcept { return outputCapture.progress(); }
+    // True once and fills `result` when a print has finished; also acknowledges (frees) an aborted one.
+    bool takePrintResult(PrintResult& result);
+    // Tail length that "Include tail" appends, in seconds.
+    double getPrintTailSeconds() const noexcept { return getTailLengthSeconds(); }
     double getLoopBeats() const noexcept { return loopBeatsStatus.load(std::memory_order_relaxed); }
     double getLoopBpm() const noexcept { return loopBpmStatus.load(std::memory_order_relaxed); }
     // Sets the manual tempo parameter to the loop's native tempo. False when there is no loop or the tempo is out of range.
@@ -429,6 +456,13 @@ private:
     std::atomic<int> sourceMode{0};
     groovemorph::core::LoopSource loopSource;
     groovemorph::core::LoopCapture loopCapture;
+    groovemorph::core::OutputCapture outputCapture;           // N04 print to WAV
+    juce::AudioBuffer<float> printScratch;                    // wet-only extraction scratch (prepared with the block size)
+    std::atomic<bool> printWetOnly{false};
+    std::atomic<bool> printWetFallback{false};                // audio thread: some block was recorded as full output
+    juce::String printSceneName;                              // message thread (loopServiceMutex)
+    bool printWetOnlyRequested = false;                       // message thread (loopServiceMutex)
+    int printBars = 0, printBeatsPerBar = 4;                  // message thread (loopServiceMutex)
     std::atomic<double> loopSeconds{0.0};
     // Message-thread copy of the loop at its sample rate, so it survives prepareToPlay (guarded by loopServiceMutex).
     juce::AudioBuffer<float> loopStore;

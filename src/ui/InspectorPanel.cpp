@@ -1,5 +1,6 @@
 #include "ui/InspectorPanel.h"
 #include "ui/ControlMenu.h"
+#include "ui/PrintPanel.h"
 
 #include "PluginProcessor.h"
 #include "core/control/PlacementEvaluator.h"
@@ -2063,6 +2064,7 @@ public:
             " - Input: demo loop, capture/import loop (beat-locked), band split (6 or 12 dB/oct), audio\n"
             "   trigger, MIDI CC/program-change macros (tick MIDI macros first)\n"
             " - Perform: scene launch, macros, gesture lane, phrase evolution\n"
+            " - Print: record the processed output for N bars to a 24-bit WAV, drag it into the DAW (untested)\n"
             " - Right-click on any control: exact value, copy/paste, reset, MIDI learn; Visual window\n"
             " - Host Variation parameter follows the sounding scene\n\n"
             "Not implemented / limited in this alpha:\n"
@@ -2093,11 +2095,12 @@ struct InspectorPanel::Impl
           input(std::make_unique<InputTab>(p, a)),
           perform(std::make_unique<PerformTab>(p, a)),
           status(std::make_unique<StatusTab>()),
+          print(std::make_unique<PrintPanel>(p)),
           tabs(juce::TabbedButtonBar::TabsAtTop)
     {
         const auto bg = juce::Colour(0xff1b232e);
         // Short names keep eight tabs on one row; the tooltips carry the full names.
-        const char* names[] = {"Place", "Gen", "Scene", "Morph", "Limit", "Input", "Perform", "Info"};
+        const char* names[] = {"Place", "Gen", "Scene", "Morph", "Limit", "Input", "Perform", "Info", "Print"};
         const char* full[] = {"Place: choose where in the phrase effects act (window, every N phrases) and draw event lanes",
                               "Gen: generate variations of a scene (seed, style, distance) and lock parts of it",
                               "Scene: duplicate, copy, reset and clear scenes and effects",
@@ -2105,10 +2108,11 @@ struct InspectorPanel::Impl
                               "Limit: cap how many effects play at once and how busy a scene may get",
                               "Input: choose the input source, capture or import a loop, split the bass, audio triggers, MIDI macros",
                               "Perform: live macros, record and play back a gesture, evolve a scene over phrases",
-                              "Info: what this alpha version implements and what is untested"};
+                              "Info: what this alpha version implements and what is untested",
+                              "Print: record the processed output for N bars to a WAV file, drag it into your DAW or reuse it as the loop source"};
         juce::Component* contents[] = {placement.get(), generator.get(), scenes.get(), morph.get(), limits.get(), input.get(),
-                                       perform.get(), status.get()};
-        for (int i = 0; i < 8; ++i)
+                                       perform.get(), status.get(), print.get()};
+        for (int i = 0; i < 9; ++i)
         {
             tabs.addTab(names[i], bg, contents[i], false);
             if (auto* button = tabs.getTabbedButtonBar().getTabButton(i))
@@ -2124,6 +2128,7 @@ struct InspectorPanel::Impl
     std::unique_ptr<InputTab> input;
     std::unique_ptr<PerformTab> perform;
     std::unique_ptr<StatusTab> status;
+    std::unique_ptr<PrintPanel> print; // N04
     juce::TabbedComponent tabs;
 };
 

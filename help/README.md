@@ -13,6 +13,7 @@
 7. [The Visual window](VISUAL-WINDOW.md): the live picture of what the plugin is doing to the sound (alpha).
 8. [Right-click menu, MIDI links, Play/Stop and Reset](RIGHT-CLICK-AND-MIDI.md): exact values, copy/paste, MIDI learn, the transport buttons, loop tempo.
 9. [Seeded generator and candidate gallery](GENERATOR.md): repeatable options, event-pattern generation, preview/apply and saved local history.
+10. [Print to WAV](PRINT.md): record the processed output for N bars to a WAV file and drag it into your DAW.
 
 ## Scope
 

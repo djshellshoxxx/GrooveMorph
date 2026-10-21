@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "ui/visual/VisualWindow.h"
+#include "ui/PrintPanel.h"
 #include "PluginEditor.h"
 
 #include <cstdlib>
@@ -1086,6 +1087,87 @@ int main()
         expect("loop plays back locked to the bar grid", exact);
         processor.clearLoop();
         expect("loop cleared", !processor.hasLoop());
+        processor.setPlayHead(nullptr);
+    }
+
+    // ---- N04: print the processed output to a WAV and reuse it as the loop source ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        const int blockSize = 480;
+        processor.prepareToPlay(48000.0, blockSize);
+        setParameter(processor, "masterIntensity", 0.0f); // dry path: output == input exactly
+        const auto signal = [](std::int64_t i) { return 0.5f * static_cast<float>(std::sin(0.002 * static_cast<double>(i))); };
+        const auto drive = [&](std::int64_t from, std::int64_t to) {
+            for (std::int64_t sample = from; sample < to; sample += blockSize)
+            {
+                juce::AudioBuffer<float> buffer(2, blockSize);
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    buffer.setSample(0, i, signal(sample + i));
+                    buffer.setSample(1, i, signal(sample + i));
+                }
+                setTransport(playHead, sample);
+                juce::MidiBuffer midi;
+                processor.processBlock(buffer, midi);
+            }
+        };
+        using PrintState = groovemorph::core::OutputCapture::State;
+        expect("print arms", processor.armPrint(1, true, true));
+        expect("print cannot arm twice", !processor.armPrint(1, false, false));
+        drive(5 * blockSize, 96000 * 2 + 4800);
+        expect("print still recording into its tail", processor.getPrintState() == PrintState::Recording);
+        drive(96000 * 2 + 4800, 96000 * 2 + 4800 + 5 * 48000);
+        expect("print done", processor.getPrintState() == PrintState::Done);
+        GrooveMorphAudioProcessor::PrintResult result;
+        expect("print collected", processor.takePrintResult(result));
+        expect("print idle after collect", processor.getPrintState() == PrintState::Idle);
+        expect("print body is one bar", result.bodySamples == 96000 && result.bars == 1 && result.audio.getNumChannels() == 2);
+        expect("print includes the tail", result.audio.getNumSamples() > result.bodySamples);
+        expect("print bpm", std::abs(result.bpm - 120.0) < 1.0e-6);
+        expect("wet-only falls back at zero intensity", result.wetOnly && !result.wetOnlyApplied);
+        bool exact = true;
+        for (int i = 0; i < result.bodySamples; i += 7)
+            exact = exact && std::abs(result.audio.getSample(0, i) - signal(96000 + i)) < 1.0e-5f;
+        expect("print body equals the processed bar", exact);
+
+        const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm-print-test.wav");
+        file.deleteFile();
+        expect("print wav written", groovemorph::ui::PrintPanel::writeWav24(file, result.audio, result.sampleRate));
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+        expect("print wav reads back as 24-bit stereo", reader != nullptr && reader->bitsPerSample == 24
+                                                          && reader->numChannels == 2
+                                                          && reader->lengthInSamples == result.audio.getNumSamples());
+        if (reader != nullptr)
+        {
+            juce::AudioBuffer<float> back(2, static_cast<int>(reader->lengthInSamples));
+            reader->read(&back, 0, back.getNumSamples(), 0, true, true);
+            bool same = true;
+            for (int i = 0; i < back.getNumSamples(); i += 11)
+                same = same && std::abs(back.getSample(1, i) - result.audio.getSample(1, i)) < 1.0e-6f;
+            expect("print wav content survives 24-bit", same);
+        }
+        reader.reset();
+        const double bodySeconds = static_cast<double>(result.bodySamples) / result.sampleRate;
+        expect("print becomes the loop source (tail trimmed)",
+               processor.importLoopFile(file, 0, 4.0 * 60.0 / bodySeconds, bodySeconds).wasOk() && processor.hasLoop()
+                   && std::abs(processor.getLoopSeconds() - 2.0) < 1.0e-3 && std::abs(processor.getLoopBeats() - 4.0) < 1.0e-6);
+        file.deleteFile();
+
+        // Aborts: a stopped transport discards a body that is still recording; cancel returns to Idle.
+        expect("second print arms", processor.armPrint(2, false, false));
+        drive(96000 * 4, 96000 * 4 + 96000 + 2400);
+        expect("second print recording", processor.getPrintState() == PrintState::Recording);
+        drive(96000 * 8, 96000 * 8 + blockSize); // a jump
+        expect("jump aborts the print", processor.getPrintState() == PrintState::Aborted
+                                           && processor.getPrintFailure() == groovemorph::core::OutputCapture::Failure::Jumped);
+        processor.cancelPrint();
+        expect("cancel acknowledges", processor.getPrintState() == PrintState::Idle);
+        expect("print rearms", processor.armPrint(16, false, false));
+        processor.cancelPrint();
         processor.setPlayHead(nullptr);
     }
 
