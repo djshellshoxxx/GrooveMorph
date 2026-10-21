@@ -3,6 +3,7 @@
 #include "core/scene/SceneBank.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 
 namespace groovemorph::core::scene
@@ -17,6 +18,11 @@ public:
     // Records the current state for undo, makes `next` current and clears redo.
     // A commit equal to the current state is a no-op.
     void commit(const SceneBank& next);
+    // Like commit(), but successive commits with the same non-zero `key` whose timestamps are at most
+    // `windowMs` apart merge into the undo entry created by the first one (one undo step reverts the
+    // whole run). Any other commit, undo, redo or reset ends the run. key 0 never merges. `nowMs` is a
+    // caller-supplied monotonic millisecond clock, so the logic stays portable and testable.
+    void commitCoalesced(const SceneBank& next, std::uint64_t key, std::int64_t nowMs, std::int64_t windowMs = 500);
     // Replaces the current state WITHOUT recording history (live performance moves such as MIDI controllers,
     // which would otherwise flood the undo list). Redo history is left alone.
     void amend(const SceneBank& next) { state = next; }
@@ -34,5 +40,7 @@ private:
     std::deque<SceneBank> undoHistory;
     std::deque<SceneBank> redoHistory;
     std::size_t maxDepth;
+    std::uint64_t runKey = 0;   // key of the open coalescing run; 0 = none
+    std::int64_t runLastMs = 0; // timestamp of the newest commit of the run
 };
 } // namespace groovemorph::core::scene
