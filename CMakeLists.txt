@@ -94,6 +94,9 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         src/PluginEditor.cpp
         src/PresetManager.cpp
         src/ui/PresetBar.cpp
+        src/PluginProcessorEasy.cpp
+        src/ui/EasyView.cpp
+        src/ui/FirstRunGuide.cpp
         src/ui/InspectorPanel.cpp
         src/ui/EuclidPanel.cpp
         src/ui/ControlMenu.cpp
