@@ -12,6 +12,7 @@
 6. [Visual guide and screenshot capture](VISUAL-GUIDE.md): arrows, numbered labels, and screenshot verification process.
 7. [The Visual window](VISUAL-WINDOW.md): the live picture of what the plugin is doing to the sound (alpha).
 8. [Right-click menu, MIDI links, Play/Stop and Reset](RIGHT-CLICK-AND-MIDI.md): exact values, copy/paste, MIDI learn, the transport buttons, loop tempo.
+9a. [Loops: stretch, saving and the waveform](LOOPS.md): optional pitch-preserving stretch, loop saved with the project, capture safety.
 9. [Seeded generator and candidate gallery](GENERATOR.md): repeatable options, event-pattern generation, preview/apply and saved local history.
 
 ## Scope
@@ -22,7 +23,7 @@ The illustrated SVGs in `help/images/` are **source-derived UI diagrams**, **not
 
 ## What this beta does not claim
 
-The original MVP had no event lanes, file import, morphing or band split; the alpha adds them (see `docs/alpha/ALPHA-FEATURE-STATUS.md`). Full-song capture, time stretching, CLAP export and validated native DAW compatibility are not established. The F01–F12 specifications are drafts (PR #6).
+The original MVP had no event lanes, file import, morphing or band split; the alpha adds them (see `docs/alpha/ALPHA-FEATURE-STATUS.md`). Full-song capture, CLAP export and validated native DAW compatibility are not established. The F01–F12 specifications are drafts (PR #6).
 
 ## Useful code links
 

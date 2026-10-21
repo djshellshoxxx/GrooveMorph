@@ -1,5 +1,6 @@
 #include "ui/InspectorPanel.h"
 #include "ui/ControlMenu.h"
+#include "ui/WaveformView.h"
 
 #include "PluginProcessor.h"
 #include "core/control/PlacementEvaluator.h"
@@ -1632,7 +1633,7 @@ public:
         bars.setTooltip("Length of a captured or imported loop in bars (uses the current beats-per-bar). Auto works the bar count out from the file length so that its tempo is closest to the current tempo. For a capture, Auto records 2 bars. If you know the loop's tempo, type it in the BPM box instead: that is the most reliable way to import.");
         loopBpmField.setInputRestrictions(7, "0123456789.");
         loopBpmField.setTextToShowWhenEmpty("BPM", juce::Colours::grey);
-        loopBpmField.setTooltip("The loop's own tempo in BPM (20-400), for imports. Leave empty to work it out automatically. The loop then plays at its original speed when the plugin tempo equals this value, and proportionally faster or slower at other tempos (no time-stretching, so pitch follows).");
+        loopBpmField.setTooltip("The loop's own tempo in BPM (20-400), for imports. Leave empty to work it out automatically. The loop then plays at its original speed when the plugin tempo equals this value, and proportionally faster or slower at other tempos (unless 'Stretch to host tempo' is on, pitch follows the tempo).");
         matchTempo.setButtonText("Set tempo to loop");
         matchTempo.setTooltip("Sets the manual tempo to the tempo of the loaded loop so it plays at its original speed (when Timing method is Sample Clock, or in Standalone).");
         matchTempo.onClick = [this] { message.setText(processor.matchTempoToLoop() ? "Tempo set to the loop's tempo." : "No loop loaded, or its tempo is outside the tempo range.", juce::dontSendNotification); };
@@ -1645,7 +1646,7 @@ public:
                 message.setText("Capture could not start.", juce::dontSendNotification);
         };
         importButton.setButtonText("Import file...");
-        importButton.setTooltip("Loads a WAV, AIFF, FLAC or OGG file of up to 20 seconds as a loop. Its tempo comes from the BPM box if filled in, otherwise from the bars choice (Auto works it out). It plays locked to the beat grid at the plugin tempo; there is no time stretching, so pitch follows tempo.");
+        importButton.setTooltip("Loads a WAV, AIFF, FLAC or OGG file of up to 20 seconds as a loop. Its tempo comes from the BPM box if filled in, otherwise from the bars choice (Auto works it out). It plays locked to the beat grid at the plugin tempo; pitch follows tempo unless 'Stretch to host tempo' is on.");
         importButton.onClick = [this] {
             chooser = std::make_unique<juce::FileChooser>("Choose an audio loop", juce::File{}, "*.wav;*.aif;*.aiff;*.flac;*.ogg");
             chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -1669,6 +1670,10 @@ public:
         clearLoop.setTooltip("Discards the captured/imported loop.");
         clearLoop.onClick = [this] { processor.clearLoop(); if (processor.getSourceMode() == 2) { processor.setSourceMode(0); source.setSelectedId(1, juce::dontSendNotification); } };
         setupLabel(loopInfo, "");
+        stretchToggle.setButtonText("Stretch to host tempo (keeps pitch)");
+        stretchToggle.setTooltip("Off (default): the loop is beat-locked and its pitch follows the tempo. On: a pitch-preserving copy of the loop is rendered in the background whenever the tempo settles (ratio 0.5 to 2.0). Transients can double or smear a little; until the new copy is ready the loop plays at the old tempo's speed.");
+        stretchToggle.setClickingTogglesState(true);
+        setupLabel(stretchInfo, "");
         setupLabel(message, "");
         message.setColour(juce::Label::textColourId, juce::Colours::orange);
 
@@ -1701,11 +1706,12 @@ public:
         midiMacros.setTooltip("CC 20 = Intensity, CC 21 = Dry/Wet, CC 22 = Morph amount; program change 0-3 = scene A-D. Applied at about 20 Hz via the host parameters. Off by default; not saved.");
         midiMacros.onClick = [this] { processor.setMidiMacrosEnabled(midiMacros.getToggleState()); };
 
-        for (auto* c : std::initializer_list<juce::Component*>{&sourceTitle, &source, &bars, &loopBpmField, &capture, &importButton, &clearLoop, &matchTempo, &loopInfo,
+        for (auto* c : std::initializer_list<juce::Component*>{&sourceTitle, &source, &bars, &loopBpmField, &capture, &importButton, &clearLoop, &matchTempo, &loopInfo, &stretchToggle, &stretchInfo, &waveform,
                                                                &message, &bandTitle, &bandModeLabel, &bandMode, &crossoverLabel, &crossover,
                                                                &triggerTitle, &triggerLabel, &trigger, &sensLabel, &sens, &onsets, &midiMacros})
             addAndMakeVisible(*c);
         auto& apvts = processor.parameters;
+        stretchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(apvts, GrooveMorphAudioProcessor::loopStretchId, stretchToggle);
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandModeId, bandMode));
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandSlopeId, bandSlope));
         linkParam(bandMode, GrooveMorphAudioProcessor::bandModeId);
@@ -1735,6 +1741,12 @@ public:
                         message.setText("Capture refused: that many bars would exceed 20 seconds at this tempo.", juce::dontSendNotification);
                     else if (why == 2)
                         message.setText("Capture stopped: the transport stopped or jumped while recording.", juce::dontSendNotification);
+                    else if (why == 3)
+                        message.setText("Capture stopped: the tempo changed while recording. Keep the tempo steady and try again.", juce::dontSendNotification);
+                    else if (why == 4)
+                        message.setText("Capture stopped: the meter changed, so the bar length no longer matches.", juce::dontSendNotification);
+                    else if (why == 5)
+                        message.setText("The capture is kept but could not be loaded yet; retrying.", juce::dontSendNotification);
                 }
                 break;
             case State::Armed: capture.setButtonText("Waiting for bar line (click to cancel)"); break;
@@ -1746,6 +1758,29 @@ public:
                          juce::dontSendNotification);
         clearLoop.setEnabled(processor.hasLoop());
         matchTempo.setEnabled(processor.hasLoop());
+        {
+            juce::String text;
+            if (processor.isLoopStretchEnabled() && processor.hasLoop())
+                text = processor.isLoopStretchBusy() ? "Stretching to the host tempo..."
+                       : "Stretch ratio " + juce::String(processor.getLoopStretchRatio(), 3)
+                             + (processor.isLoopStretchLimited() ? " (limited to 0.5-2.0 or 20 s; the rest is varispeed)" : "");
+            switch (processor.getLoopPersistWarning())
+            {
+                case 1: text += (text.isEmpty() ? "" : "  ") + juce::String("Loop too large to save with the project."); break;
+                case 2: text += (text.isEmpty() ? "" : "  ") + juce::String("Loop could not be saved with the project."); break;
+                case 3: text += (text.isEmpty() ? "" : "  ") + juce::String("The loop saved in this project could not be restored."); break;
+                default: break;
+            }
+            stretchInfo.setText(text, juce::dontSendNotification);
+        }
+        {
+            std::vector<float> lo, hi;
+            processor.getLoopPeaks(waveform.preferredColumns(), lo, hi);
+            waveform.setPeaks(lo, hi);
+            const auto grid = processor.getGridContext();
+            waveform.setGrid(processor.hasLoop() ? processor.getLoopBeats() : 0.0, processor.getLoopOriginBeats(), grid.beatsPerBar);
+            waveform.setPlayhead(processor.getLoopPlayFraction());
+        }
         crossover.setEnabled(bandMode.getSelectedId() > 1); // the crossover only matters when the bass is split
         sens.setEnabled(trigger.getSelectedId() > 1);        // sensitivity only matters when a trigger action is chosen
         onsets.setText("Transients detected: " + juce::String(processor.getOnsetCount()), juce::dontSendNotification);
@@ -1765,6 +1800,10 @@ public:
         clearLoop.setBounds(r.removeFromLeft(100).reduced(4, 0));
         matchTempo.setBounds(r.removeFromLeft(150).reduced(4, 0));
         loopInfo.setBounds(nextRow(area));
+        r = nextRow(area);
+        stretchToggle.setBounds(r.removeFromLeft(250));
+        stretchInfo.setBounds(r);
+        waveform.setBounds(nextRow(area, 44));
         message.setBounds(nextRow(area));
         area.removeFromTop(8);
         bandTitle.setBounds(nextRow(area));
@@ -1790,6 +1829,10 @@ public:
 private:
     // 0 = automatic (import); a capture needs a number, so Auto records 2 bars.
     int barChoice() const { constexpr int values[] = {0, 1, 2, 4, 8}; return values[juce::jlimit(0, 4, bars.getSelectedId() - 1)]; }
+    WaveformView waveform;
+    MenuToggleButton stretchToggle;
+    juce::Label stretchInfo;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> stretchAttachment;
     juce::Label sourceTitle, loopInfo, message, bandTitle, bandModeLabel, crossoverLabel, triggerTitle, triggerLabel, sensLabel, onsets;
     MenuComboBox source, bars, bandMode, bandSlope, trigger;
     int lastCaptureFailure = 0;

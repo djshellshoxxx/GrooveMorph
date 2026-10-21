@@ -135,23 +135,38 @@ void LoopCapture::abort() noexcept
 }
 
 void LoopCapture::process(const float* const* channels, int numChannels, int numSamples,
-                          double beatAtStart, double samplesPerBeat, bool playing) noexcept
+                          double beatAtStart, double samplesPerBeat, bool playing, int beatsPerBar) noexcept
 {
     const auto current = state();
     if ((current != State::Armed && current != State::Recording) || channels == nullptr || numSamples <= 0
         || !playing || !(samplesPerBeat > 0.0) || !std::isfinite(beatAtStart) || !std::isfinite(samplesPerBeat))
         return;
+    const auto failWith = [this](int reason) noexcept {
+        failureReason.store(reason, std::memory_order_relaxed);
+        stateValue.store(static_cast<int>(State::Idle), std::memory_order_seq_cst);
+    };
+    if (beatsPerBar > 0 && beatsPerBar != requestedBeatsPerBar.load(std::memory_order_relaxed))
+    {
+        failWith(4); // the bar length this capture was armed with no longer exists
+        return;
+    }
+    if (current == State::Recording && std::abs(samplesPerBeat - startSamplesPerBeat) > 1.0e-3 * startSamplesPerBeat)
+    {
+        failWith(3); // the recorded length would no longer match its beat length
+        return;
+    }
     int first = 0;
     if (current == State::Armed)
     {
         const double bar = static_cast<double>(requestedBeatsPerBar.load(std::memory_order_relaxed));
-        const double nextBar = std::ceil(beatAtStart / bar - 1.0e-9) * bar;
+        const double nextBar = std::ceil(beatAtStart / bar - (0.5 / (samplesPerBeat * bar) + 1.0e-9)) * bar;
         const double offset = (nextBar - beatAtStart) * samplesPerBeat;
-        if (offset >= static_cast<double>(numSamples))
+        // Sample-accurate to the nearest sample: a bar line within half a sample after this block's start is
+        // this block's first sample, one that rounds to the block length belongs to the next block.
+        const auto firstRounded = std::llround(std::max(0.0, offset));
+        if (firstRounded >= numSamples)
             return; // the bar line is in a later block
-        first = static_cast<int>(std::llround(std::max(0.0, offset)));
-        if (first >= numSamples)
-            return;
+        first = static_cast<int>(firstRounded);
         const double beats = static_cast<double>(requestedBars.load(std::memory_order_relaxed)) * bar;
         const auto wanted = static_cast<std::int64_t>(std::llround(beats * samplesPerBeat));
         if (wanted > capacity)
@@ -163,6 +178,7 @@ void LoopCapture::process(const float* const* channels, int numChannels, int num
         }
         target = wanted;
         written = 0;
+        startSamplesPerBeat = samplesPerBeat;
         recordBeats.store(beats, std::memory_order_relaxed);
         startBeatValue.store(nextBar, std::memory_order_relaxed);
         int expected = static_cast<int>(State::Armed);

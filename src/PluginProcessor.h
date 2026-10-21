@@ -11,7 +11,10 @@
 #include "core/control/GestureLane.h"
 #include "core/dsp/DemoSource.h"
 #include "core/MidiLinks.h"
+#include "core/dsp/LoopBlob.h"
 #include "core/dsp/LoopSource.h"
+#include "core/dsp/TimeStretcher.h"
+#include "core/dsp/WaveformPeaks.h"
 #include "core/variation/CandidateBuilder.h"
 #include "core/dsp/OnsetDetector.h"
 #include "core/dsp/RhythmEngine.h"
@@ -67,6 +70,7 @@ public:
     static constexpr const char* bandSlopeId = "bandSlope";
     static constexpr const char* audioTriggerId = "audioTrigger";
     static constexpr const char* audioTriggerSensId = "audioTriggerSens";
+    static constexpr const char* loopStretchId = "loopStretch";
 
     static constexpr double bypassFadeSeconds = 0.010;
 
@@ -202,6 +206,25 @@ public:
     bool hasLoop() const noexcept { return loopSource.hasLoop(); }
     double getLoopSeconds() const noexcept { return loopSeconds.load(std::memory_order_relaxed); }
     void pollLoopCapture();
+    // F09 follow-up (PluginProcessorLoop.cpp). "Stretch to host tempo": a background WSOLA render of the loop
+    // replaces the varispeed buffer when the tempo settles (off by default = beat-locked varispeed).
+    bool isLoopStretchEnabled() const noexcept { return loadStretchFlag(); }
+    double getLoopStretchRatio() const noexcept { return loopStretchRatioStatus.load(std::memory_order_relaxed); }
+    bool isLoopStretchLimited() const noexcept { return loopStretchLimitedStatus.load(std::memory_order_relaxed); }
+    bool isLoopStretchBusy() const noexcept { return stretchWorker.busy(); }
+    // 0 none, 1 the loop is too large to be saved with the project, 2 saving failed, 3 a saved loop could not be restored.
+    int getLoopPersistWarning() const noexcept { return loopPersistWarning.load(std::memory_order_relaxed); }
+    // Waveform overview of the stored loop: min/max columns (0 = no loop). Cached per loop version.
+    int getLoopPeaks(int columns, std::vector<float>& minimums, std::vector<float>& maximums) const;
+    // Playhead 0..1 inside the loop while the loop source is playing, otherwise -1.
+    double getLoopPlayFraction() const noexcept;
+    // Timeline beat at which the stored loop starts (modulo its length).
+    double getLoopOriginBeats() const noexcept { return loopSource.publishedOrigin(); }
+    // Timer work: finished stretch jobs, new jobs after a tempo change, retrying a failed loop publish.
+    void updateLoopStretch();
+    // Project state (getStateInformation / setStateInformation).
+    void appendLoopState(juce::ValueTree& state);
+    void restoreLoopState(juce::ValueTree& restoredState);
     // Gesture lane (F11, message thread): records one phrase of movement of a macro parameter (0 Morph
     // amount, 1 Intensity, 2 Dry/Wet) and plays it back by phrase position at timer rate (~20 Hz).
     void setGestureTarget(int target);
@@ -292,6 +315,7 @@ private:
         applyMidiMacros();
         applyMidiLinks();
         pollLoopCapture();
+        updateLoopStretch();
         updateGesture();
         updateEvolution();
     }
@@ -337,7 +361,9 @@ private:
         std::atomic<float>* bandSlope = nullptr;
         std::atomic<float>* audioTrigger = nullptr;
         std::atomic<float>* audioTriggerSens = nullptr;
+        std::atomic<float>* loopStretch = nullptr;
     } cached;
+    bool loadStretchFlag() const noexcept { return cached.loopStretch != nullptr && cached.loopStretch->load(std::memory_order_relaxed) >= 0.5f; }
     juce::AudioParameterBool* bypassParameter = nullptr;
 
     // Message-thread model.
@@ -435,6 +461,30 @@ private:
     double loopStoreRate = 0.0;
     double loopStoreBeats = 0.0;
     bool republishStoredLoop();
+    // Caller holds loopServiceMutex. The stored loop's content (or its published form) changed: invalidate
+    // cached peaks/blob, drop stretch jobs and forget the stretch state.
+    void loopContentChangedLocked();
+    void publishStretchedLoop(const groovemorph::core::StretchWorker::Result& result);
+    double loopStoreOrigin = 0.0;
+    std::atomic<std::uint64_t> loopGeneration{0};
+    groovemorph::core::StretchWorker stretchWorker;
+    double stretchRatioInUse = 1.0;      // ratio of the published or in-flight stretched buffer (guarded by loopServiceMutex)
+    double stretchPublishedRatio = 1.0;
+    std::uint64_t stretchJobId = 0;
+    int stretchStableTicks = 0;
+    double stretchLastTempo = 0.0;
+    bool loopPublishPending = false;      // a finished capture/restored loop is stored but not yet published
+    int loopPublishRetries = 0;
+    std::atomic<double> loopStretchRatioStatus{1.0};
+    std::atomic<bool> loopStretchLimitedStatus{false};
+    std::atomic<double> hostTempoStatus{0.0};
+    std::atomic<double> loopPlayBeatStatus{0.0};
+    std::atomic<int> loopPersistWarning{0};
+    std::vector<std::uint8_t> loopBlobCache;
+    std::uint64_t loopBlobGeneration = ~0ull;
+    mutable std::vector<float> peaksMin, peaksMax;
+    mutable std::uint64_t peaksGeneration = ~0ull;
+    mutable int peaksColumns = 0;
     std::atomic<double> loopBeatsStatus{0.0};
     std::atomic<double> loopBpmStatus{0.0};
     std::atomic<double> sampleRateStatus{48000.0};

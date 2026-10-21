@@ -5,7 +5,9 @@
 #include <cstdlib>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -126,7 +128,7 @@ int main()
 
         // Reject an oversized state envelope without mutating valid loaded parameters.
         juce::MemoryBlock oversized;
-        oversized.setSize(1024 * 1024 + 1, true);
+        oversized.setSize(16 * 1024 * 1024 + 1, true); // limit was 1 MiB before loop persistence
         restored.setStateInformation(oversized.getData(), static_cast<int>(oversized.getSize()));
         expect("oversized state ignored", std::abs(value("manualTempo") - 97.5f) < 1.0e-2f);
     }
@@ -1087,6 +1089,155 @@ int main()
         processor.clearLoop();
         expect("loop cleared", !processor.hasLoop());
         processor.setPlayHead(nullptr);
+    }
+
+    // ---- W4 / F09: loop audio in the project state, hostile loop blobs, tempo stretch ----
+    {
+        GrooveMorphAudioProcessor source;
+        FakePlayHead playHead;
+        source.setPlayHead(&playHead);
+        const int blockSize = 480;
+        source.prepareToPlay(48000.0, blockSize);
+        expect("loop stretch defaults to off", source.parameters.getRawParameterValue("loopStretch")->load() == 0.0f);
+        juce::MemoryBlock noLoopState;
+        source.getStateInformation(noLoopState);
+        {
+            const auto xml = juce::AudioProcessor::getXmlFromBinary(noLoopState.getData(), static_cast<int>(noLoopState.getSize()));
+            expect("no loop: no LoopAudio child", xml != nullptr && !juce::ValueTree::fromXml(*xml).getChildWithName("LoopAudio").isValid());
+        }
+        expect("capture arms", source.armLoopCapture(1));
+        std::int64_t sample = 5 * blockSize;
+        const auto signal = [](std::int64_t i) { return 0.5f * static_cast<float>(std::sin(0.002 * static_cast<double>(i))); };
+        while (source.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Done && sample < 96000 * 4)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                buffer.setSample(0, i, signal(sample + i));
+                buffer.setSample(1, i, signal(sample + i));
+            }
+            setTransport(playHead, sample);
+            juce::MidiBuffer midi;
+            source.processBlock(buffer, midi);
+            sample += blockSize;
+        }
+        source.pollLoopCapture();
+        expect("W4 loop captured", source.hasLoop());
+        source.setSourceMode(2);
+        juce::MemoryBlock withLoop;
+        source.getStateInformation(withLoop);
+        expect("W4 state with a loop is larger than without", withLoop.getSize() > noLoopState.getSize() + 1000);
+        expect("W4 loop persistence reports no warning", source.getLoopPersistWarning() == 0);
+
+        // Restore into a processor that is already prepared (same and different sample rate) and one that is not.
+        for (const double rate : {48000.0, 44100.0, 0.0})
+        {
+            GrooveMorphAudioProcessor restored;
+            if (rate > 0.0)
+                restored.prepareToPlay(rate, blockSize);
+            restored.setStateInformation(withLoop.getData(), static_cast<int>(withLoop.getSize()));
+            if (rate == 0.0)
+                restored.prepareToPlay(48000.0, blockSize);
+            const std::string tag = " (rate " + std::to_string(static_cast<int>(rate)) + ")";
+            expect("W4 loop restored" + tag, restored.hasLoop() && std::abs(restored.getLoopBeats() - 4.0) < 1e-9);
+            expect("W4 loop length restored" + tag, std::abs(restored.getLoopSeconds() - 2.0) < 1e-3);
+            expect("W4 loop source mode restored" + tag, restored.getSourceMode() == 2);
+            if (rate == 48000.0 || rate == 0.0)
+            {
+                FakePlayHead restoredHead;
+                restored.setPlayHead(&restoredHead);
+                setParameter(restored, "masterIntensity", 0.0f);
+                bool close = true;
+                for (std::int64_t pos = 96000 * 3; pos < 96000 * 3 + 4800; pos += blockSize)
+                {
+                    juce::AudioBuffer<float> buffer(2, blockSize);
+                    buffer.clear();
+                    setTransport(restoredHead, pos);
+                    juce::MidiBuffer midi;
+                    restored.processBlock(buffer, midi);
+                    for (int i = 0; i < blockSize; ++i)
+                        close = close && std::abs(buffer.getSample(0, i) - signal(96000 + ((pos + i) % 96000))) < 2.0e-3f;
+                }
+                expect("W4 restored loop plays the saved audio (16-bit quantised)" + tag, close);
+                restored.setPlayHead(nullptr);
+            }
+            std::vector<float> lo, hi;
+            expect("W4 restored loop has waveform peaks" + tag, restored.getLoopPeaks(64, lo, hi) == 64 && lo.size() == 64);
+        }
+
+        // Old projects (no LoopAudio) load unchanged and keep the session's loop.
+        {
+            GrooveMorphAudioProcessor keeper;
+            keeper.prepareToPlay(48000.0, blockSize);
+            keeper.setStateInformation(withLoop.getData(), static_cast<int>(withLoop.getSize()));
+            keeper.setStateInformation(noLoopState.getData(), static_cast<int>(noLoopState.getSize()));
+            expect("W4 state without LoopAudio leaves the loop alone", keeper.hasLoop());
+        }
+        // Hostile LoopAudio children: the state still loads, no loop appears, a warning is raised.
+        {
+            const auto hostile = [&](const juce::String& blobText, int version) {
+                const auto xml = juce::AudioProcessor::getXmlFromBinary(noLoopState.getData(), static_cast<int>(noLoopState.getSize()));
+                auto tree = juce::ValueTree::fromXml(*xml);
+                juce::ValueTree bad("LoopAudio");
+                bad.setProperty("v", version, nullptr);
+                bad.setProperty("blob", blobText, nullptr);
+                tree.appendChild(bad, nullptr);
+                juce::MemoryBlock block;
+                juce::AudioProcessor::copyXmlToBinary(*tree.createXml(), block);
+                GrooveMorphAudioProcessor p;
+                p.prepareToPlay(48000.0, blockSize);
+                p.setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+                return std::make_pair(p.hasLoop(), p.getLoopPersistWarning());
+            };
+            const auto garbage = hostile("AAAA", 1);
+            expect("W4 garbage blob rejected with warning", !garbage.first && garbage.second == 3);
+            const auto badVersion = hostile("AAAA", 9);
+            expect("W4 unknown version rejected with warning", !badVersion.first && badVersion.second == 3);
+            const auto notBase64 = hostile("!!!! not base64 ????", 1);
+            expect("W4 non-base64 rejected with warning", !notBase64.first && notBase64.second == 3);
+            const auto empty = hostile("", 1);
+            expect("W4 empty blob rejected with warning", !empty.first && empty.second == 3);
+            const auto realXml = juce::AudioProcessor::getXmlFromBinary(withLoop.getData(), static_cast<int>(withLoop.getSize()));
+            const juce::String text = juce::ValueTree::fromXml(*realXml).getChildWithName("LoopAudio").getProperty("blob").toString();
+            expect("W4 saved blob present", text.length() > 100);
+            const auto truncated = hostile(text.substring(0, text.length() / 2), 1);
+            expect("W4 truncated blob rejected", !truncated.first && truncated.second == 3);
+            const int mid = text.length() / 2;
+            const auto corrupted = hostile(text.replaceSection(mid, 1, text[mid] == 'A' ? "B" : "A"), 1);
+            expect("W4 corrupted blob rejected", !corrupted.first && corrupted.second == 3);
+        }
+
+        // Stretch to host tempo: a 120 BPM loop at a 100 BPM host is rendered 1.2x longer, off the audio thread.
+        {
+            setParameter(source, "loopStretch", 1.0f);
+            for (int block = 0; block < 4; ++block)
+            {
+                juce::AudioBuffer<float> buffer(2, blockSize);
+                buffer.clear();
+                playHead.info.setBpm(100.0);
+                playHead.info.setTimeSignature(juce::AudioPlayHead::TimeSignature{4, 4});
+                playHead.info.setIsPlaying(true);
+                playHead.info.setTimeInSamples(block * blockSize);
+                playHead.info.setPpqPosition(block * blockSize / 28800.0);
+                playHead.info.setPpqPositionOfLastBarStart(0.0);
+                juce::MidiBuffer midi;
+                source.processBlock(buffer, midi);
+            }
+            bool stretched = false;
+            for (int tick = 0; tick < 400 && !stretched; ++tick)
+            {
+                source.updateLoopStretch();
+                stretched = std::abs(source.getLoopStretchRatio() - 1.2) < 1.0e-3;
+                if (!stretched)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            expect("W4 loop stretched to the host tempo (ratio 1.2)", stretched);
+            expect("W4 stretch keeps the original loop for saving", std::abs(source.getLoopSeconds() - 2.0) < 1e-3);
+            setParameter(source, "loopStretch", 0.0f);
+            source.updateLoopStretch();
+            expect("W4 stretch off restores the varispeed buffer", std::abs(source.getLoopStretchRatio() - 1.0) < 1e-9 && source.hasLoop());
+        }
+        source.setPlayHead(nullptr);
     }
 
     // ---- Alpha 2: file import validation (F09) ----
