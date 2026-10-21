@@ -60,3 +60,18 @@ All evidence below is automated Linux tests plus CI; nothing here was validated 
 | N02 preset browser | `src/core/preset/` (`Preset`, `FactoryPresets`, `PresetLibrary`), `PresetManager`, processor `applyPreset`/host programs, `ui/PresetBar`; spec `docs/specs/N02-PRESETS.md` | `PresetTests` (N02-T01..T15: factory validity, round trip, hostile/fuzz input, library rules, undo step) | Host program mapping, file I/O and PresetBar are not exercised by automated tests; native build and REAPER check pending |
 | N01 Filter Sweep / Bit Crush | `docs/specs/N01-EFFECTS-SWEEP-CRUSH.md`; `core/dsp/SweepCrush.h`, `RhythmEngine`, `SceneSerializer` (optional keys), UI rows | `EffectsSweepCrushTests` (N01-T01..T08, T12), `SceneSerializerTests` (T09 incl. legacy fixture), `VariationPlannerTests` (T10), `PaletteTests` (T11) | UI not compiled locally; no listening test |
 | N03 Euclid patterns and event chance | `EuclidPattern` (Bjorklund, apply/clear candidates through `enforcePermissions`), `Chance.h` (stateless seeded hash), `PlacementEvaluator` chance gate, optional scene keys `event.K.chance`, `lane.chance.OP`, `lane.seed`, `EuclidPanel` in the Place tab | `EuclidChanceTests` N03-T01..T20 (known rhythms, evenness, rotation, capacity, locks, regions, legacy load, block-split invariance, 20000-cycle statistics, planned path) | EuclidPanel/Place-tab hook not compiled locally; manual UI pass pending; see docs/specs/N03-EUCLID-CHANCE.md |
+
+## W3 dsp/control completions (2026-10-20)
+
+| Item | Implementation | Verification |
+|---|---|---|
+| C04 per-scene smoothing and request-time phase capture | `PhaseConfig::smoothingMs`, `LaunchPhase`, `RhythmTiming::crossfadeSeconds` | `TransitionSmoothingTests`, `EngineGoldenTests` (3 ms bit-identical), `W3ControlTests`, `GrooveMorphW3ProcessorTests` |
+| F03/F10 Linkwitz-Riley split | `core/dsp/Crossover`, `bandTopology` parameter | `CrossoverTests`, `GrooveMorphW3ProcessorTests` (NaN on every mode/topology) |
+| C06 loop-aware Reduce | `reduceEvents` | `W3ControlTests` |
+| C05 Dry return | `AutoReturn::armDry`, processor overlay | `W3ControlTests`, `GrooveMorphW3ProcessorTests` |
+| 256 events / 8 regions | `maxLaneEvents`, `maxProtectedRegions`, `uint16_t count` | `SceneControlTests`, `W3ControlTests`, processor state round trip |
+| Input sanitizing | `dsp::sanitizeBlock` at input and output | `W3ControlTests`, `GrooveMorphW3ProcessorTests` |
+| F02 morph of placement, events, regions, locks | `control::morph` | `MorphControlTests`, `GrooveMorphW3ProcessorTests` |
+| Timer safety and phrase-exact evolution | `ServiceTimer`, evolution plan in `PublishedScene` | `GrooveMorphW3ProcessorTests` |
+
+Not verified: any real host, audio device or listening test; sanitizer builds (ASan/UBSan) were not run for W3.

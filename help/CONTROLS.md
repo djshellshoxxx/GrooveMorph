@@ -41,6 +41,16 @@ Every row has **Enable** (left), **Depth** (middle, 0–1), and **Slice** (right
 
 Depth controls how strongly each transformation contributes. The system processes captured short-window history and can fade/mix across operation changes. The precise audible result also depends on the input signal and the active intensity/wet controls.
 
+## Transitions, returns, crossover and morph (W3)
+
+- **Transition smoothing (ms)** (Scenes tab, next to Phase offset): how long the cross-fade lasts when the pattern jumps as this scene launches. 0 keeps the default 3 ms; up to 250 ms. It is stored with the scene. The scene's phase and smoothing used at a launch are the ones it had when you made the request.
+- **Return to > Dry (no effects):** after the chosen number of bars or phrases the effects fade out on the bar line and stay off until you pick a scene (or press a scene button or MIDI note). The status line shows "Return to dry pending" and then "Dry".
+- **Band Topology** (Input tab): Classic is the original crossover (the slope menu applies). Linkwitz-Riley 12 or 24 dB/oct splits the sound into low and high parts that add back to a flat level; the slope menu is ignored.
+- **Limit > Reduce** respects each effect's loop length: spacing and coverage are judged over the repeating pattern.
+- **Capacity:** up to 256 events per effect lane and 8 protected regions per scene.
+- **Morph** blends effect settings, placement, protected regions and events of both scenes. Switch-type settings (on/off, window, policy) follow the nearer scene; events present in only one scene fade in or out with the morph amount.
+- Non-numeric (NaN/Inf) audio from a faulty host or plugin is replaced with silence at the plugin input and output.
+
 ## Audio, automation, and state notes
 
 The five operation-row settings belong to variations in the internal scene bank; do not assume they appear as host-exposed automation parameters. The top-level controls including Intensity, Dry/Wet, manual timing, timing/transition selection, and Bypass use the processor's parameter state. The plugin is intended to restore stored scenes and parameter state with a saved host project; test the specific DAW before relying on it live.
