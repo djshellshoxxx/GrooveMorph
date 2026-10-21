@@ -32,3 +32,8 @@ The full VST3 and Standalone targets fetch JUCE 8.0.7 on first configure. See [[
 - `docs/SPECIFICATION.md`, `docs/TRACEABILITY.md`, `docs/TODO.md`
 - `docs/alpha/` (feature status, known issues, user test guide)
 - `GETTING_STARTED.md`, `RESEARCH_NOTES.md`, `AGENTS.md`
+
+## Support this project
+Built by Circuit Drift Labs. More tools and plugins: https://djshellshoxxx.github.io/circuitdriftlabs/
+I make these solo and release them free. If one saved you time, a Monero donation helps cover dev time and hosting.
+<!-- XMR-ADDRESS -->
