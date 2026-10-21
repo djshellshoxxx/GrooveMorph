@@ -49,7 +49,7 @@ Hidden when the window is narrower than about 900 pixels of row width.
 
 ## Chain Stations (bottom middle)
 
-The five effects in signal order. Each has its own **shape** (so colour is never the only clue), a bar showing how much of
+The seven effects in signal order (Filter sweep and Bit crush are tonal: they never bend the weave threads, and the planned/pencil view does not show them). Each has its own **shape** (so colour is never the only clue), a bar showing how much of
 it is applied, its slice length, and whether it is **active**, **held off** (enabled but gated off right now by a placement
 window, event lane or activity limit), **stopped** (transport stopped or timing unavailable) or **bypassed**.
 

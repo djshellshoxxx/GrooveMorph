@@ -2,6 +2,7 @@
 
 #include "core/OperationParams.h"
 #include "core/dsp/StageGeometry.h"
+#include "core/dsp/SweepCrush.h"
 #include "core/trace/TraceRing.h"
 
 #include <array>
@@ -38,11 +39,15 @@ struct RhythmTiming
 //                  with gateRampSeconds linear ramps.
 //  - HalfTime:     reads at half speed from each slice start (resync every slice).
 //  - TapeStop:     read rate ramps linearly from 1 to 0 across the slice, then resyncs.
+//  - FilterSweep:  resonant TPT low-pass whose cutoff sweeps exponentially 20 kHz -> 200 Hz across a
+//                  slice (even slices) or back (odd slices); no history (docs/specs/N01-...).
+//  - BitCrush:     sample-and-hold + bit-depth reducer whose amount rises 0 -> 1 across each slice.
 // Any discontinuity in an operation's read position (slice wrap, slice-length or variation
 // change, transport jump) is crossfaded over crossfadeSeconds (up to two overlapping fades;
 // a third discontinuity inside one fade time drops the oldest).
 //
-// Memory (GM-QR-003): 4 history rings (Repeat, Reverse, HalfTime, TapeStop) per channel, each
+// Memory (GM-QR-003): 4 history rings (Repeat, Reverse, HalfTime, TapeStop) per channel (FilterSweep and
+// BitCrush keep only a few doubles of state per channel and need no ring), each
 // ceil(maxHistorySeconds * sampleRate) + maxBlockSize + 8 floats, allocated in prepare() only
 // (about 24.6 MB for stereo at 192 kHz). History-reading slices are clamped so their reads
 // stay inside the ring: Repeat <= history/3, ReverseSlice <= history/2, HalfTime and
@@ -120,6 +125,7 @@ private:
     std::size_t capacity = 0;
     std::size_t historySamples = 0;
     int channelCount = 0;
+    double sampleRateHz = 48000.0;
     int fadeSamples = 1;
     int gateRamp = 1;
 
@@ -129,6 +135,11 @@ private:
     std::array<float, operationCount> amounts{};
     std::array<Voice, historyStageCount> voices{};
     float gateGain = 1.0f;
+    // FilterSweep / BitCrush state (per channel; sized in prepare()).
+    std::vector<stage::SvfState> sweepState;
+    std::vector<float> crushHeld;
+    stage::CrushClock crushClock;
+    void resetEffectState() noexcept;
     bool warmingAfterReset = false; // set by resetHistory(), cleared by reset()
 
     trace::TraceRing* traceSink = nullptr;

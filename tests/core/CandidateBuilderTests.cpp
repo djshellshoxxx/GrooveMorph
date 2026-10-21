@@ -75,7 +75,7 @@ int main()
     expect("fully locked scene unchanged", scene::sameSettings(kept.settings, locked));
 
     // Protected operations are preserved.
-    g.protectedOperations = 0b11111u;
+    g.protectedOperations = (1u << operationCount) - 1u;
     expect("protected unchanged", buildCandidate(source, g).changedOperations == 0);
     g.protectedOperations = 0;
 

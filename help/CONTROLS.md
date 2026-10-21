@@ -19,7 +19,7 @@
 | 11 | A–D buttons | Request each variation for playback. Labels can show `[active]` or `[queued]`. |
 | 12 | Edit A–D selector and name | Choose a variation to **edit**, independently of playback, and rename it. The **Copy FX** action copies settings from the currently playing scene to this editing target, leaves its name and MIDI note unchanged, and creates one Undo step. Disabled during preview or when editing the playing scene. |
 | 13 | Trigger queued / Cancel queued | Trigger an armed request now or cancel it. Buttons are disabled when there is no queued request. |
-| 14 | Operation rows | Enable and adjust Repeat/stutter, Reverse slice, Gate, Half-time, Tape stop. |
+| 14 | Operation rows | Enable and adjust Repeat/stutter, Reverse slice, Gate, Half-time, Tape stop, Filter sweep, Bit crush (see [EFFECTS-SWEEP-CRUSH](EFFECTS-SWEEP-CRUSH.md)). |
 | 15 | Preview/compare/apply/revert | Compare edited versus stored variation without committing until Apply. |
 | 16 | Undo / Redo | Undo or redo stored scene edits when history exists; disabled during audition. |
 | 17 | MIDI note and note-off policy | Choose a note number for the **edited** variation; optionally return on note-off. |
@@ -36,6 +36,8 @@ Every row has **Enable** (left), **Depth** (middle, 0–1), and **Slice** (right
 - **Gate:** periodically attenuates or opens the signal.
 - **Half-time:** provides a slower, rate-shaped short-window movement; this is not a full offline time-stretcher.
 - **Tape stop:** creates a decreasing playback-rate style effect over a slice.
+- **Filter sweep:** a resonant low-pass filter sweeps bright to dark across each slice, then dark to bright on the next. See [EFFECTS-SWEEP-CRUSH](EFFECTS-SWEEP-CRUSH.md).
+- **Bit crush:** gets grittier across each slice (lower sample rate, fewer bits), then resets.
 
 Depth controls how strongly each transformation contributes. The system processes captured short-window history and can fade/mix across operation changes. The precise audible result also depends on the input signal and the active intensity/wet controls.
 

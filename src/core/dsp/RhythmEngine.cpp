@@ -5,6 +5,8 @@
 
 namespace groovemorph::core
 {
+static_assert(trace::stageCount == operationCount, "trace frames carry one amount per operation");
+
 namespace
 {
 constexpr std::size_t opIndex(OperationType type) noexcept
@@ -33,6 +35,8 @@ void RhythmEngine::prepare(double sampleRate, int maxBlockSize, int maxChannels)
     if (!(sampleRate > 0.0) || !std::isfinite(sampleRate) || maxChannels <= 0)
     {
         rings.clear();
+        sweepState.clear();
+        crushHeld.clear();
         capacity = 0;
         historySamples = 0;
         channelCount = 0;
@@ -41,14 +45,25 @@ void RhythmEngine::prepare(double sampleRate, int maxBlockSize, int maxChannels)
     historySamples = static_cast<std::size_t>(std::ceil(maxHistorySeconds * sampleRate));
     capacity = historySamples + static_cast<std::size_t>(std::max(0, maxBlockSize)) + 8;
     channelCount = maxChannels;
+    sampleRateHz = sampleRate;
+    sweepState.assign(static_cast<std::size_t>(channelCount), stage::SvfState{});
+    crushHeld.assign(static_cast<std::size_t>(channelCount), 0.0f);
     rings.assign(historyStageCount * static_cast<std::size_t>(channelCount) * capacity, 0.0f);
     fadeSamples = std::max(1, static_cast<int>(std::lround(crossfadeSeconds * sampleRate)));
     gateRamp = std::max(1, static_cast<int>(std::lround(gateRampSeconds * sampleRate)));
     reset();
 }
 
+void RhythmEngine::resetEffectState() noexcept
+{
+    std::fill(sweepState.begin(), sweepState.end(), stage::SvfState{});
+    std::fill(crushHeld.begin(), crushHeld.end(), 0.0f);
+    crushClock = stage::CrushClock{};
+}
+
 void RhythmEngine::reset() noexcept
 {
+    resetEffectState();
     std::fill(rings.begin(), rings.end(), 0.0f);
     now = 0;
     initialised = false;
@@ -65,6 +80,7 @@ void RhythmEngine::reset() noexcept
 void RhythmEngine::resetHistory() noexcept
 {
     now = 0;
+    resetEffectState();
     voices.fill(Voice{});
     // Amounts of history operations drop at once: ramping them down would read the emptied history.
     for (std::size_t op = 0; op < operationCount; ++op)
@@ -187,6 +203,41 @@ void RhythmEngine::process(float* const* channels,
             }
         }
 
+        // FilterSweep / BitCrush: slice position on each operation's own grid (computed once per sample).
+        stage::SvfCoeffs sweepCoeffs;
+        bool crushRefresh = false;
+        double crushE = 0.0;
+        {
+            const std::size_t sw = opIndex(OperationType::FilterSweep);
+            if (amounts[sw] > 0.0f)
+            {
+                double p = 0.0;
+                bool opening = false;
+                if (timingOk)
+                {
+                    const stage::SliceCursor cur = stage::sliceCursor(beat - timing.phaseOffsetBeats[sw], sliceBeats[sw], spb, sliceSamples[sw]);
+                    p = sliceSamples[sw] > 0.0 ? cur.pos / sliceSamples[sw] : 0.0;
+                    opening = (cur.index & 1) != 0;
+                }
+                sweepCoeffs = stage::svfCoeffs(stage::sweepCutoffHz(p, opening, sampleRateHz), sampleRateHz);
+            }
+            const std::size_t cr = opIndex(OperationType::BitCrush);
+            if (amounts[cr] > 0.0f)
+            {
+                if (timingOk)
+                {
+                    const stage::SliceCursor cur = stage::sliceCursor(beat - timing.phaseOffsetBeats[cr], sliceBeats[cr], spb, sliceSamples[cr]);
+                    crushE = sliceSamples[cr] > 0.0 ? cur.pos / sliceSamples[cr] : 0.0;
+                }
+                crushRefresh = crushClock.tick(stage::crushHold(crushE, sampleRateHz));
+            }
+            else
+            {
+                crushClock = stage::CrushClock{};
+            }
+        }
+        const double crushBitsNow = stage::crushBits(crushE);
+
         // Read positions of history-based operations.
         for (std::size_t op = 0; op < operationCount; ++op)
         {
@@ -262,6 +313,24 @@ void RhythmEngine::process(float* const* channels,
                             wet += static_cast<float>(last.remaining) * fadeNorm * (old - wet);
                         }
                         x += amount * (wet - x);
+                    }
+                }
+                else if (op == opIndex(OperationType::FilterSweep))
+                {
+                    auto& st = sweepState[static_cast<std::size_t>(c)];
+                    if (amount > 0.0f)
+                        x += amount * (stage::svfLowPass(st, sweepCoeffs, x) - x);
+                    else
+                        stage::svfTrack(st, x);
+                }
+                else if (op == opIndex(OperationType::BitCrush))
+                {
+                    if (amount > 0.0f)
+                    {
+                        float& held = crushHeld[static_cast<std::size_t>(c)];
+                        if (crushRefresh)
+                            held = stage::crushQuantise(x, crushBitsNow); // quantise at capture, hold the result
+                        x += amount * (held - x);
                     }
                 }
                 else if (amount > 0.0f)

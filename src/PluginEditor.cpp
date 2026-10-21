@@ -2,6 +2,8 @@
 #include "PluginProcessor.h"
 #include "core/control/VariationBlend.h"
 
+#include <iterator>
+
 namespace
 {
 juce::String describeTiming(const GrooveMorphAudioProcessor& processor)
@@ -170,7 +172,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     variationName.onReturnKey = [this] { editName(); };
     variationName.onFocusLost = [this] { editName(); };
     addAndMakeVisible(variationName);
-    const juce::StringArray names{"Repeat / stutter", "Reverse slice", "Gate", "Half-time", "Tape stop"};
+    const juce::StringArray names{"Repeat / stutter", "Reverse slice", "Gate", "Half-time", "Tape stop", "Filter sweep", "Bit crush"};
     for (std::size_t i = 0; i < operations.size(); ++i)
     {
         auto& row = operations[i];
@@ -188,7 +190,10 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
                 "Reverse slice: plays the previous slice backwards.",
                 "Gate: chops the sound on and off in time (open for the first half of each slice, closed for the second half).",
                 "Half-time: plays each slice at half speed for a slowed, heavier feel (pitch drops with it).",
-                "Tape stop: slows each slice down to a stop, like a turntable or tape machine losing power."};
+                "Tape stop: slows each slice down to a stop, like a turntable or tape machine losing power.",
+                "Filter sweep: a resonant low-pass filter sweeps from bright to dark across each slice and back open on the next one (DJ-style).",
+                "Bit crush: gets grittier across each slice (lower sample rate and fewer bits), then resets at the next slice."};
+            static_assert(std::size(effectInfo) == groovemorph::core::operationCount, "one tooltip per operation");
             row.enabled.setTooltip(juce::String(effectInfo[i]) + " Tick to switch it on for the scene being edited.");
             row.depth.setTooltip(names[static_cast<int>(i)] + " depth: how much of the effect is mixed in for the scene being edited (0 = none, 1 = full).");
         }
@@ -196,7 +201,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
         row.depth.setNumDecimalPlacesToDisplay(2);
         row.slice.setNumDecimalPlacesToDisplay(3);
         row.slice.setRange(1.0 / 16.0, 4, 1.0 / 16.0);
-        row.slice.setTooltip(names[static_cast<int>(i)] + " slice in meter beats. Bounded 4-second history limits effective duration: repeat < 1.33 s, reverse < 2 s, half-time/tape stop < 4 s; gate uses the full requested value.");
+        row.slice.setTooltip(names[static_cast<int>(i)] + " slice in meter beats. Bounded 4-second history limits effective duration: repeat < 1.33 s, reverse < 2 s, half-time/tape stop < 4 s; gate, filter sweep and bit crush use the full requested value.");
         row.enabled.onClick = [this, i] { editOperation(i, 0); };
         row.depth.onDragStart = [this, i] { operations[i].draggingDepth = true; };
         row.slice.onDragStart = [this, i] { operations[i].draggingSlice = true; };
@@ -261,14 +266,14 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     {
         const auto area = display->userArea;
         const float fit = juce::jmin(1.0f, static_cast<float>(area.getWidth() - 40) / 1290.0f,
-                                     static_cast<float>(area.getHeight() - 100) / 740.0f);
+                                     static_cast<float>(area.getHeight() - 100) / 784.0f);
         if (fit < 1.0f && fit > 0.0f)
             setScaleFactor(juce::jmax(0.5f, fit));
     }
     setResizable(true, true);
-    setResizeLimits(1230, 700, 1900, 1100);
+    setResizeLimits(1230, 744, 1900, 1100);
     groovemorph::ui::finishControlMenus(*this, audioProcessor);
-    setSize(1290, 740);
+    setSize(1290, 784);
     startTimerHz(10);
 }
 
@@ -490,7 +495,7 @@ void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
     graphics.drawText("Depth", 224, 375, (width - 204) / 2, 24, juce::Justification::centredLeft);
     graphics.drawText("Slice (meter beats)", 224 + (width - 204) / 2, 375,
                       (width - 204) / 2, 24, juce::Justification::centredLeft);
-    graphics.drawText("MIDI note", 20, 626, 120, 30, juce::Justification::centredLeft);
+    graphics.drawText("MIDI note", 20, 670, 120, 30, juce::Justification::centredLeft);
     auto grid = juce::Rectangle<float>(20, 265, static_cast<float>(width), 26);
     graphics.setColour(juce::Colour(0xff293447));
     graphics.fillRect(grid);
@@ -540,20 +545,20 @@ void GrooveMorphAudioProcessorEditor::resized()
     const int operationWidth = (width - 204) / 2;
     for (std::size_t i = 0; i < operations.size(); ++i)
     {
-        const int y = 402 + static_cast<int>(i) * 36;
-        operations[i].enabled.setBounds(20, y, 194, 30);
-        operations[i].depth.setBounds(224, y, operationWidth - 10, 30);
-        operations[i].slice.setBounds(224 + operationWidth, y, operationWidth - 10, 30);
+        const int y = 402 + static_cast<int>(i) * 32;
+        operations[i].enabled.setBounds(20, y, 194, 28);
+        operations[i].depth.setBounds(224, y, operationWidth - 10, 28);
+        operations[i].slice.setBounds(224 + operationWidth, y, operationWidth - 10, 28);
     }
     int x = 20;
     for (auto* button : {&previewButton, &compareButton, &applyButton, &revertButton, &undoButton, &redoButton})
     {
-        button->setBounds(x, 588, width / 6 - 6, 30);
+        button->setBounds(x, 632, width / 6 - 6, 30);
         x += width / 6;
     }
-    midiNoteSlider.setBounds(140, 626, 240, 30);
-    returnOnNoteOff.setBounds(400, 626, width - 380, 30);
-    midiLabel.setBounds(20, 658, width, 26);
+    midiNoteSlider.setBounds(140, 670, 240, 30);
+    returnOnNoteOff.setBounds(400, 670, width - 380, 30);
+    midiLabel.setBounds(20, 702, width, 26);
 }
 
 void GrooveMorphAudioProcessorEditor::updateTransportButtons()

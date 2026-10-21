@@ -17,7 +17,10 @@ namespace groovemorph::core::scene
 namespace
 {
 constexpr std::array<std::string_view, operationCount> opKeys{
-    "repeat", "reverse", "gate", "halftime", "tapestop"};
+    "repeat", "reverse", "gate", "halftime", "tapestop", "filtersweep", "bitcrush"};
+
+// First operation index that is serialized only when non-default (FilterSweep and later).
+constexpr std::size_t firstOptionalOp = static_cast<std::size_t>(OperationType::FilterSweep);
 
 std::string formatFloat(float v)
 {
@@ -346,7 +349,7 @@ private:
         }
         else if (rest == "perm.placement") asBool(c.permissions.placementLocked);
         else if (rest == "activity.enabled") asBool(c.activity.enabled);
-        else if (rest == "activity.max") { if (asInt(n)) c.activity.maxConcurrent = static_cast<std::uint8_t>(std::clamp<long long>(n, 1, 5)); }
+        else if (rest == "activity.max") { if (asInt(n)) c.activity.maxConcurrent = static_cast<std::uint8_t>(std::clamp<long long>(n, 1, static_cast<long long>(control::laneCount))); }
         else if (rest.starts_with("activity.prio."))
         {
             std::size_t op = 0;
@@ -439,6 +442,11 @@ std::string SceneSerializer::serialize(const SceneBank& bank)
         for (std::size_t op = 0; op < operationCount; ++op)
         {
             const auto& s = v.settings.operations[op];
+            // Operations added after the first release are written only when they differ from the
+            // disabled default, so scenes that never use them stay byte-identical to earlier builds.
+            if (op >= firstOptionalOp && !s.enabled && s.depth == OperationSettings{}.depth
+                && s.sliceBeats == OperationSettings{}.sliceBeats)
+                continue;
             const std::string p = prefix + "op." + std::string(opKeys[op]) + ".";
             line(p + "enabled", s.enabled ? "1" : "0");
             line(p + "depth", formatFloat(s.depth));

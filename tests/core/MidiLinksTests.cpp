@@ -17,9 +17,9 @@ void expect(std::string_view name, bool condition) {
 int main() {
     // Target validation.
     expect("parameter target", MidiLinkTable::validTarget("p:masterIntensity"));
-    expect("scene depth target", MidiLinkTable::validTarget("s:0:depth") && MidiLinkTable::validTarget("s:4:slice") && MidiLinkTable::validTarget("s:2:enabled"));
+    expect("scene depth target", MidiLinkTable::validTarget("s:0:depth") && MidiLinkTable::validTarget("s:4:slice") && MidiLinkTable::validTarget("s:5:depth") && MidiLinkTable::validTarget("s:6:enabled") && MidiLinkTable::validTarget("s:2:enabled"));
     expect("bad targets", !MidiLinkTable::validTarget("") && !MidiLinkTable::validTarget("p:") && !MidiLinkTable::validTarget("x:foo")
-                           && !MidiLinkTable::validTarget("s:5:depth") && !MidiLinkTable::validTarget("s:0:volume")
+                           && !MidiLinkTable::validTarget("s:7:depth") && !MidiLinkTable::validTarget("s:0:volume")
                            && !MidiLinkTable::validTarget("p:a;b") && !MidiLinkTable::validTarget("p:a=b") && !MidiLinkTable::validTarget("p:has space"));
 
     // Link, replace, unlink, shared CC.

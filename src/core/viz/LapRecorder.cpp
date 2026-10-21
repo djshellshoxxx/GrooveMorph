@@ -24,6 +24,12 @@ std::uint8_t activeMask(const trace::TraceFrame& f) noexcept
     const auto gate = static_cast<std::size_t>(OperationType::Gate);
     if (f.amount[gate] >= 0.5f && f.gateGain < 0.25f)
         m = static_cast<std::uint8_t>(m | (1u << gate));
+    for (const OperationType tonal : {OperationType::FilterSweep, OperationType::BitCrush})
+    {
+        const auto o = static_cast<std::size_t>(tonal);
+        if (f.amount[o] >= 0.5f)
+            m = static_cast<std::uint8_t>(m | (1u << o));
+    }
     return m;
 }
 } // namespace
@@ -34,7 +40,7 @@ LapDiff lapDiff(const Lap& a, const Lap& b) noexcept
     for (std::size_t c = 0; c < lapCells; ++c)
     {
         std::uint8_t m = 0;
-        for (std::size_t e = 0; e < 5; ++e)
+        for (std::size_t e = 0; e < operationCount; ++e)
             if (a.cells[c].active(e) != b.cells[c].active(e))
                 m = static_cast<std::uint8_t>(m | (1u << e));
         d.mask[c] = m;
@@ -100,7 +106,7 @@ void LapRecorder::feed(const trace::TraceFrame* frames, std::size_t count, doubl
         if (c.frames < 0xFFFF)
             ++c.frames;
         const std::uint8_t m = activeMask(f);
-        for (std::size_t e = 0; e < 5; ++e)
+        for (std::size_t e = 0; e < operationCount; ++e)
             if ((m >> e) & 1u)
                 ++c.count[e];
     }

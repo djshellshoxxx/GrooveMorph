@@ -1,4 +1,5 @@
 #include "core/MidiLinks.h"
+#include "core/OperationParams.h"
 
 #include <algorithm>
 #include <charconv>
@@ -16,8 +17,8 @@ bool MidiLinkTable::validTarget(std::string_view t) noexcept
         return t.size() > 2;
     if (t.starts_with("s:"))
     {
-        // s:<0..4>:<depth|slice|enabled>
-        if (t.size() < 5 || t[2] < '0' || t[2] > '4' || t[3] != ':')
+        // s:<0..6>:<depth|slice|enabled>
+        if (t.size() < 5 || t[2] < '0' || t[2] >= static_cast<char>('0' + operationCount) || t[3] != ':')
             return false;
         const auto field = t.substr(4);
         return field == "depth" || field == "slice" || field == "enabled";

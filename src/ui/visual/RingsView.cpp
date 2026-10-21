@@ -19,6 +19,8 @@ viz::Effect primaryOfCell(const viz::LapCell& c)
     if (c.active(3)) return viz::Effect::HalfTime;
     if (c.active(1)) return viz::Effect::Reverse;
     if (c.active(0)) return viz::Effect::Repeat;
+    if (c.active(5)) return viz::Effect::FilterSweep; // tonal stages: lowest priority, they move no time
+    if (c.active(6)) return viz::Effect::BitCrush;
     return viz::Effect::Live;
 }
 

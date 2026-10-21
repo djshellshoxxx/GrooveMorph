@@ -113,6 +113,34 @@ int main() {
     expect("invalid fixtures selected every operation", selectedCoverage == (1u << operationCount) - 1u);
     expect("invalid fixtures skipped every operation", skippedCoverage == (1u << operationCount) - 1u);
 
+    // N01: the planner reaches FilterSweep and BitCrush, and the draws for the five original operations are
+    // unchanged by their existence (operations consume draws in index order).
+    {
+        std::uint32_t reached = 0;
+        bool originalsStable = true;
+        for (std::uint64_t seed = 1; seed <= 200; ++seed) {
+            Request r{};
+            for (auto& op : r.source.operations)
+                op = {true, 0.5f, 0.25f};
+            r.seed = seed;
+            r.style = Style::Creative;
+            const auto full = generate(r);
+            reached |= full.mutatedOperations;
+            Request guarded = r;
+            guarded.protectedOperations = (1u << static_cast<std::size_t>(OperationType::FilterSweep))
+                                          | (1u << static_cast<std::size_t>(OperationType::BitCrush));
+            const auto without = generate(guarded);
+            for (std::size_t i = 0; i < static_cast<std::size_t>(OperationType::FilterSweep); ++i)
+                originalsStable = originalsStable && same(full.settings.operations[i], without.settings.operations[i]);
+            expect("protected new ops are untouched", same(without.settings.operations[5], r.source.operations[5])
+                                                          && same(without.settings.operations[6], r.source.operations[6]));
+            expect("new ops stay bounded", bounded(full.settings.operations[5]) && bounded(full.settings.operations[6]));
+        }
+        expect("planner mutates FilterSweep", (reached & (1u << static_cast<std::size_t>(OperationType::FilterSweep))) != 0);
+        expect("planner mutates BitCrush", (reached & (1u << static_cast<std::size_t>(OperationType::BitCrush))) != 0);
+        expect("protecting the new ops leaves the original draws alone", originalsStable);
+    }
+
     if (failures == 0)
         std::cout << "VariationPlannerTests passed\n";
     return failures == 0 ? 0 : 1;

@@ -74,7 +74,7 @@ int main(int argc, char** argv)
 
     auto* editor = dynamic_cast<GrooveMorphAudioProcessorEditor*>(processor.createEditor());
     editor->setVisible(true);
-    editor->setSize(1290, 740);
+    editor->setSize(1290, 784);
     pump(200);
     const char* names[] = {"placement", "generator", "scenes", "morph", "limits", "input", "perform", "status"};
     for (int i = 0; i < 8; ++i)
@@ -85,7 +85,7 @@ int main(int argc, char** argv)
     }
     // Narrowest supported size.
     editor->showInspectorTab(0);
-    editor->setSize(1230, 700);
+    editor->setSize(1230, 744);
     pump(120);
     save(*editor, out.getChildFile("editor-minimum-size.png"));
     delete editor;
