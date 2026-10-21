@@ -3,6 +3,7 @@
 // Exits non-zero if any PNG is missing, empty or a single flat colour.
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "ui/FirstRunGuide.h"
 #include "ui/PresetBar.h"
 #include "ui/visual/VisualWindow.h"
 
@@ -207,16 +208,29 @@ int main(int argc, char** argv)
         }
     }
 
-    // Easy mode (N05) through the processor API: default and minimum size.
+    // Easy mode (N05) through the processor API. The first-run guide opens by itself when it has not been seen, so
+    // the guide shot is taken first (flag cleared), then the flag is set and fresh editors give the clean shots.
+    // The user's own flag is restored afterwards.
+    const bool guideWasSeen = groovemorph::ui::FirstRunGuide::hasBeenSeen();
     processor.setEasyMode(true);
+    groovemorph::ui::FirstRunGuide::resetSeen();
+    if (auto* guideEditor = openEditor(processor))
+    {
+        resizeEditor(*guideEditor, 1180, 760);
+        save(*guideEditor, out.getChildFile("easy-guide-1180x760.png"));
+        delete guideEditor;
+    }
+    groovemorph::ui::FirstRunGuide::markSeen();
     if (auto* easyEditor = openEditor(processor))
     {
         resizeEditor(*easyEditor, 1180, 760);
-        save(*easyEditor, out.getChildFile("easy-1180x760.png"));
+        save(*easyEditor, out.getChildFile("easy-noguide-1180x760.png"));
         resizeEditor(*easyEditor, 960, 640);
-        save(*easyEditor, out.getChildFile("easy-960x640.png"));
+        save(*easyEditor, out.getChildFile("easy-noguide-960x640.png"));
         delete easyEditor;
     }
+    if (!guideWasSeen)
+        groovemorph::ui::FirstRunGuide::resetSeen();
     processor.setEasyMode(false);
 
     // Visual window: drive the real processor for several seconds (demo loop, trace active), then render the

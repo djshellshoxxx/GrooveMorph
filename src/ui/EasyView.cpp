@@ -287,8 +287,11 @@ void EasyView::paint(juce::Graphics& g)
     // Hero outline around the Chaos row (label and slider).
     const auto layout = groovemorph::core::easy::computeEasyLayout(getWidth(), getHeight());
     const auto chaos = toJuce(layout.macroLabels[3]).getUnion(toJuce(layout.macroSliders[3])).expanded(theme::space1, theme::space1);
-    g.setColour(theme::accentDim);
-    g.drawRoundedRectangle(chaos.toFloat(), theme::radius, 2.0f);
+    // Accent text sits on the surface fill (accent on surface 8.8:1), outline in accent so it reads as the hero.
+    g.setColour(theme::surface);
+    g.fillRoundedRectangle(chaos.toFloat(), theme::radius);
+    g.setColour(theme::accent);
+    g.drawRoundedRectangle(chaos.toFloat().reduced(1.0f), theme::radius, 2.0f);
 }
 
 void EasyView::resized()

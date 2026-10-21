@@ -300,7 +300,8 @@ void GrooveLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
 void GrooveLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button, const juce::Colour& backgroundColour,
                                              bool highlighted, bool down)
 {
-    auto fill = backgroundColour.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f);
+    // Disabled buttons all use the same muted fill so the opaque textDim label keeps >= 4.5:1 (even on accent buttons).
+    auto fill = button.isEnabled() ? backgroundColour : surfaceRaised.withAlpha(0.5f);
     if (down)
         fill = fill.darker(0.25f);
     else if (highlighted)
@@ -337,7 +338,8 @@ void GrooveLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& butt
     g.setFont(getTextButtonFont(button, button.getHeight()));
     const auto colour = button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId
                                                                    : juce::TextButton::textColourOffId);
-    g.setColour(colour.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f));
+    // Disabled text stays opaque textDim (>= 4.5:1 on the half-transparent button fill) instead of fading to ~4:1.
+    g.setColour(button.isEnabled() ? colour : textDim);
     g.drawFittedText(button.getButtonText(), button.getLocalBounds().reduced(space2, 2), juce::Justification::centred, 2, 0.8f);
 }
 
@@ -365,7 +367,7 @@ void GrooveLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& 
         drawFocusRing(g, button.getLocalBounds().toFloat(), radius);
     drawTickBox(g, button, 6.0f, boxY, boxSize, boxSize, button.getToggleState(), button.isEnabled(), highlighted, down);
 
-    g.setColour(button.findColour(juce::ToggleButton::textColourId).withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f));
+    g.setColour(button.isEnabled() ? button.findColour(juce::ToggleButton::textColourId) : textDim);
     g.setFont(font(fontBody));
     g.drawFittedText(button.getButtonText(), button.getLocalBounds().withTrimmedLeft(static_cast<int>(boxSize) + 14).withTrimmedRight(4),
                      juce::Justification::centredLeft, 2, 0.85f);
@@ -460,7 +462,7 @@ void GrooveLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectang
         g.fillRect(r);
         textColour = findColour(juce::PopupMenu::highlightedTextColourId);
     }
-    g.setColour(textColour.withMultipliedAlpha(isActive ? 1.0f : 0.5f));
+    g.setColour(isActive ? textColour : textDim);
 
     r.reduce(space2, 0);
     auto f = getPopupMenuFont();
@@ -531,7 +533,6 @@ void GrooveLookAndFeel::drawTabButton(juce::TabBarButton& button, juce::Graphics
     const auto textArea = area;
     const bool front = button.isFrontTab();
     const auto orientation = button.getTabbedButtonBar().getOrientation();
-    const float alpha = button.isEnabled() ? 1.0f : 0.5f;
 
     if (!front && (isMouseOver || isMouseDown))
     {
@@ -551,7 +552,7 @@ void GrooveLookAndFeel::drawTabButton(juce::TabBarButton& button, juce::Graphics
         }
     }
 
-    g.setColour((front || isMouseOver ? text : textDim).withMultipliedAlpha(alpha));
+    g.setColour(!button.isEnabled() ? textDim : (front || isMouseOver ? text : textDim));
     g.setFont(font(fontValue, front));
     g.drawFittedText(button.getButtonText().trim(), textArea.reduced(space2, 2), juce::Justification::centred, 1, 0.8f);
 

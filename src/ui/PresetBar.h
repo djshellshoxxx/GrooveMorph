@@ -10,7 +10,7 @@ class GrooveMorphAudioProcessor;
 namespace groovemorph::ui
 {
 // N02 preset bar: previous / next, a searchable dropdown grouped by category with a tag filter,
-// Save / Save As / Rename / Delete and Import / Export. All state lives in the processor
+// a Save button and a "..." menu (Save As, Rename, Delete, Import, Export). All state lives in the processor
 // (GrooveMorphAudioProcessor::applyPreset etc.); this component only drives it.
 class PresetBar final : public juce::Component
 {
@@ -33,6 +33,7 @@ private:
     void stepPreset(int direction);
     void load(int index);
     void showBrowser();
+    void showMoreMenu();
     void save();
     void promptSaveAs();
     void saveNamed(const juce::String& name, const juce::String& category, const juce::StringArray& tags, bool overwrite);
@@ -44,8 +45,7 @@ private:
     void changed();
 
     GrooveMorphAudioProcessor& processor;
-    juce::TextButton previousButton{"<"}, nextButton{">"}, nameButton, saveButton{"Save"}, saveAsButton{"Save As"},
-        renameButton{"Rename"}, deleteButton{"Delete"}, importButton{"Import"}, exportButton{"Export"};
+    juce::TextButton previousButton{"<"}, nextButton{">"}, nameButton, saveButton{"Save"}, moreButton{"..."};
     std::unique_ptr<juce::FileChooser> chooser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PresetBar)

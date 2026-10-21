@@ -21,6 +21,8 @@ public:
     // Per-user flag. Both calls tolerate a missing or unwritable settings folder.
     static bool hasBeenSeen();
     static void markSeen();
+    // Clears the flag (used by the snapshot tool to render the guide deterministically).
+    static void resetSeen();
 
     // Restarts at step 1 and shows the guide (also used by the "Show guide" button).
     void open();

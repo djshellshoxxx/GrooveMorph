@@ -65,26 +65,35 @@ PerformanceBand::~PerformanceBand() = default;
 void PerformanceBand::paint(juce::Graphics& g)
 {
     paintPanel(g, getLocalBounds());
+    // Knob captions (component name, 12 px). The value readout is drawn inside the knob by GrooveLookAndFeel.
+    const std::array<const groovemorph::ui::MenuSlider*, 4> knobs{&intensityKnob, &dryWetKnob, &morphKnob, &chaosKnob};
+    for (std::size_t i = 0; i < knobs.size(); ++i)
+    {
+        const bool hero = i == 3;
+        g.setColour(hero ? theme::accent : theme::textDim);
+        g.setFont(theme::font(theme::fontLabel, hero));
+        g.drawFittedText(knobs[i]->getName(), captionBounds[i], i == 2 ? juce::Justification::centredLeft : juce::Justification::centred, 1, 0.7f);
+    }
 }
 
 void PerformanceBand::resized()
 {
+    // Everything fits the fixed 108 px band: 8 px padding leaves 92 px of content height.
     auto area = getLocalBounds().reduced(theme::space2);
     const int gap = theme::space2;
-    // Right zone (macros) takes about half the width, never less than what four knobs and the button column need.
-    const int rightWidth = std::clamp(static_cast<int>(static_cast<float>(getWidth()) * 0.52f), 470, 760);
+    const int rightWidth = std::clamp(static_cast<int>(static_cast<float>(getWidth()) * 0.56f), 470, 780);
     auto right = area.removeFromRight(rightWidth);
     area.removeFromRight(theme::space3);
 
-    // Left: four equal pads (64 high), then Transition / Trigger / Cancel.
-    auto padRow = area.removeFromTop(64);
+    // Left: four equal pads (56 high), then Transition / Trigger / Cancel (32 high).
+    auto padRow = area.removeFromTop(theme::padTarget);
     const int padWidth = (padRow.getWidth() - 3 * gap) / 4;
     for (auto& pad : pads)
     {
         pad.setBounds(padRow.removeFromLeft(padWidth));
         padRow.removeFromLeft(gap);
     }
-    area.removeFromTop(gap);
+    area.removeFromTop(4);
     auto controlRow = area.removeFromTop(theme::minTarget);
     const int triggerWidth = std::clamp(controlRow.getWidth() / 4, 96, 130);
     cancelButton.setBounds(controlRow.removeFromRight(triggerWidth));
@@ -93,30 +102,44 @@ void PerformanceBand::resized()
     controlRow.removeFromRight(gap);
     transitionMode.setBounds(controlRow.removeFromLeft(std::min(controlRow.getWidth(), 170)));
 
-    // Right: three knobs, the hero knob, then a button column.
+    // Right: three knobs, the hero knob, then a button column (Surprise on top, Undo | Redo below).
     const int columnWidth = std::clamp(right.getWidth() / 5, 100, 130);
     auto column = right.removeFromRight(columnWidth);
     right.removeFromRight(gap);
     const int heroWidth = std::clamp(right.getWidth() / 4 + 12, 96, 150);
-    chaosKnob.setBounds(right.removeFromRight(heroWidth));
+    auto heroCell = right.removeFromRight(heroWidth);
     right.removeFromRight(gap);
     const int knobWidth = (right.getWidth() - 2 * gap) / 3;
-    const auto place = [&](juce::Slider& knob) {
+
+    // Each cell: knob on top, caption strip under it. Caption text always sits in the bottom 16 px so the
+    // four captions share a baseline; the Morph cell widens its strip to 24 px to hold the target combo.
+    constexpr int captionHeight = 16, morphStripHeight = 24;
+    const auto knobCell = [&](juce::Slider& knob, std::size_t index, int strip) {
         auto cell = right.removeFromLeft(knobWidth);
         right.removeFromLeft(gap);
-        knob.setBounds(cell.removeFromTop(std::min(cell.getHeight() - theme::minTarget - 4, 84)));
-        return cell;
+        auto strips = cell.removeFromBottom(strip);
+        knob.setBounds(cell);
+        captionBounds[index] = strips.removeFromBottom(captionHeight);
     };
-    (void) place(intensityKnob);
-    (void) place(dryWetKnob);
-    auto morphCell = place(morphKnob);
-    morphTarget.setBounds(morphCell.removeFromBottom(theme::minTarget).withTrimmedLeft(4).withTrimmedRight(4));
+    knobCell(intensityKnob, 0, morphStripHeight);
+    knobCell(dryWetKnob, 1, morphStripHeight);
+    auto morphCell = right.removeFromLeft(knobWidth);
+    right.removeFromLeft(gap);
+    auto morphStrip = morphCell.removeFromBottom(morphStripHeight);
+    morphKnob.setBounds(morphCell);
+    const int morphCaptionWidth = 42;
+    captionBounds[2] = morphStrip.removeFromLeft(morphCaptionWidth).withSizeKeepingCentre(morphCaptionWidth, captionHeight);
+    morphTarget.setBounds(morphStrip);
 
-    const int buttonHeight = (column.getHeight() - 2 * gap) / 3;
-    surpriseButton.setBounds(column.removeFromTop(buttonHeight));
+    auto heroStrip = heroCell.removeFromBottom(morphStripHeight - 2);
+    chaosKnob.setBounds(heroCell);
+    captionBounds[3] = heroStrip.removeFromBottom(captionHeight);
+
+    surpriseButton.setBounds(column.removeFromTop(52));
     column.removeFromTop(gap);
-    undoButton.setBounds(column.removeFromTop(buttonHeight));
-    column.removeFromTop(gap);
-    redoButton.setBounds(column);
+    auto lower = column.removeFromTop(theme::minTarget);
+    undoButton.setBounds(lower.removeFromLeft((lower.getWidth() - 4) / 2));
+    lower.removeFromLeft(4);
+    redoButton.setBounds(lower);
 }
 } // namespace groovemorph::ui::shell

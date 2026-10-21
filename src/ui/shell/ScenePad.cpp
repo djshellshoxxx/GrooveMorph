@@ -2,6 +2,7 @@
 
 #include "ui/theme/Theme.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace groovemorph::ui::shell
@@ -65,40 +66,35 @@ void ScenePad::paintButton(juce::Graphics& g, bool highlighted, bool down)
     g.setColour(edge);
     g.drawRoundedRectangle(b.reduced(edgeWidth * 0.5f), theme::radius, edgeWidth);
 
-    auto inner = getLocalBounds().reduced(theme::space2, theme::space1 + 2);
-    // Big letter on the left, shortcut hint under it.
-    auto letterArea = inner.removeFromLeft(34);
-    g.setColour(theme::text);
-    g.setFont(theme::font(28.0f, true));
-    g.drawText(letter, letterArea.removeFromTop(34), juce::Justification::centredLeft, false);
-    g.setColour(theme::textDim);
-    g.setFont(theme::font(theme::fontCaption));
-    g.drawText("key " + keyHint, juce::Rectangle<int>(letterArea.getX(), getHeight() - 4 - 14, 44, 14),
-               juce::Justification::bottomLeft, false);
-
-    // State chip, then the name, then the editing marker.
-    inner.removeFromLeft(theme::space1);
-    auto chipRow = inner.removeFromTop(16);
+    // Rows (pad is 56 px high): state chip across the top, then big letter on the left with the name beside it,
+    // then "key N" under the letter and the EDITING marker beside it. The chip spans the pad so
+    // "SOUNDING" is never clipped, even on the narrow pads at the 960 px window width.
+    const int w = getWidth(), h = getHeight();
+    const int pad = theme::space2;
     const char* stateText = state.queued ? "QUEUED" : state.sounding ? "SOUNDING" : nullptr;
     if (stateText != nullptr)
     {
         const auto chipColour = state.queued ? theme::queued : theme::sounding;
-        const int chipWidth = juce::jmin(chipRow.getWidth(), state.queued ? 62 : 76);
-        const auto chip = chipRow.removeFromLeft(chipWidth);
+        const auto chip = juce::Rectangle<int>(pad, 5, std::min(w - 2 * pad, state.queued ? 62 : 76), 15);
         g.setColour(chipColour);
         g.fillRoundedRectangle(chip.toFloat(), 3.0f);
         g.setColour(theme::textOnAccent);
         g.setFont(theme::font(theme::fontCaption, true));
-        g.drawText(stateText, chip, juce::Justification::centred, false);
+        g.drawFittedText(stateText, chip, juce::Justification::centred, 1, 0.8f);
     }
-    g.setColour(theme::text);
+    g.setColour(theme::text); // text (not textDim) keeps >= 4.5:1 on the sounding and queued tints
+    g.setFont(theme::font(26.0f, true));
+    g.drawText(letter, juce::Rectangle<int>(pad, 19, 30, 22), juce::Justification::centredLeft, false);
+    const int textX = pad + 32;
     g.setFont(theme::font(theme::fontBody));
-    g.drawText(state.name, inner.removeFromTop(20), juce::Justification::centredLeft, true);
+    g.drawText(state.name, juce::Rectangle<int>(textX, 21, std::max(0, w - textX - 4), 18), juce::Justification::centredLeft, true);
+    g.setFont(theme::font(theme::fontCaption));
+    g.drawText("key " + keyHint, juce::Rectangle<int>(pad, h - 15, 32, 12), juce::Justification::centredLeft, false);
     if (state.editing)
     {
-        g.setColour(theme::accent);
         g.setFont(theme::font(theme::fontCaption, true));
-        g.drawText("EDITING", inner.removeFromTop(14), juce::Justification::centredLeft, false);
+        g.drawFittedText("EDITING", juce::Rectangle<int>(textX, h - 15, std::max(0, w - textX - 4), 12),
+                         juce::Justification::centredLeft, 1, 0.8f);
     }
     if (hasKeyboardFocus(false))
     {

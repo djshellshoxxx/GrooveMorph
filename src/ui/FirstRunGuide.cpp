@@ -1,6 +1,8 @@
 #include "ui/FirstRunGuide.h"
 #include "ui/theme/Theme.h"
 
+#include <algorithm>
+
 namespace groovemorph::ui
 {
 namespace
@@ -32,6 +34,15 @@ void FirstRunGuide::markSeen()
     if (auto settings = openSettings())
     {
         settings->setValue(seenKey, true);
+        settings->saveIfNeeded();
+    }
+}
+
+void FirstRunGuide::resetSeen()
+{
+    if (auto settings = openSettings())
+    {
+        settings->setValue(seenKey, false);
         settings->saveIfNeeded();
     }
 }
@@ -111,8 +122,8 @@ void FirstRunGuide::update()
 
 juce::Rectangle<int> FirstRunGuide::cardBounds() const
 {
-    const int w = juce::jmin(560, getWidth() - 40);
-    const int h = juce::jmin(300, getHeight() - 40);
+    const int w = std::min(560, getWidth() - 40);
+    const int h = std::min(300, getHeight() - 40);
     return juce::Rectangle<int>(w, h).withCentre(getLocalBounds().getCentre());
 }
 
