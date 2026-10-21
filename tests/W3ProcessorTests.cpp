@@ -454,11 +454,18 @@ static void runTests()
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    std::thread worker([] {
-        runTests();
-        juce::MessageManager::callAsync([] { juce::MessageManager::getInstance()->stopDispatchLoop(); });
-    });
+    // Scene snapshots are large; secondary threads default to a 512 KB stack on macOS, so ask for 64 MB.
+    struct TestThread final : juce::Thread
+    {
+        TestThread() : juce::Thread("W3 tests", 64u * 1024u * 1024u) {}
+        void run() override
+        {
+            runTests();
+            juce::MessageManager::callAsync([] { juce::MessageManager::getInstance()->stopDispatchLoop(); });
+        }
+    } worker;
+    worker.startThread();
     juce::MessageManager::getInstance()->runDispatchLoop();
-    worker.join();
+    worker.stopThread(10000);
     return failures == 0 ? 0 : 1;
 }
