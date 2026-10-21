@@ -2,6 +2,7 @@
 #include "ui/ControlMenu.h"
 
 #include "PluginProcessor.h"
+#include "core/control/PhraseFit.h"
 #include "core/control/PlacementEvaluator.h"
 #include "core/control/SceneControl.h"
 #include "core/scene/SceneSerializer.h"
@@ -123,7 +124,12 @@ public:
         setWantsKeyboardFocus(true);
         setTooltip("Event lanes. Drag in an empty lane to create an event, drag a body to move it, "
                    "drag its edges to resize, double-click or press Delete to remove it. Arrow keys "
-                   "nudge by one grid step (Shift: one beat). Events snap to the Snap grid.");
+                   "nudge by one grid step (Shift: one beat). Events snap to the Snap grid. "
+                   "Very narrow events: drag moves, Shift-drag resizes the end, Alt-drag the start. "
+                   "Keyboard: with no event selected, Left/Right/Up/Down move a cursor and Enter (or Insert, N) "
+                   "creates an event there; Escape deselects.");
+        setTitle("Event lanes");
+        setDescription("Event lanes, one row per effect. Arrow keys move a cursor, Enter creates an event.");
     }
 
     std::function<void()> onSelectionChanged;
@@ -144,6 +150,19 @@ public:
             }
         }
         view = s;
+        // U3: tell assistive technology about events that wrap past the phrase end (the badge is visual only).
+        {
+            const auto fit = ctl::checkPhraseFit(draft.lane, processor.getGridContext().phraseTicks(), &draft.permissions);
+            const juce::String warning = fit.conflict()
+                ? juce::String(fit.affected()) + " event(s) extend past the phrase end and wrap around. Limit tab, Events x2 or /2, rescales them."
+                : juce::String();
+            if (warning != lastWarning)
+            {
+                lastWarning = warning;
+                setDescription("Event lanes, one row per effect. Arrow keys move a cursor, Enter creates an event."
+                               + (warning.isEmpty() ? juce::String() : " " + warning));
+            }
+        }
         repaint();
     }
     bool deleteSelected()
@@ -257,6 +276,8 @@ public:
                     g.setColour(static_cast<int>(i) == selectedIndex ? juce::Colours::white
                                                                      : operationColours[e.operation % 5]);
                     g.drawRoundedRectangle(rect, 3.0f, static_cast<int>(i) == selectedIndex ? 2.0f : 1.0f);
+                    if (rect.getWidth() < static_cast<float>(narrowEventPixels))
+                        g.fillRect(rect.getX() - 2.0f, rect.getY() - 3.0f, rect.getWidth() + 4.0f, 3.0f); // grip: drag to move
                     if (e.locked)
                     {
                         g.setColour(juce::Colours::white);
@@ -300,6 +321,33 @@ public:
             g.drawVerticalLine(left + static_cast<int>(ticks / P * width), 0.0f,
                                static_cast<float>(laneTop + laneCount * laneHeight));
         }
+        // Keyboard cursor (shown while the canvas has focus and no event is selected).
+        if (hasKeyboardFocus(false) && selectedIndex < 0 && control.lane.explicitEvents)
+        {
+            const int cx = left + static_cast<int>(static_cast<double>(std::clamp<std::int64_t>(kbTick, 0, grid.phraseTicks())) / P * width);
+            const int cy = laneTop + std::clamp(kbLane, 0, laneCount - 1) * laneHeight;
+            g.setColour(juce::Colours::white);
+            g.drawRect(cx - 1, cy + 1, 3, laneHeight - 2, 1);
+            g.fillRect(cx - 3, cy, 7, 2);
+        }
+        // U3: events that no longer fit after a meter / phrase-length change wrap around; say so.
+        {
+            const auto fit = ctl::checkPhraseFit(control.lane, grid.phraseTicks(), &control.permissions);
+            if (fit.conflict())
+            {
+                juce::String text;
+                text << fit.affected() << (fit.affected() == 1 ? " event" : " events") << " past the phrase end (wrapped)";
+                if (fit.lockedAffected > 0)
+                    text << ", " << static_cast<int>(fit.lockedAffected) << " locked";
+                g.setFont(11.0f);
+                const int badgeWidth = juce::jmin(area.getWidth() - 8, static_cast<int>(text.length()) * 6 + 14);
+                const auto badge = juce::Rectangle<int>(area.getRight() - badgeWidth - 4, 1, badgeWidth, 15);
+                g.setColour(juce::Colour(0xf0b3541e));
+                g.fillRoundedRectangle(badge.toFloat(), 4.0f);
+                g.setColour(juce::Colours::white);
+                g.drawText(text, badge, juce::Justification::centred);
+            }
+        }
         if (hasKeyboardFocus(false))
         {
             g.setColour(juce::Colours::white.withAlpha(0.4f));
@@ -327,7 +375,9 @@ public:
             return;
         const auto tick = tickAt(event.x, grid);
         dragLane = lane;
-        selectedIndex = hit(control, lane, tick, P);
+        kbLane = lane; // the keyboard cursor continues from the last click
+        kbTick = tick;
+        selectedIndex = hit(control, lane, tick, P, hitSlopTicks(P));
         hasSelection = selectedIndex >= 0;
         if (hasSelection)
             selectedEvent = control.lane.events[static_cast<std::size_t>(selectedIndex)];
@@ -348,7 +398,14 @@ public:
             }
             const double edge = std::max(6.0, 6.0 * P / std::max(1, getWidth() - labelWidth));
             const double endTick = e.onsetTicks + e.durationTicks;
-            if (std::abs(tick - e.onsetTicks) <= edge)
+            const double pixelsPerTick = static_cast<double>(std::max(1, getWidth() - labelWidth - 4)) / P;
+            if (static_cast<double>(e.durationTicks) * pixelsPerTick < narrowEventPixels)
+            {
+                // Too narrow to have separate edges: a plain drag moves, Shift resizes the end, Alt the start.
+                mode = event.mods.isShiftDown() ? Mode::ResizeEnd
+                       : event.mods.isAltDown() ? Mode::ResizeStart : Mode::Move;
+            }
+            else if (std::abs(tick - e.onsetTicks) <= edge)
                 mode = Mode::ResizeStart;
             else if (std::abs(tick - endTick) <= edge)
                 mode = Mode::ResizeEnd;
@@ -450,7 +507,8 @@ public:
         if (lane < 0 || lane >= laneCount)
             return;
         auto control = access.settings().control;
-        const int index = hit(control, lane, tickAt(event.x, grid), static_cast<double>(grid.phraseTicks()));
+        const double ringTicks = static_cast<double>(grid.phraseTicks());
+        const int index = hit(control, lane, tickAt(event.x, grid), ringTicks, hitSlopTicks(ringTicks));
         if (index >= 0)
         {
             selectedIndex = index;
@@ -461,11 +519,27 @@ public:
     bool keyPressed(const juce::KeyPress& key) override
     {
         if (selectedIndex < 0)
-            return false;
+            return keyboardCursorKey(key);
+        const int code = key.getKeyCode();
         if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
             return deleteSelected();
-        const bool left = key.getKeyCode() == juce::KeyPress::leftKey;
-        const bool right = key.getKeyCode() == juce::KeyPress::rightKey;
+        if (code == juce::KeyPress::escapeKey || code == juce::KeyPress::upKey || code == juce::KeyPress::downKey)
+        {
+            // Back to cursor mode at the start of the event; Up/Down also step to the neighbouring lane.
+            const auto grid = processor.getGridContext();
+            kbLane = std::clamp(static_cast<int>(selectedEvent.operation) + (code == juce::KeyPress::upKey ? -1 : code == juce::KeyPress::downKey ? 1 : 0),
+                                0, laneCount - 1);
+            kbTick = std::clamp<std::int64_t>(selectedEvent.onsetTicks, 0, grid.phraseTicks());
+            selectedIndex = -1;
+            hasSelection = false;
+            if (onSelectionChanged)
+                onSelectionChanged();
+            announceCursor("Event deselected.");
+            repaint();
+            return true;
+        }
+        const bool left = code == juce::KeyPress::leftKey;
+        const bool right = code == juce::KeyPress::rightKey;
         if (!left && !right)
             return false;
         auto control = access.settings().control;
@@ -498,9 +572,14 @@ private:
     static constexpr int laneHeight = 24;
     static constexpr int laneTop = 18;
     static constexpr int labelWidth = 72;
+    static constexpr int narrowEventPixels = 16; // narrower events move on a plain drag (U2)
+    static constexpr int hitSlopPixels = 5;      // click tolerance around an event body (U2)
 
     GrooveMorphAudioProcessor& processor;
     SceneEditAccess access;
+    int kbLane = 0;            // keyboard cursor (U1)
+    std::int64_t kbTick = 0;
+    juce::String lastDescription, lastWarning;
     gm::VariationSettings view;
     ctl::SceneControl draft;
     int selectedIndex = -1;
@@ -540,7 +619,8 @@ private:
         const double fraction = static_cast<double>(x - labelWidth) / std::max(1, getWidth() - labelWidth - 4);
         return static_cast<std::int64_t>(std::llround(std::clamp(fraction, 0.0, 1.0) * static_cast<double>(grid.phraseTicks())));
     }
-    static int hit(const ctl::SceneControl& c, int lane, std::int64_t tick, double P) noexcept
+    // slop: extra ticks of tolerance on both sides of the event body (a few pixels), so thin events can be hit.
+    static int hit(const ctl::SceneControl& c, int lane, std::int64_t tick, double P, double slop = 0.0) noexcept
     {
         for (std::size_t i = 0; i < c.lane.count; ++i)
         {
@@ -548,13 +628,122 @@ private:
             if (e.operation != lane)
                 continue;
             const double onset = std::fmod(static_cast<double>(e.onsetTicks), P);
-            double d = std::fmod(static_cast<double>(tick) - onset, P);
+            const double linear = static_cast<double>(tick) - onset;
+            if (linear >= -std::max(1.0, slop) && linear < static_cast<double>(e.durationTicks) + slop)
+                return static_cast<int>(i);
+            double d = std::fmod(linear, P); // the part of a wrapping event that continues at the phrase start
             if (d < 0.0)
                 d += P;
-            if (d < static_cast<double>(e.durationTicks) || std::abs(static_cast<double>(tick) - onset) < 1.0)
+            if (d < static_cast<double>(e.durationTicks))
                 return static_cast<int>(i);
         }
         return -1;
+    }
+    double hitSlopTicks(double P) const noexcept
+    {
+        return static_cast<double>(hitSlopPixels) * P / static_cast<double>(std::max(1, getWidth() - labelWidth - 4));
+    }
+
+    // ---- U1: keyboard cursor and event creation ----
+    juce::String describePosition(std::int64_t ticks, const ctl::GridContext& grid) const
+    {
+        const std::int64_t barTicks = static_cast<std::int64_t>(std::max(1, grid.beatsPerBar)) * ctl::ticksPerBeat;
+        const auto t = std::max<std::int64_t>(0, ticks);
+        return "bar " + juce::String(static_cast<int>(t / barTicks) + 1) + " beat "
+               + juce::String(static_cast<int>((t % barTicks) / ctl::ticksPerBeat) + 1)
+               + (t % ctl::ticksPerBeat != 0 ? " plus " + juce::String(static_cast<int>(t % ctl::ticksPerBeat)) + " ticks" : juce::String());
+    }
+    void announceCursor(const juce::String& what)
+    {
+        const auto grid = processor.getGridContext();
+        juce::String text;
+        const int lane = std::clamp(kbLane, 0, laneCount - 1);
+        text << (what.isEmpty() ? juce::String() : what + " ") << "Cursor: " << operationName(lane) << ", " << describePosition(kbTick, grid) << ".";
+        setDescription(text);
+        lastDescription = text;
+        if (onMessage)
+            onMessage(text);
+        repaint();
+    }
+    static juce::String operationName(int lane)
+    {
+        return lane >= 0 && lane < operationNames.size() ? operationNames[lane] : "Effect " + juce::String(lane + 1);
+    }
+    bool keyboardCursorKey(const juce::KeyPress& key)
+    {
+        const auto grid = processor.getGridContext();
+        const auto control = access.settings().control;
+        const int code = key.getKeyCode();
+        const bool plain = !key.getModifiers().isCtrlDown() && !key.getModifiers().isCommandDown() && !key.getModifiers().isAltDown();
+        if (!plain)
+            return false;
+        const std::int64_t step = key.getModifiers().isShiftDown() ? ctl::ticksPerBeat : std::max<std::int64_t>(1, unit(control));
+        if (code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey)
+        {
+            kbTick = std::clamp<std::int64_t>(kbTick + (code == juce::KeyPress::rightKey ? step : -step), 0, grid.phraseTicks() - 1);
+            announceCursor(juce::String());
+            return true;
+        }
+        if (code == juce::KeyPress::upKey || code == juce::KeyPress::downKey)
+        {
+            kbLane = std::clamp(kbLane + (code == juce::KeyPress::downKey ? 1 : -1), 0, laneCount - 1);
+            announceCursor(juce::String());
+            return true;
+        }
+        if (code == juce::KeyPress::returnKey || code == juce::KeyPress::insertKey
+            || (key.getTextCharacter() == 'n' || key.getTextCharacter() == 'N'))
+        {
+            createAtCursor();
+            return true;
+        }
+        return false;
+    }
+    void createAtCursor()
+    {
+        auto next = access.settings().control;
+        if (!next.lane.explicitEvents)
+        {
+            announceCursor("Uniform mode: press 'Convert to events' (or enable event lanes) to place events.");
+            return;
+        }
+        const int lane = std::clamp(kbLane, 0, laneCount - 1);
+        if (isLocked(static_cast<std::uint8_t>(lane)))
+        {
+            announceCursor("This lane's events are locked (Generator tab > Locks).");
+            return;
+        }
+        const auto grid = processor.getGridContext();
+        const std::int64_t pt = grid.phraseTicks();
+        ctl::LaneEvent created;
+        created.operation = static_cast<std::uint8_t>(lane);
+        created.onsetTicks = static_cast<std::int32_t>(std::clamp<std::int64_t>(snap(kbTick, next, false), 0, pt - 1));
+        created.durationTicks = static_cast<std::int32_t>(std::clamp<std::int64_t>(unit(next), 1, pt - created.onsetTicks));
+        const auto status = ctl::addEvent(next.lane, created, pt);
+        if (status != ctl::EditStatus::Ok)
+        {
+            announceCursor(status == ctl::EditStatus::Capacity ? "Event limit reached (32)."
+                                                               : "Events of one operation cannot overlap.");
+            return;
+        }
+        selectedEvent = created; // set before the commit so the refresh keeps the selection on the new event
+        hasSelection = true;
+        commit(next);
+        selectedIndex = findSelected(draft.lane);
+        hasSelection = selectedIndex >= 0;
+        if (!hasSelection)
+        {
+            announceCursor("The event was not created (a lock kept the lane unchanged).");
+            return;
+        }
+        kbTick = std::min<std::int64_t>(pt - 1, static_cast<std::int64_t>(created.onsetTicks) + created.durationTicks);
+        if (onSelectionChanged)
+            onSelectionChanged();
+        setDescription("Event created: " + operationName(lane) + " at " + describePosition(created.onsetTicks, grid)
+                       + ", length " + juce::String(created.durationTicks) + " ticks. Arrow keys move it, Delete removes it.");
+        lastDescription = getDescription();
+        if (onMessage)
+            onMessage("Event created: " + operationName(lane) + " at " + describePosition(created.onsetTicks, grid) + ".");
+        repaint();
     }
     // Pixel ranges of one event; wrapping events split in two.
     static std::vector<std::pair<int, int>> eventRanges(const ctl::LaneEvent& e, double P, int width)
@@ -1260,12 +1449,27 @@ public:
         duplicate.onClick = [this] {
             const auto from = access.editingIndex();
             const auto to = static_cast<std::size_t>(juce::jmax(0, target.getSelectedId() - 1));
-            message.setText(processor.duplicateVariation(from, to) ? "Duplicated." : "Nothing to duplicate (same scene, identical scenes or preview active).",
-                            juce::dontSendNotification);
+            juce::String text = "Nothing to duplicate (same scene, identical scenes or preview active).";
+            if (processor.duplicateVariation(from, to))
+            {
+                // C03 locks of the destination can keep fields unchanged; do not claim a full copy then.
+                const auto bank = processor.getSceneBank();
+                text = bank.variation(to) == bank.variation(from)
+                    ? juce::String("Duplicated.")
+                    : "Duplicated, but locked fields of scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + to))
+                          + " were kept (Gen tab > Locks).";
+            }
+            message.setText(text, juce::dontSendNotification);
         };
         resetScene.setButtonText("Reset edited scene to factory");
         resetScene.setTooltip("Restores the factory name and settings of the edited scene. One undo step. Keeps the MIDI note. Disabled during a preview.");
-        resetScene.onClick = [this] { processor.resetVariation(access.editingIndex()); message.setText("Scene reset (Undo available).", juce::dontSendNotification); };
+        resetScene.onClick = [this] {
+            const auto index = access.editingIndex();
+            processor.resetVariation(index);
+            const bool exact = processor.getSceneBank().variation(index) == gm::scene::SceneBank::defaultVariation(index);
+            message.setText(exact ? "Scene reset (Undo available)." : "Scene reset, but locked fields were kept (Gen tab > Locks).",
+                            juce::dontSendNotification);
+        };
         op.addItemList(operationNames, 1);
         op.setSelectedId(1, juce::dontSendNotification);
         op.setTooltip("Effect to reset.");
@@ -1274,13 +1478,20 @@ public:
         resetOp.onClick = [this] {
             const auto index = static_cast<std::size_t>(juce::jmax(0, op.getSelectedId() - 1));
             edit([index](auto& s) { s.operations[index] = gm::OperationSettings{}; });
-            message.setText("Effect reset.", juce::dontSendNotification);
+            const bool exact = gm::scene::sameSettings(access.settings().operations[index], gm::OperationSettings{});
+            message.setText(exact ? "Effect reset." : "Effect not fully reset: locked fields were kept (Gen tab > Locks).",
+                            juce::dontSendNotification);
         };
         clearPlacement.setButtonText("Clear placement and events");
         clearPlacement.setTooltip("Returns the edited scene to uniform whole-phrase behavior (keeps effect settings, locks and limits).");
         clearPlacement.onClick = [this] {
             edit([](auto& s) { s.control.placement = ctl::PlacementConfig{}; s.control.lane = ctl::EventLane{}; });
-            message.setText("Placement cleared.", juce::dontSendNotification);
+            ctl::SceneControl remaining;
+            remaining.placement = access.settings().control.placement;
+            remaining.lane = access.settings().control.lane;
+            message.setText(ctl::isDefault(remaining) ? "Placement cleared."
+                                                       : "Placement not fully cleared: a lock kept part of it (Gen tab > Locks).",
+                            juce::dontSendNotification);
         };
         for (auto* c : std::initializer_list<juce::Component*>{&info, &target, &duplicate, &resetScene, &op, &resetOp, &clearPlacement, &message})
             addAndMakeVisible(*c);

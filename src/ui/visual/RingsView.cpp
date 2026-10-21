@@ -49,7 +49,7 @@ void RingsView::setData(Data d)
                 ++differing;
         text << (differing == 0 ? "The newest lap matches the previous lap so far." : juce::String(differing) + " positions differ from the previous lap.");
     }
-    setDescription(text);
+    setDescriptionThrottled(*this, descriptionThrottle, text);
     repaint();
 }
 

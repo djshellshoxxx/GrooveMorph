@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "core/viz/Palette.h"
+#include "core/viz/TextThrottle.h"
 #include "core/viz/WeaveLayout.h"
 
 // Shared palette for the Visual window (docs/visual-feedback/SPEC.md section 11). Effect colours are
@@ -20,6 +21,15 @@ inline const juce::Colour dim{shared::dim};
 inline const juce::Colour hatch{shared::hatch};
 inline const juce::Colour warning{shared::warning};
 } // namespace palette
+
+// U7: the views are refreshed at 30 Hz, but screen readers only need a new description when the text
+// changed, and not more than about 4 times per second.
+inline void setDescriptionThrottled(juce::Component& component, groovemorph::core::viz::TextThrottle& throttle,
+                                    const juce::String& text)
+{
+    if (throttle.apply(static_cast<std::int64_t>(juce::Time::getMillisecondCounter()), text.toStdString()))
+        component.setDescription(text);
+}
 
 inline juce::Colour effectColour(groovemorph::core::viz::Effect e)
 {
