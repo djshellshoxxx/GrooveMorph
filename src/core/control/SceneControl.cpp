@@ -403,8 +403,8 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
                           bool apply) noexcept
 {
     ReduceReport report;
-    if (phraseTicks <= 0 || lane.count == 0)
-        return report;
+    if (phraseTicks <= 0 || phraseTicks > maxPhraseTicks || lane.count == 0)
+        return report; // an out-of-range phrase would unroll a short loop into billions of spans (A3-03)
     const std::size_t count = std::min<std::size_t>(lane.count, maxLaneEvents);
     const std::int64_t P = phraseTicks;
 

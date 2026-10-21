@@ -103,6 +103,8 @@ float RhythmEngine::readRing(const float* ring, std::int64_t time, double r) con
 {
     const auto cap = static_cast<std::int64_t>(capacity);
     const double t = static_cast<double>(time);
+    if (!std::isfinite(r))
+        r = t; // a non-finite read position (hostile phase offset) must not reach the int64 cast below
     r = std::clamp(r, t - static_cast<double>(cap - 2), t);
     const double base = std::floor(r);
     const double frac = r - base;
