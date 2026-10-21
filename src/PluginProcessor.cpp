@@ -61,6 +61,10 @@ GrooveMorphAudioProcessor::GrooveMorphAudioProcessor()
     cached.bandSlope = parameters.getRawParameterValue(bandSlopeId);
     cached.audioTrigger = parameters.getRawParameterValue(audioTriggerId);
     cached.audioTriggerSens = parameters.getRawParameterValue(audioTriggerSensId);
+    for (std::size_t op = 0; op < core::operationCount; ++op)
+        for (std::size_t kind = 0; kind < core::control::trimKindCount; ++kind)
+            cached.operationTrims[op * core::control::trimKindCount + kind] = parameters.getRawParameterValue(
+                juce::String(core::control::operationTrimId(op, static_cast<core::control::TrimKind>(kind))));
     bypassParameter = dynamic_cast<juce::AudioParameterBool*>(parameters.getParameter(bypassId));
     lastSeenVariationParam = loadIndex(cached.activeVariation, static_cast<int>(core::variationCount) - 1);
     {
@@ -151,6 +155,25 @@ GrooveMorphAudioProcessor::createParameterLayout()
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{audioTriggerSensId, 1}, "Trigger Sensitivity",
         juce::NormalisableRange<float>{0.0f, 1.0f}, 0.5f));
+    // A06 live trims of the sounding scene, one set per operation (operationCount driven, so operations
+    // appended later get their ids automatically). Defaults are the identity: no effect on the sound.
+    for (std::size_t op = 0; op < core::operationCount; ++op)
+    {
+        using core::control::TrimKind;
+        layout.add(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID{juce::String(core::control::operationTrimId(op, TrimKind::Enable)), 1},
+            juce::String(core::control::operationTrimName(op, TrimKind::Enable)),
+            juce::StringArray{"Scene", "Off", "On"}, 0));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{juce::String(core::control::operationTrimId(op, TrimKind::Depth)), 1},
+            juce::String(core::control::operationTrimName(op, TrimKind::Depth)),
+            juce::NormalisableRange<float>{core::control::trimDepthMin, core::control::trimDepthMax}, 1.0f));
+        juce::NormalisableRange<float> sliceRange{core::control::trimSliceMin, core::control::trimSliceMax};
+        sliceRange.setSkewForCentre(1.0f); // 1 (no change) sits mid-travel
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{juce::String(core::control::operationTrimId(op, TrimKind::Slice)), 1},
+            juce::String(core::control::operationTrimName(op, TrimKind::Slice)), sliceRange, 1.0f));
+    }
     return layout;
 }
 
@@ -302,6 +325,13 @@ void GrooveMorphAudioProcessor::handleMidi(const juce::uint8* data, int numBytes
     const int status = data[0] & 0xf0;
     if (status == 0xB0 && numBytes >= 3)
         ccInbox.push(data[1] & 0x7f, data[2] & 0x7f); // for MIDI links / learn; applied on the message thread
+    if (status == 0xB0 && numBytes >= 3 && (data[1] == 120 || data[1] == 123))
+    {
+        // All Sound Off / All Notes Off stand in for the missing note-offs: release the held trigger note.
+        if (const auto back = midiTrigger.releaseAll(audioScene.snapshot.midiMap))
+            scheduler.request(*back, mode);
+        return;
+    }
     if (midiMacros.load(std::memory_order_relaxed))
     {
         if (status == 0xC0 && data[1] < core::variationCount) // program change -> scene
@@ -379,7 +409,16 @@ int GrooveMorphAudioProcessor::getMidiLinkCc(const juce::String& target) const
 bool GrooveMorphAudioProcessor::linkMidi(int cc, const juce::String& target)
 {
     const std::lock_guard<std::mutex> lock(midiLinkMutex);
-    return midiLinks.link(cc, target.toStdString());
+    const auto result = midiLinks.linkChecked(cc, target.toStdString());
+    if (result == core::MidiLinkTable::LinkResult::TableFull)
+        midiLinkNotice.store(midiLinkNoticeTableFull, std::memory_order_relaxed);
+    return result == core::MidiLinkTable::LinkResult::Ok;
+}
+
+int GrooveMorphAudioProcessor::getMidiLinkCount() const
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    return static_cast<int>(midiLinks.links().size());
 }
 
 void GrooveMorphAudioProcessor::unlinkMidi(const juce::String& target)
@@ -406,9 +445,15 @@ void GrooveMorphAudioProcessor::applyMidiLinks()
         const std::lock_guard<std::mutex> lock(midiLinkMutex);
         if (midiLearnTarget.isNotEmpty())
         {
-            // Learn: the first controller that moved is linked to the waiting control and is not applied this time.
-            midiLinks.link(changes[0].cc, midiLearnTarget.toStdString());
+            // Learn: the controller that moved most in this tick is linked to the waiting control and is not
+            // applied this time. A tick whose movement is not attributable yet (-1) is retried on the next one.
+            const int cc = core::pickLearnCc(changes, count);
+            if (cc < 0)
+                return;
+            const auto result = midiLinks.linkChecked(cc, midiLearnTarget.toStdString());
             midiLearnTarget = {};
+            if (result == core::MidiLinkTable::LinkResult::TableFull)
+                midiLinkNotice.store(midiLinkNoticeTableFull, std::memory_order_relaxed);
             return;
         }
         links = midiLinks.links();
@@ -477,9 +522,32 @@ core::VariationSettings GrooveMorphAudioProcessor::effectiveSettings(std::size_t
     const auto& base = audioScene.snapshot.variations[index];
     if (morphTargetIndex < 0 || morphWeight <= 0.0f
         || static_cast<std::size_t>(morphTargetIndex) == index)
-        return base;
-    return core::control::morph(base, audioScene.snapshot.variations[static_cast<std::size_t>(morphTargetIndex)],
-                                morphWeight);
+    {
+        if (!trimsActive)
+            return base; // default trims: exactly the pre-A06 result
+        auto trimmed = base;
+        core::control::applyTrims(trimmed, trims);
+        return trimmed;
+    }
+    auto blended = core::control::morph(base, audioScene.snapshot.variations[static_cast<std::size_t>(morphTargetIndex)],
+                                        morphWeight);
+    if (trimsActive)
+        core::control::applyTrims(blended, trims);
+    return blended;
+}
+
+void GrooveMorphAudioProcessor::readOperationTrims() noexcept
+{
+    for (std::size_t op = 0; op < core::operationCount; ++op)
+    {
+        const auto base = op * core::control::trimKindCount;
+        auto& trim = trims[op];
+        trim.enable = static_cast<core::control::EnableTrim>(
+            loadIndex(cached.operationTrims[base + static_cast<std::size_t>(core::control::TrimKind::Enable)], 2));
+        trim.depth = loadParameter(cached.operationTrims[base + static_cast<std::size_t>(core::control::TrimKind::Depth)], 1.0f);
+        trim.slice = loadParameter(cached.operationTrims[base + static_cast<std::size_t>(core::control::TrimKind::Slice)], 1.0f);
+    }
+    trimsActive = !core::control::isIdentity(trims);
 }
 
 void GrooveMorphAudioProcessor::applyScenePhase(const std::optional<core::ResolvedTiming>& blockTiming,
@@ -769,6 +837,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         }
     }
     paramSeenByAudio.store(variationParam, std::memory_order_release);
+    readOperationTrims();
     {
         bandModeSel = loadIndex(cached.bandMode, 2);
         const float crossover = juce::jlimit(20.0f, 1000.0f, loadParameter(cached.bandCrossover, 120.0f));
@@ -1144,6 +1213,13 @@ void GrooveMorphAudioProcessor::commitBankLocked(const scene::SceneBank& next)
     publishSceneLocked();
 }
 
+void GrooveMorphAudioProcessor::commitBankCoalescedLocked(const scene::SceneBank& next, std::uint64_t key)
+{
+    undoStack.commitCoalesced(next, key, static_cast<std::int64_t>(juce::Time::getMillisecondCounterHiRes()),
+                              scene::undoCoalesceWindowMs);
+    publishSceneLocked();
+}
+
 scene::SceneBank GrooveMorphAudioProcessor::getSceneBank() const
 {
     const std::lock_guard<std::mutex> lock(modelMutex);
@@ -1158,8 +1234,9 @@ void GrooveMorphAudioProcessor::setVariationSettings(std::size_t index, const co
     if (audition.isActive())
         return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
+    const auto before = bank.variation(index).settings;
     bank.setVariationSettings(index, settings);
-    commitBankLocked(bank);
+    commitBankCoalescedLocked(bank, scene::coalesceKey(index, before, bank.variation(index).settings));
 }
 
 // Whole-scene operations keep the destination's locked fields and lock configuration (C03).
@@ -1226,10 +1303,11 @@ void GrooveMorphAudioProcessor::setOperationSettings(std::size_t index, core::Op
     if (audition.isActive())
         return; // a preview owns the edited scene; committing would silently overwrite this edit
     auto bank = undoStack.current();
-    auto variation = bank.variation(index).settings;
+    const auto before = bank.variation(index).settings;
+    auto variation = before;
     variation[op] = settings;
     bank.setVariationSettings(index, variation);
-    commitBankLocked(bank);
+    commitBankCoalescedLocked(bank, scene::coalesceKey(index, before, bank.variation(index).settings));
 }
 
 void GrooveMorphAudioProcessor::setVariationName(std::size_t index, std::string_view name)
