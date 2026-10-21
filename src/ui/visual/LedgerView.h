@@ -16,6 +16,7 @@ public:
     void paint(juce::Graphics&) override;
 
 private:
+    groovemorph::core::viz::TextThrottle descriptionThrottle;
     groovemorph::core::viz::Ledger ledger;
 };
 } // namespace groovemorph::ui::visual

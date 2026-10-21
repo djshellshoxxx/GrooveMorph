@@ -1,15 +1,21 @@
 #include "PluginProcessor.h"
 #include "ui/visual/VisualWindow.h"
+#include "ui/PrintPanel.h"
 #include "PluginEditor.h"
 
 #include <cstdlib>
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <cstring>
 #include <iostream>
 #include <limits>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 using groovemorph::core::TimingSource;
 namespace Missing = groovemorph::core::MissingField;
@@ -126,7 +132,7 @@ int main()
 
         // Reject an oversized state envelope without mutating valid loaded parameters.
         juce::MemoryBlock oversized;
-        oversized.setSize(1024 * 1024 + 1, true);
+        oversized.setSize(16 * 1024 * 1024 + 1, true); // limit was 1 MiB before loop persistence
         restored.setStateInformation(oversized.getData(), static_cast<int>(oversized.getSize()));
         expect("oversized state ignored", std::abs(value("manualTempo") - 97.5f) < 1.0e-2f);
     }
@@ -1089,6 +1095,240 @@ int main()
         processor.setPlayHead(nullptr);
     }
 
+    // ---- W4 / F09: loop audio in the project state, hostile loop blobs, tempo stretch ----
+    {
+        GrooveMorphAudioProcessor source;
+        FakePlayHead playHead;
+        source.setPlayHead(&playHead);
+        const int blockSize = 480;
+        source.prepareToPlay(48000.0, blockSize);
+        expect("loop stretch defaults to off", source.parameters.getRawParameterValue("loopStretch")->load() == 0.0f);
+        juce::MemoryBlock noLoopState;
+        source.getStateInformation(noLoopState);
+        {
+            const auto xml = juce::AudioProcessor::getXmlFromBinary(noLoopState.getData(), static_cast<int>(noLoopState.getSize()));
+            expect("no loop: no LoopAudio child", xml != nullptr && !juce::ValueTree::fromXml(*xml).getChildWithName("LoopAudio").isValid());
+        }
+        expect("capture arms", source.armLoopCapture(1));
+        std::int64_t sample = 5 * blockSize;
+        const auto signal = [](std::int64_t i) { return 0.5f * static_cast<float>(std::sin(0.002 * static_cast<double>(i))); };
+        while (source.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Done && sample < 96000 * 4)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                buffer.setSample(0, i, signal(sample + i));
+                buffer.setSample(1, i, signal(sample + i));
+            }
+            setTransport(playHead, sample);
+            juce::MidiBuffer midi;
+            source.processBlock(buffer, midi);
+            sample += blockSize;
+        }
+        source.pollLoopCapture();
+        expect("W4 loop captured", source.hasLoop());
+        source.setSourceMode(2);
+        juce::MemoryBlock withLoop;
+        source.getStateInformation(withLoop);
+        expect("W4 state with a loop is larger than without", withLoop.getSize() > noLoopState.getSize() + 1000);
+        expect("W4 loop persistence reports no warning", source.getLoopPersistWarning() == 0);
+
+        // Restore into a processor that is already prepared (same and different sample rate) and one that is not.
+        for (const double rate : {48000.0, 44100.0, 0.0})
+        {
+            GrooveMorphAudioProcessor restored;
+            if (rate > 0.0)
+                restored.prepareToPlay(rate, blockSize);
+            restored.setStateInformation(withLoop.getData(), static_cast<int>(withLoop.getSize()));
+            if (rate == 0.0)
+                restored.prepareToPlay(48000.0, blockSize);
+            const std::string tag = " (rate " + std::to_string(static_cast<int>(rate)) + ")";
+            expect("W4 loop restored" + tag, restored.hasLoop() && std::abs(restored.getLoopBeats() - 4.0) < 1e-9);
+            expect("W4 loop length restored" + tag, std::abs(restored.getLoopSeconds() - 2.0) < 1e-3);
+            expect("W4 loop source mode restored" + tag, restored.getSourceMode() == 2);
+            if (rate == 48000.0 || rate == 0.0)
+            {
+                FakePlayHead restoredHead;
+                restored.setPlayHead(&restoredHead);
+                setParameter(restored, "masterIntensity", 0.0f);
+                bool close = true;
+                for (std::int64_t pos = 96000 * 3; pos < 96000 * 3 + 4800; pos += blockSize)
+                {
+                    juce::AudioBuffer<float> buffer(2, blockSize);
+                    buffer.clear();
+                    setTransport(restoredHead, pos);
+                    juce::MidiBuffer midi;
+                    restored.processBlock(buffer, midi);
+                    for (int i = 0; i < blockSize; ++i)
+                        close = close && std::abs(buffer.getSample(0, i) - signal(96000 + ((pos + i) % 96000))) < 2.0e-3f;
+                }
+                expect("W4 restored loop plays the saved audio (16-bit quantised)" + tag, close);
+                restored.setPlayHead(nullptr);
+            }
+            std::vector<float> lo, hi;
+            expect("W4 restored loop has waveform peaks" + tag, restored.getLoopPeaks(64, lo, hi) == 64 && lo.size() == 64);
+        }
+
+        // Old projects (no LoopAudio) load unchanged and keep the session's loop.
+        {
+            GrooveMorphAudioProcessor keeper;
+            keeper.prepareToPlay(48000.0, blockSize);
+            keeper.setStateInformation(withLoop.getData(), static_cast<int>(withLoop.getSize()));
+            keeper.setStateInformation(noLoopState.getData(), static_cast<int>(noLoopState.getSize()));
+            expect("W4 state without LoopAudio leaves the loop alone", keeper.hasLoop());
+        }
+        // Hostile LoopAudio children: the state still loads, no loop appears, a warning is raised.
+        {
+            const auto hostile = [&](const juce::String& blobText, int version) {
+                const auto xml = juce::AudioProcessor::getXmlFromBinary(noLoopState.getData(), static_cast<int>(noLoopState.getSize()));
+                auto tree = juce::ValueTree::fromXml(*xml);
+                juce::ValueTree bad("LoopAudio");
+                bad.setProperty("v", version, nullptr);
+                bad.setProperty("blob", blobText, nullptr);
+                tree.appendChild(bad, nullptr);
+                juce::MemoryBlock block;
+                juce::AudioProcessor::copyXmlToBinary(*tree.createXml(), block);
+                GrooveMorphAudioProcessor p;
+                p.prepareToPlay(48000.0, blockSize);
+                p.setStateInformation(block.getData(), static_cast<int>(block.getSize()));
+                return std::make_pair(p.hasLoop(), p.getLoopPersistWarning());
+            };
+            const auto garbage = hostile("AAAA", 1);
+            expect("W4 garbage blob rejected with warning", !garbage.first && garbage.second == 3);
+            const auto badVersion = hostile("AAAA", 9);
+            expect("W4 unknown version rejected with warning", !badVersion.first && badVersion.second == 3);
+            const auto notBase64 = hostile("!!!! not base64 ????", 1);
+            expect("W4 non-base64 rejected with warning", !notBase64.first && notBase64.second == 3);
+            const auto empty = hostile("", 1);
+            expect("W4 empty blob rejected with warning", !empty.first && empty.second == 3);
+            const auto realXml = juce::AudioProcessor::getXmlFromBinary(withLoop.getData(), static_cast<int>(withLoop.getSize()));
+            const juce::String text = juce::ValueTree::fromXml(*realXml).getChildWithName("LoopAudio").getProperty("blob").toString();
+            expect("W4 saved blob present", text.length() > 100);
+            const auto truncated = hostile(text.substring(0, text.length() / 2), 1);
+            expect("W4 truncated blob rejected", !truncated.first && truncated.second == 3);
+            const int mid = text.length() / 2;
+            const auto corrupted = hostile(text.replaceSection(mid, 1, text[mid] == 'A' ? "B" : "A"), 1);
+            expect("W4 corrupted blob rejected", !corrupted.first && corrupted.second == 3);
+        }
+
+        // Stretch to host tempo: a 120 BPM loop at a 100 BPM host is rendered 1.2x longer, off the audio thread.
+        {
+            setParameter(source, "loopStretch", 1.0f);
+            for (int block = 0; block < 4; ++block)
+            {
+                juce::AudioBuffer<float> buffer(2, blockSize);
+                buffer.clear();
+                playHead.info.setBpm(100.0);
+                playHead.info.setTimeSignature(juce::AudioPlayHead::TimeSignature{4, 4});
+                playHead.info.setIsPlaying(true);
+                playHead.info.setTimeInSamples(block * blockSize);
+                playHead.info.setPpqPosition(block * blockSize / 28800.0);
+                playHead.info.setPpqPositionOfLastBarStart(0.0);
+                juce::MidiBuffer midi;
+                source.processBlock(buffer, midi);
+            }
+            bool stretched = false;
+            for (int tick = 0; tick < 400 && !stretched; ++tick)
+            {
+                source.updateLoopStretch();
+                stretched = std::abs(source.getLoopStretchRatio() - 1.2) < 1.0e-3;
+                if (!stretched)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            expect("W4 loop stretched to the host tempo (ratio 1.2)", stretched);
+            expect("W4 stretch keeps the original loop for saving", std::abs(source.getLoopSeconds() - 2.0) < 1e-3);
+            setParameter(source, "loopStretch", 0.0f);
+            source.updateLoopStretch();
+            expect("W4 stretch off restores the varispeed buffer", std::abs(source.getLoopStretchRatio() - 1.0) < 1e-9 && source.hasLoop());
+        }
+        source.setPlayHead(nullptr);
+    }
+
+    // ---- N04: print the processed output to a WAV and reuse it as the loop source ----
+    {
+        GrooveMorphAudioProcessor processor;
+        FakePlayHead playHead;
+        processor.setPlayHead(&playHead);
+        const int blockSize = 480;
+        processor.prepareToPlay(48000.0, blockSize);
+        setParameter(processor, "masterIntensity", 0.0f); // dry path: output == input exactly
+        const auto signal = [](std::int64_t i) { return 0.5f * static_cast<float>(std::sin(0.002 * static_cast<double>(i))); };
+        const auto drive = [&](std::int64_t from, std::int64_t to) {
+            for (std::int64_t sample = from; sample < to; sample += blockSize)
+            {
+                juce::AudioBuffer<float> buffer(2, blockSize);
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    buffer.setSample(0, i, signal(sample + i));
+                    buffer.setSample(1, i, signal(sample + i));
+                }
+                setTransport(playHead, sample);
+                juce::MidiBuffer midi;
+                processor.processBlock(buffer, midi);
+            }
+        };
+        using PrintState = groovemorph::core::OutputCapture::State;
+        expect("print arms", processor.armPrint(1, true, true));
+        expect("print cannot arm twice", !processor.armPrint(1, false, false));
+        // A2: the loop source is shared, so a running print refuses loop capture and import with a message.
+        expect("loop capture refused during a print", !processor.armLoopCapture(1)
+                   && processor.captureConflict(GrooveMorphAudioProcessor::CaptureKind::LoopCapture).isNotEmpty());
+        expect("import refused during a print", processor.importLoopFile(juce::File("/nonexistent/none.wav"), 2).getErrorMessage().contains("print"));
+        drive(5 * blockSize, 96000 * 2 + 4800);
+        expect("print still recording into its tail", processor.getPrintState() == PrintState::Recording);
+        drive(96000 * 2 + 4800, 96000 * 2 + 4800 + 5 * 48000);
+        expect("print done", processor.getPrintState() == PrintState::Done);
+        GrooveMorphAudioProcessor::PrintResult result;
+        expect("print collected", processor.takePrintResult(result));
+        expect("print idle after collect", processor.getPrintState() == PrintState::Idle);
+        expect("print body is one bar", result.bodySamples == 96000 && result.bars == 1 && result.audio.getNumChannels() == 2);
+        expect("print includes the tail", result.audio.getNumSamples() > result.bodySamples);
+        expect("print bpm", std::abs(result.bpm - 120.0) < 1.0e-6);
+        expect("wet-only falls back at zero intensity", result.wetOnly && !result.wetOnlyApplied);
+        bool exact = true;
+        for (int i = 0; i < result.bodySamples; i += 7)
+            exact = exact && std::abs(result.audio.getSample(0, i) - signal(96000 + i)) < 1.0e-5f;
+        expect("print body equals the processed bar", exact);
+
+        const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm-print-test.wav");
+        file.deleteFile();
+        expect("print wav written", groovemorph::ui::PrintPanel::writeWav24(file, result.audio, result.sampleRate));
+        juce::AudioFormatManager formats;
+        formats.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+        expect("print wav reads back as 24-bit stereo", reader != nullptr && reader->bitsPerSample == 24
+                                                          && reader->numChannels == 2
+                                                          && reader->lengthInSamples == result.audio.getNumSamples());
+        if (reader != nullptr)
+        {
+            juce::AudioBuffer<float> back(2, static_cast<int>(reader->lengthInSamples));
+            reader->read(&back, 0, back.getNumSamples(), 0, true, true);
+            bool same = true;
+            for (int i = 0; i < back.getNumSamples(); i += 11)
+                same = same && std::abs(back.getSample(1, i) - result.audio.getSample(1, i)) < 1.0e-6f;
+            expect("print wav content survives 24-bit", same);
+        }
+        reader.reset();
+        const double bodySeconds = static_cast<double>(result.bodySamples) / result.sampleRate;
+        expect("print becomes the loop source (tail trimmed)",
+               processor.importLoopFile(file, 0, 4.0 * 60.0 / bodySeconds, bodySeconds).wasOk() && processor.hasLoop()
+                   && std::abs(processor.getLoopSeconds() - 2.0) < 1.0e-3 && std::abs(processor.getLoopBeats() - 4.0) < 1.0e-6);
+        file.deleteFile();
+
+        // Aborts: a stopped transport discards a body that is still recording; cancel returns to Idle.
+        expect("second print arms", processor.armPrint(2, false, false));
+        drive(96000 * 4, 96000 * 4 + 96000 + 2400);
+        expect("second print recording", processor.getPrintState() == PrintState::Recording);
+        drive(96000 * 8, 96000 * 8 + blockSize); // a jump
+        expect("jump aborts the print", processor.getPrintState() == PrintState::Aborted
+                                           && processor.getPrintFailure() == groovemorph::core::OutputCapture::Failure::Jumped);
+        processor.cancelPrint();
+        expect("cancel acknowledges", processor.getPrintState() == PrintState::Idle);
+        expect("print rearms", processor.armPrint(16, false, false));
+        processor.cancelPrint();
+        processor.setPlayHead(nullptr);
+    }
+
     // ---- Alpha 2: file import validation (F09) ----
     {
         GrooveMorphAudioProcessor processor;
@@ -1627,8 +1867,8 @@ int main()
         GrooveMorphAudioProcessor p;
         p.prepareToPlay(48000.0, 256);
         std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor());
-        editor->setSize(1290, 740);
-        std::vector<juce::String> missing;
+        editor->setSize(1290, 784);
+        std::vector<juce::String> missing, unnamed;
         std::function<void(juce::Component&)> walk = [&](juce::Component& c) {
             for (auto* child : c.getChildren())
             {
@@ -1638,6 +1878,9 @@ int main()
                 const bool insideControl = dynamic_cast<juce::Slider*>(&c) != nullptr || dynamic_cast<juce::ComboBox*>(&c) != nullptr;
                 if (interactive && !insideControl)
                 {
+                    // U6: screen readers need a name and, where a tooltip exists, a description.
+                    if (child->getTitle().trim().isEmpty())
+                        unnamed.push_back(juce::String(typeid(*child).name()) + " " + child->getName());
                     auto* client = dynamic_cast<juce::TooltipClient*>(child);
                     const auto tip = client != nullptr ? client->getTooltip() : juce::String();
                     if (tip.trim().length() < 12)
@@ -1659,6 +1902,9 @@ int main()
         for (const auto& m : missing)
             std::cout << "no tooltip: " << m << "\n";
         expect("every control has a tooltip", missing.empty());
+        for (const auto& m : unnamed)
+            std::cout << "no accessible name: " << m << "\n";
+        expect("UI-AX-1 every control has an accessible name", unnamed.empty());
     }
 
     // Audit fixes: a loaded loop survives prepareToPlay (host rate/buffer change); 384 kHz sessions keep timing.
@@ -1751,6 +1997,340 @@ int main()
         expect("paste a copied number into another slider", applyTextToSlider(other, access.paste()) && std::abs(other.getValue() - 0.75) < 1e-9);
         access.copy = savedCopy;
         access.paste = savedPaste;
+    }
+
+
+    // W10 (A04): scene note assignment through the processor is one undo step; a legacy duplicate map loads unchanged.
+    {
+        namespace scene = groovemorph::core::scene;
+        GrooveMorphAudioProcessor p;
+        auto map = p.getSceneBank().midiNoteMap();
+        const auto original = map;
+        expect("A04-08 conflict planned", map.planAssign(0, 62).kind == scene::NoteAssignPlan::Kind::Conflict);
+        expect("A04-08 swap applied", map.assign(0, 62, scene::ConflictChoice::Swap));
+        p.setMidiNoteMap(map);
+        const std::array<int, 4> swapped{62, 61, 60, 63};
+        expect("A04-08 map swapped in the bank", p.getSceneBank().midiNoteMap().notes == swapped);
+        expect("A04-08 one undo reverts both notes", p.undoSceneEdit() && p.getSceneBank().midiNoteMap() == original);
+
+        auto legacy = original;
+        legacy.notes = {60, 60, 62, 63};
+        p.setMidiNoteMap(legacy);
+        juce::MemoryBlock state;
+        p.getStateInformation(state);
+        GrooveMorphAudioProcessor q;
+        q.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        expect("A04-08 legacy duplicate map loads unchanged", q.getSceneBank().midiNoteMap() == legacy
+                   && q.getLastSceneLoadReport().status == scene::LoadStatus::Ok);
+    }
+
+    // W10 (A04): learn picks the biggest mover and reports a full table instead of failing silently.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        auto sendCcs = [](GrooveMorphAudioProcessor& p, std::initializer_list<std::pair<int, int>> events) {
+            juce::AudioBuffer<float> buf(2, 64);
+            buf.clear();
+            juce::MidiBuffer midi;
+            int at = 0;
+            for (const auto& e : events)
+                midi.addEvent(juce::MidiMessage::controllerEvent(1, e.first, e.second), at++);
+            p.processBlock(buf, midi);
+        };
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 64);
+        p.beginMidiLearn("p:dryWet");
+        sendCcs(p, {{20, 10}, {21, 5}, {21, 125}});
+        p.servicePendingControllers();
+        expect("A04-09 the controller that moved most is linked", p.getMidiLinkCc("p:dryWet") == 21);
+
+        GrooveMorphAudioProcessor full;
+        full.prepareToPlay(48000.0, 64);
+        for (int i = 0; i < 64; ++i)
+            full.linkMidi(i, "p:fake" + juce::String(i));
+        expect("A04-09 table is full", full.getMidiLinkCount() == 64);
+        full.beginMidiLearn("p:dryWet");
+        sendCcs(full, {{70, 100}});
+        full.servicePendingControllers();
+        expect("A04-09 learn on a full table leaves learn mode", full.getMidiLearnTarget().isEmpty()
+                   && full.getMidiLinkCc("p:dryWet") == -1);
+        expect("A04-09 the full table is reported once", full.consumeMidiLinkNotice() == GrooveMorphAudioProcessor::midiLinkNoticeTableFull
+                   && full.consumeMidiLinkNotice() == 0);
+        expect("A04-09 manual link on a full table is reported", !full.linkMidi(1, "p:masterIntensity")
+                   && full.consumeMidiLinkNotice() == GrooveMorphAudioProcessor::midiLinkNoticeTableFull);
+        expect("A04-09 relinking an existing target still works when full", full.linkMidi(100, "p:fake3")
+                   && full.getMidiLinkCc("p:fake3") == 100);
+    }
+
+    // W10: CC 123 / CC 120 release a held trigger note (return to the previous scene), nothing else changes.
+    {
+        namespace scene = groovemorph::core::scene;
+        for (const int panicCc : {123, 120})
+        {
+            GrooveMorphAudioProcessor processor;
+            processor.prepareToPlay(48000.0, 512);
+            FakePlayHead playHead;
+            processor.setPlayHead(&playHead);
+            setParameter(processor, "transitionMode", 0.0f); // Immediate
+            auto map = processor.getSceneBank().midiNoteMap();
+            map.noteOffPolicy = scene::NoteOffPolicy::ReturnToPrevious;
+            processor.setMidiNoteMap(map);
+            std::int64_t sample = 4800;
+            auto run = [&](const juce::MidiMessage& message) {
+                setTransport(playHead, sample);
+                juce::AudioBuffer<float> buffer(2, 512);
+                buffer.clear();
+                juce::MidiBuffer midi;
+                midi.addEvent(message, 10);
+                processor.processBlock(buffer, midi);
+                sample += 512;
+            };
+            run(juce::MidiMessage::noteOn(1, 62, 0.8f));
+            expect("PANIC-1 held note switched the scene", processor.getActiveVariation() == 2);
+            run(juce::MidiMessage::controllerEvent(1, panicCc, 0));
+            expect("PANIC-1 panic returns to the previous scene", processor.getActiveVariation() == 0);
+            run(juce::MidiMessage::noteOff(1, 62));
+            expect("PANIC-1 the late note-off does nothing", processor.getActiveVariation() == 0);
+            run(juce::MidiMessage::controllerEvent(1, panicCc, 0));
+            expect("PANIC-1 panic with nothing held does nothing", processor.getActiveVariation() == 0);
+            processor.setPlayHead(nullptr);
+        }
+    }
+
+    // W10 (A06): trims have stable ids for every operation, default to no effect, never touch stored scenes.
+    {
+        namespace control = groovemorph::core::control;
+        GrooveMorphAudioProcessor p;
+        bool allPresent = true;
+        for (std::size_t op = 0; op < groovemorph::core::operationCount; ++op)
+            for (std::size_t kind = 0; kind < control::trimKindCount; ++kind)
+                allPresent = allPresent && p.parameters.getParameter(
+                    juce::String(control::operationTrimId(op, static_cast<control::TrimKind>(kind)))) != nullptr;
+        expect("A06-06 a trim exists for every operation and kind", allPresent);
+        bool legacyPresent = true;
+        for (const char* id : {"masterIntensity", "dryWet", "manualTempo", "manualMeterNumerator", "manualMeterDenominator",
+                               "phraseBars", "activeVariation", "transitionMode", "timingMode", "bypass", "morphTarget",
+                               "morphAmount", "autoReturnBars", "autoReturnTarget", "autoReturnUnit", "bandMode",
+                               "bandCrossover", "bandSlope", "audioTrigger", "audioTriggerSens"})
+            legacyPresent = legacyPresent && p.parameters.getParameter(id) != nullptr;
+        expect("A06-06 every earlier parameter id still exists", legacyPresent);
+        // The skewed slice range may store its default one ulp away from 1; the overlay treats that as no change.
+        expect("A06-06 defaults", std::abs(p.parameters.getRawParameterValue("op0Depth")->load() - 1.0f) < 1.0e-4f
+                   && std::abs(p.parameters.getRawParameterValue("op0Slice")->load() - 1.0f) < 1.0e-4f
+                   && p.parameters.getRawParameterValue("op0Enable")->load() == 0.0f);
+
+        auto render = [](GrooveMorphAudioProcessor& processor, bool moveTrim, bool restoreTrim) {
+            setParameter(processor, "masterIntensity", 1.0f);
+            setParameter(processor, "activeVariation", 1.0f); // B: gate
+            setParameter(processor, "transitionMode", 0.0f);
+            processor.prepareToPlay(48000.0, 64);
+            FakePlayHead playHead;
+            processor.setPlayHead(&playHead);
+            std::vector<float> out;
+            std::int64_t sample = 0;
+            for (int block = 0; block < 300; ++block)
+            {
+                if (block == 5 && moveTrim)
+                    setParameter(processor, "op2Enable", 1.0f); // gate forced off
+                if (block == 150 && restoreTrim)
+                    setParameter(processor, "op2Enable", 0.0f);
+                setTransport(playHead, sample);
+                juce::AudioBuffer<float> buffer(2, 64);
+                for (int i = 0; i < 64; ++i)
+                    buffer.setSample(0, i, 0.5f * std::sin(0.01f * static_cast<float>(sample + i)));
+                buffer.copyFrom(1, 0, buffer, 0, 0, 64);
+                juce::MidiBuffer midi;
+                processor.processBlock(buffer, midi);
+                for (int i = 0; i < 64; ++i)
+                    out.push_back(buffer.getSample(0, i));
+                sample += 64;
+            }
+            processor.setPlayHead(nullptr);
+            return out;
+        };
+        GrooveMorphAudioProcessor reference, trimmed, untouched;
+        const auto base = render(reference, false, false);
+        const auto moved = render(trimmed, true, false);
+        expect("A06-07 a moved trim changes the sound", base.size() == moved.size() && base != moved);
+        const auto sceneBefore = untouched.getSceneBank();
+        const auto restoredRun = render(untouched, true, true);
+        expect("A06-07 returning the trim to default restores the reference output", [&] {
+            // From the block after the restore the output must match the reference run sample for sample
+            // (the gate has no memory beyond its beat phase, which the transport fixes).
+            const std::size_t from = 200 * 64; // clear of any crossfade after the restore at block 150
+            for (std::size_t i = from; i < base.size(); ++i)
+                if (base[i] != restoredRun[i])
+                    return false;
+            return true;
+        }());
+        expect("A06-07 stored scenes and undo history are untouched", untouched.getSceneBank() == sceneBefore
+                   && !untouched.canUndoSceneEdit());
+
+        // A06-08: a state without trim parameters (saved by an earlier build) restores them to the default.
+        GrooveMorphAudioProcessor source;
+        setParameter(source, "op0Depth", 0.3f);
+        auto tree = source.parameters.copyState();
+        for (std::size_t op = 0; op < groovemorph::core::operationCount; ++op)
+            for (std::size_t kind = 0; kind < control::trimKindCount; ++kind)
+                tree.removeChild(tree.getChildWithProperty("id", juce::String(control::operationTrimId(
+                                     op, static_cast<control::TrimKind>(kind)))), nullptr);
+        juce::MemoryBlock legacy;
+        juce::AudioProcessor::copyXmlToBinary(*tree.createXml(), legacy);
+        GrooveMorphAudioProcessor restored;
+        setParameter(restored, "op0Depth", 0.6f);
+        restored.setStateInformation(legacy.getData(), static_cast<int>(legacy.getSize()));
+        expect("A06-08 trims absent from an old state return to default", restored.parameters.getRawParameterValue("op0Depth")->load() == 1.0f);
+    }
+
+    // W10 (UI-UC-7): twenty slider steps within 500 ms are one undo step.
+    {
+        GrooveMorphAudioProcessor p;
+        expect("UI-UC-7 nothing to undo yet", !p.canUndoSceneEdit());
+        const auto original = p.getSceneBank().variation(0).settings;
+        for (int i = 1; i <= 20; ++i)
+        {
+            auto settings = p.getSceneBank().variation(0).settings;
+            settings.operations[0].depth = 0.003f + 0.04f * static_cast<float>(i);
+            p.setVariationSettings(0, settings);
+        }
+        expect("UI-UC-7 newest value kept", std::abs(p.getSceneBank().variation(0).settings.operations[0].depth - (0.003f + 0.8f)) < 1.0e-5f);
+        expect("UI-UC-7 one undo reverts the run", p.undoSceneEdit() && p.getSceneBank().variation(0).settings.operations[0].depth == original.operations[0].depth
+                   && !p.canUndoSceneEdit());
+        // A toggle in between starts a new entry.
+        auto a = p.getSceneBank().variation(0).settings;
+        a.operations[1].depth = 0.31f; p.setVariationSettings(0, a);
+        a.operations[1].enabled = !a.operations[1].enabled; p.setVariationSettings(0, a);
+        a.operations[1].depth = 0.32f; p.setVariationSettings(0, a);
+        int undos = 0;
+        while (p.undoSceneEdit())
+            ++undos;
+        expect("UI-UC-7 a toggle splits the runs", undos == 3);
+    }
+
+    // ---- N05: Chaos macro, Easy mode state, Surprise me, Panic (docs/specs/N05-EASY-MODE.md) ----
+    {
+        // N05-C7: the parameter exists, defaults to 0, spans 0..1 and is appended last.
+        GrooveMorphAudioProcessor p;
+        auto* chaos = p.parameters.getParameter("chaos");
+        expect("N05 chaos parameter exists", chaos != nullptr);
+        if (chaos != nullptr)
+        {
+            expect("N05 chaos is appended after every earlier parameter (only later appends follow it)", p.getParameters().indexOf(chaos) > p.getParameters().indexOf(p.parameters.getParameter("audioTriggerSens")));
+            expect("N05 chaos defaults to 0", chaos->getDefaultValue() == 0.0f
+                                                  && p.parameters.getRawParameterValue("chaos")->load() == 0.0f);
+            setParameter(p, "chaos", 1.0f);
+            expect("N05 chaos spans 0..1", std::abs(p.parameters.getRawParameterValue("chaos")->load() - 1.0f) < 1e-6f);
+        }
+
+        // N05-E1: Easy mode is ON for a fresh instance, round-trips, and is OFF for state without the Ui child.
+        GrooveMorphAudioProcessor a;
+        expect("N05 fresh instance opens in Easy mode", a.isEasyMode());
+        setParameter(a, "chaos", 0.7f);
+        juce::MemoryBlock onState;
+        a.getStateInformation(onState);
+        GrooveMorphAudioProcessor b;
+        b.setEasyMode(false);
+        b.setStateInformation(onState.getData(), static_cast<int>(onState.getSize()));
+        expect("N05 easy mode on round-trips", b.isEasyMode());
+        expect("N05 chaos round-trips", std::abs(b.parameters.getRawParameterValue("chaos")->load() - 0.7f) < 1e-5f);
+        a.setEasyMode(false);
+        juce::MemoryBlock offState;
+        a.getStateInformation(offState);
+        GrooveMorphAudioProcessor c;
+        c.setStateInformation(offState.getData(), static_cast<int>(offState.getSize()));
+        expect("N05 easy mode off round-trips", !c.isEasyMode());
+
+        // Legacy fixture: state saved before N05 has neither the Ui child nor the chaos parameter.
+        if (auto xml = juce::AudioProcessor::getXmlFromBinary(onState.getData(), static_cast<int>(onState.getSize())))
+        {
+            if (auto* ui = xml->getChildByName("Ui"))
+                xml->removeChildElement(ui, true);
+            for (auto* e = xml->getFirstChildElement(); e != nullptr;)
+            {
+                auto* following = e->getNextElement();
+                if (e->hasTagName("PARAM") && e->getStringAttribute("id") == "chaos")
+                    xml->removeChildElement(e, true);
+                e = following;
+            }
+            juce::MemoryBlock legacy;
+            juce::AudioProcessor::copyXmlToBinary(*xml, legacy);
+            GrooveMorphAudioProcessor d;
+            setParameter(d, "chaos", 0.5f);
+            d.setEasyMode(true);
+            d.setStateInformation(legacy.getData(), static_cast<int>(legacy.getSize()));
+            expect("N05 legacy state opens in the full view", !d.isEasyMode());
+            expect("N05 legacy state restores chaos to 0", d.parameters.getRawParameterValue("chaos")->load() == 0.0f);
+        }
+        else
+        {
+            expect("N05 legacy fixture could be built", false);
+        }
+    }
+
+    // N05-C8: chaos only changes what is heard, never the stored bank, undo history or saved scenes.
+    {
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 512);
+        const auto bank = p.getSceneBank();
+        setParameter(p, "chaos", 1.0f);
+        processSilence(p, 512);
+        processSilence(p, 512);
+        expect("N05 chaos leaves the stored bank alone", p.getSceneBank() == bank && !p.canUndoSceneEdit());
+        juce::MemoryBlock saved;
+        p.getStateInformation(saved);
+        GrooveMorphAudioProcessor q;
+        q.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+        expect("N05 chaos is not baked into saved scenes", q.getSceneBank() == bank);
+    }
+
+    // N05-S3 and Panic.
+    {
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 512);
+        FakePlayHead playHead;
+        setTransport(playHead, 0);
+        p.setPlayHead(&playHead);
+        processSilence(p, 512);
+        const auto before = p.getSceneBank();
+        using Status = GrooveMorphAudioProcessor::SurpriseStatus;
+        expect("N05 surprise arms", p.requestSurprise() == Status::Armed);
+        expect("N05 surprise previews without committing", p.isSurprisePending() && p.isAuditioning()
+                                                              && p.getSceneBank() == before && !p.canUndoSceneEdit());
+        expect("N05 a second request is refused while previewing", p.requestSurprise() == Status::Busy);
+        p.updateSurprise();
+        expect("N05 surprise waits inside the phrase", p.isSurprisePending());
+        setTransport(playHead, 4 * 96000 + 1000); // next phrase (4 bars of 96000 samples)
+        processSilence(p, 512);
+        p.updateSurprise();
+        expect("N05 surprise is kept at the phrase boundary", !p.isSurprisePending() && !p.isAuditioning()
+                                                                 && !(p.getSceneBank() == before));
+        expect("N05 surprise is one undo step", p.canUndoSceneEdit() && p.undoSceneEdit() && p.getSceneBank() == before
+                                                    && !p.canUndoSceneEdit());
+        expect("N05 surprise can be cancelled", p.requestSurprise() == Status::Armed);
+        p.cancelSurprise();
+        expect("N05 cancel restores the stored scene", !p.isSurprisePending() && !p.isAuditioning()
+                                                          && p.getSceneBank() == before && !p.canUndoSceneEdit());
+        p.beginAudition(0);
+        expect("N05 surprise is busy during the user's own preview", p.requestSurprise() == Status::Busy);
+        p.revertAudition();
+
+        setParameter(p, "chaos", 0.8f);
+        setParameter(p, "morphAmount", 0.5f);
+        expect("N05 surprise arms again before panic", p.requestSurprise() == Status::Armed);
+        p.panicEasy();
+        expect("N05 panic zeroes chaos and morph", p.parameters.getRawParameterValue("chaos")->load() == 0.0f
+                                                       && p.parameters.getRawParameterValue("morphAmount")->load() == 0.0f);
+        expect("N05 panic cancels the pending surprise", !p.isSurprisePending() && !p.isAuditioning()
+                                                            && p.getSceneBank() == before);
+
+        // A wholly locked sounding scene has nothing to change.
+        auto locked = p.getSceneBank().variation(0).settings;
+        for (auto& l : locked.control.permissions.operationLocks)
+            l = groovemorph::core::control::lock::all;
+        p.setVariationSettings(0, locked);
+        const auto lockedBank = p.getSceneBank();
+        expect("N05 surprise has nothing to change when everything is locked",
+               p.requestSurprise() == Status::NothingToChange && !p.isAuditioning() && p.getSceneBank() == lockedBank);
+        p.setPlayHead(nullptr);
     }
 
     if (failures == 0)

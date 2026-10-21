@@ -17,9 +17,9 @@ void expect(std::string_view name, bool condition) {
 int main() {
     // Target validation.
     expect("parameter target", MidiLinkTable::validTarget("p:masterIntensity"));
-    expect("scene depth target", MidiLinkTable::validTarget("s:0:depth") && MidiLinkTable::validTarget("s:4:slice") && MidiLinkTable::validTarget("s:2:enabled"));
+    expect("scene depth target", MidiLinkTable::validTarget("s:0:depth") && MidiLinkTable::validTarget("s:4:slice") && MidiLinkTable::validTarget("s:5:depth") && MidiLinkTable::validTarget("s:6:enabled") && MidiLinkTable::validTarget("s:2:enabled"));
     expect("bad targets", !MidiLinkTable::validTarget("") && !MidiLinkTable::validTarget("p:") && !MidiLinkTable::validTarget("x:foo")
-                           && !MidiLinkTable::validTarget("s:5:depth") && !MidiLinkTable::validTarget("s:0:volume")
+                           && !MidiLinkTable::validTarget("s:7:depth") && !MidiLinkTable::validTarget("s:0:volume")
                            && !MidiLinkTable::validTarget("p:a;b") && !MidiLinkTable::validTarget("p:a=b") && !MidiLinkTable::validTarget("p:has space"));
 
     // Link, replace, unlink, shared CC.
@@ -94,6 +94,52 @@ int main() {
         int last = -1;
         for (std::size_t n = inbox.collect(out, 4); n > 0; n = 0) last = out[0].value;
         expect("final value arrives", last == 77 || last == -1);
+    }
+
+    // A04-06: travel tracking. A pulse that returns to its old value between two polls is still reported,
+    // and learn picks the CC that travelled most.
+    {
+        CcInbox inbox;
+        CcInbox::Change out[8];
+        inbox.push(10, 0);
+        expect("A04-06 first event", inbox.collect(out, 8) == 1 && out[0].cc == 10 && out[0].travel >= 1);
+        inbox.push(10, 127);
+        inbox.push(10, 0);
+        expect("A04-06 pulse back to the old value is reported", inbox.collect(out, 8) == 1 && out[0].cc == 10
+                                                                 && out[0].value == 0 && out[0].travel == 254);
+        inbox.push(10, 0);
+        expect("A04-06 repeated identical value is not movement", inbox.collect(out, 8) == 0);
+        inbox.push(11, 5); inbox.push(12, 5);
+        (void) inbox.collect(out, 8);
+        inbox.push(11, 7);                 // travel 2
+        inbox.push(12, 120);               // travel 115
+        inbox.push(13, 1);                 // first event, travel 1
+        const auto n = inbox.collect(out, 8);
+        expect("A04-06 three movers", n == 3);
+        expect("A04-06 learn picks the CC that moved most", pickLearnCc(out, n) == 12);
+        CcInbox::Change tie[2] = {{40, 1, 5}, {30, 1, 5}};
+        expect("A04-06 tie goes to the lowest CC", pickLearnCc(tie, 2) == 30);
+        expect("A04-06 empty batch", pickLearnCc(nullptr, 0) == -1 && pickLearnCc(tie, 0) == -1);
+        CcInbox::Change still[1] = {{9, 3, 0}};
+        expect("A04-06 zero travel is never picked", pickLearnCc(still, 1) == -1);
+        // discardPending also forgets travel, so movement before learn does not count.
+        inbox.push(50, 0); inbox.push(50, 100);
+        inbox.discardPending();
+        expect("A04-06 discard forgets travel", inbox.collect(out, 8) == 0);
+        inbox.push(50, 101);
+        expect("A04-06 travel after discard counts only new movement", inbox.collect(out, 8) == 1 && out[0].travel == 1);
+    }
+
+    // A04-07: table full is distinguishable from an invalid request.
+    {
+        MidiLinkTable full;
+        for (std::size_t i = 0; i < MidiLinkTable::maxLinks; ++i) full.link(static_cast<int>(i % 128), "p:param" + std::to_string(i));
+        expect("A04-07 full", full.linkChecked(1, "p:another") == MidiLinkTable::LinkResult::TableFull);
+        expect("A04-07 invalid", full.linkChecked(200, "p:another") == MidiLinkTable::LinkResult::Invalid
+                                  && full.linkChecked(1, "bad") == MidiLinkTable::LinkResult::Invalid);
+        expect("A04-07 existing target can be relinked while full", full.linkChecked(5, "p:param3") == MidiLinkTable::LinkResult::Ok
+                                                                    && full.ccFor("p:param3") == 5);
+        expect("A04-07 trim parameters are valid p: targets", MidiLinkTable::validTarget("p:op5Depth") && MidiLinkTable::validTarget("p:op6Enable"));
     }
 
     if (failures == 0) std::cout << "MidiLinksTests: all checks passed\n";

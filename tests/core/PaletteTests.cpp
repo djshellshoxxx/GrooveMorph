@@ -54,7 +54,7 @@ double deltaE(const Lab& p, const Lab& q) {
     return std::sqrt((p.l - q.l) * (p.l - q.l) + (p.a - q.a) * (p.a - q.a) + (p.b - q.b) * (p.b - q.b));
 }
 
-constexpr const char* effectNames[] = {"live", "repeat", "reverse", "gate", "half-time", "tape-stop"};
+constexpr const char* effectNames[] = {"live", "repeat", "reverse", "gate", "half-time", "tape-stop", "filter-sweep", "bit-crush"};
 } // namespace
 
 int main() {

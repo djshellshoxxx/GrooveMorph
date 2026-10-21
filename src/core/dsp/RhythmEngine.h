@@ -2,6 +2,7 @@
 
 #include "core/OperationParams.h"
 #include "core/dsp/StageGeometry.h"
+#include "core/dsp/SweepCrush.h"
 #include "core/trace/TraceRing.h"
 
 #include <array>
@@ -20,6 +21,10 @@ struct RhythmTiming
     // Optional per-operation beat-grid origin (meter beats). The operation's slice grid is
     // measured from this value instead of the shared grid; all zeros = legacy shared grid.
     std::array<double, operationCount> phaseOffsetBeats{};
+    // Cross-fade length of read-position jumps for this call, in seconds (W3 C04 per-scene smoothing).
+    // < 0 or non-finite = engine default (crossfadeSeconds, 3 ms, bit-identical legacy); clamped to 0..0.25.
+    // 0 = hard cut. A long fade never exceeds the time since the voice's previous jump (floor: the default).
+    double crossfadeSeconds = -1.0;
 };
 
 // Real-time-safe rhythmic transformation engine (GM-FR-003, GM-FR-005, GM-QR-001,
@@ -38,11 +43,15 @@ struct RhythmTiming
 //                  with gateRampSeconds linear ramps.
 //  - HalfTime:     reads at half speed from each slice start (resync every slice).
 //  - TapeStop:     read rate ramps linearly from 1 to 0 across the slice, then resyncs.
+//  - FilterSweep:  resonant TPT low-pass whose cutoff sweeps exponentially 20 kHz -> 200 Hz across a
+//                  slice (even slices) or back (odd slices); no history (docs/specs/N01-...).
+//  - BitCrush:     sample-and-hold + bit-depth reducer whose amount rises 0 -> 1 across each slice.
 // Any discontinuity in an operation's read position (slice wrap, slice-length or variation
 // change, transport jump) is crossfaded over crossfadeSeconds (up to two overlapping fades;
 // a third discontinuity inside one fade time drops the oldest).
 //
-// Memory (GM-QR-003): 4 history rings (Repeat, Reverse, HalfTime, TapeStop) per channel, each
+// Memory (GM-QR-003): 4 history rings (Repeat, Reverse, HalfTime, TapeStop) per channel (FilterSweep and
+// BitCrush keep only a few doubles of state per channel and need no ring), each
 // ceil(maxHistorySeconds * sampleRate) + maxBlockSize + 8 floats, allocated in prepare() only
 // (about 24.6 MB for stereo at 192 kHz). History-reading slices are clamped so their reads
 // stay inside the ring: Repeat <= history/3, ReverseSlice <= history/2, HalfTime and
@@ -106,11 +115,13 @@ private:
             double r = 0.0;
             double rate = 0.0;
             int remaining = 0; // samples left of the fade out of this tap
+            float norm = 0.0f; // 1 / (length + 1): fade weight = remaining * norm
         };
         // Fading-out read positions, oldest first. A discontinuity during a running fade
         // stacks a second tap so overlapping fades stay continuous.
         std::array<Tap, 2> taps{};
         int tapCount = 0;
+        int sinceJump = 0; // samples since the previous read-position jump (saturating)
         bool valid = false;
     };
 
@@ -120,6 +131,7 @@ private:
     std::size_t capacity = 0;
     std::size_t historySamples = 0;
     int channelCount = 0;
+    double sampleRateHz = 48000.0;
     int fadeSamples = 1;
     int gateRamp = 1;
 
@@ -129,6 +141,11 @@ private:
     std::array<float, operationCount> amounts{};
     std::array<Voice, historyStageCount> voices{};
     float gateGain = 1.0f;
+    // FilterSweep / BitCrush state (per channel; sized in prepare()).
+    std::vector<stage::SvfState> sweepState;
+    std::vector<float> crushHeld;
+    stage::CrushClock crushClock;
+    void resetEffectState() noexcept;
     bool warmingAfterReset = false; // set by resetHistory(), cleared by reset()
 
     trace::TraceRing* traceSink = nullptr;

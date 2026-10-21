@@ -1,16 +1,23 @@
 #include "ui/InspectorPanel.h"
 #include "ui/ControlMenu.h"
+#include "ui/EuclidPanel.h"
+#include "ui/WaveformView.h"
+#include "ui/PrintPanel.h"
 
 #include "PluginProcessor.h"
+#include "core/control/PhraseFit.h"
 #include "core/control/PlacementEvaluator.h"
 #include "core/control/SceneControl.h"
 #include "core/scene/SceneSerializer.h"
 #include "core/variation/CandidateBuilder.h"
+#include "core/variation/GeneratorHistory.h"
 
 #include <algorithm>
 #include <cmath>
 #include <deque>
 #include <iomanip>
+#include <iterator>
+#include <vector>
 #include <sstream>
 
 namespace gm = groovemorph::core;
@@ -21,11 +28,13 @@ namespace groovemorph::ui
 {
 namespace
 {
-const juce::StringArray operationNames{"Repeat / stutter", "Reverse slice", "Gate", "Half-time", "Tape stop"};
-const juce::StringArray operationShort{"Rpt", "Rev", "Gate", "Half", "Stop"};
+const juce::StringArray operationNames{"Repeat / stutter", "Reverse slice", "Gate", "Half-time", "Tape stop", "Filter sweep", "Bit crush"};
+const juce::StringArray operationShort{"Rpt", "Rev", "Gate", "Half", "Stop", "Sweep", "Crush"};
 const juce::Colour operationColours[] = {juce::Colour(0xff4fc3f7), juce::Colour(0xffba68c8),
                                          juce::Colour(0xff81c784), juce::Colour(0xffffb74d),
-                                         juce::Colour(0xffe57373)};
+                                         juce::Colour(0xffe57373), juce::Colour(0xffdce775),
+                                         juce::Colour(0xfff48fb1)};
+static_assert(std::size(operationColours) == groovemorph::core::operationCount, "one lane colour per operation");
 constexpr std::uint8_t snapValues[] = {1, 2, 3, 4, 6, 8, 12, 16};
 constexpr int rowHeight = 26;
 constexpr int rowGap = 4;
@@ -123,7 +132,12 @@ public:
         setWantsKeyboardFocus(true);
         setTooltip("Event lanes. Drag in an empty lane to create an event, drag a body to move it, "
                    "drag its edges to resize, double-click or press Delete to remove it. Arrow keys "
-                   "nudge by one grid step (Shift: one beat). Events snap to the Snap grid.");
+                   "nudge by one grid step (Shift: one beat). Events snap to the Snap grid. "
+                   "Very narrow events: drag moves, Shift-drag resizes the end, Alt-drag the start. "
+                   "Keyboard: with no event selected, Left/Right/Up/Down move a cursor and Enter (or Insert, N) "
+                   "creates an event there; Escape deselects.");
+        setTitle("Event lanes");
+        setDescription("Event lanes, one row per effect. Arrow keys move a cursor, Enter creates an event.");
     }
 
     std::function<void()> onSelectionChanged;
@@ -144,6 +158,19 @@ public:
             }
         }
         view = s;
+        // U3: tell assistive technology about events that wrap past the phrase end (the badge is visual only).
+        {
+            const auto fit = ctl::checkPhraseFit(draft.lane, processor.getGridContext().phraseTicks(), &draft.permissions);
+            const juce::String warning = fit.conflict()
+                ? juce::String(fit.affected()) + " event(s) extend past the phrase end and wrap around. Limit tab, Events x2 or /2, rescales them."
+                : juce::String();
+            if (warning != lastWarning)
+            {
+                lastWarning = warning;
+                setDescription("Event lanes, one row per effect. Arrow keys move a cursor, Enter creates an event."
+                               + (warning.isEmpty() ? juce::String() : " " + warning));
+            }
+        }
         repaint();
     }
     bool deleteSelected()
@@ -252,11 +279,29 @@ public:
                                                 static_cast<float>(laneTop + e.operation * laneHeight + 3),
                                                 static_cast<float>(std::max(2, r.second - r.first)),
                                                 static_cast<float>(laneHeight - 6));
-                    g.setColour(operationColours[e.operation % 5].withAlpha(e.enabled ? 0.35f + 0.55f * e.depth : 0.15f));
+                    g.setColour(operationColours[e.operation % gm::operationCount].withAlpha(e.enabled ? 0.35f + 0.55f * e.depth : 0.15f));
                     g.fillRoundedRectangle(rect, 3.0f);
+                    const int laneChancePct = control.lane.chanceByOp[e.operation % laneCount];
+                    if (e.chance < 100 || laneChancePct < 100) // N03: events that do not always play are hatched
+                    {
+                        juce::Graphics::ScopedSaveState hatchState(g);
+                        g.reduceClipRegion(rect.toNearestInt());
+                        g.setColour(juce::Colours::black.withAlpha(0.5f));
+                        for (float hx = rect.getX() - rect.getHeight(); hx < rect.getRight(); hx += 5.0f)
+                            g.drawLine(hx, rect.getBottom(), hx + rect.getHeight(), rect.getY(), 1.0f);
+                        if (rect.getWidth() > 34.0f)
+                        {
+                            g.setColour(juce::Colours::white);
+                            g.setFont(10.0f);
+                            g.drawText(juce::String(e.chance * laneChancePct / 100) + "%", rect.toNearestInt(),
+                                       juce::Justification::centred);
+                        }
+                    }
                     g.setColour(static_cast<int>(i) == selectedIndex ? juce::Colours::white
-                                                                     : operationColours[e.operation % 5]);
+                                                                     : operationColours[e.operation % gm::operationCount]);
                     g.drawRoundedRectangle(rect, 3.0f, static_cast<int>(i) == selectedIndex ? 2.0f : 1.0f);
+                    if (rect.getWidth() < static_cast<float>(narrowEventPixels))
+                        g.fillRect(rect.getX() - 2.0f, rect.getY() - 3.0f, rect.getWidth() + 4.0f, 3.0f); // grip: drag to move
                     if (e.locked)
                     {
                         g.setColour(juce::Colours::white);
@@ -300,6 +345,33 @@ public:
             g.drawVerticalLine(left + static_cast<int>(ticks / P * width), 0.0f,
                                static_cast<float>(laneTop + laneCount * laneHeight));
         }
+        // Keyboard cursor (shown while the canvas has focus and no event is selected).
+        if (hasKeyboardFocus(false) && selectedIndex < 0 && control.lane.explicitEvents)
+        {
+            const int cx = left + static_cast<int>(static_cast<double>(std::clamp<std::int64_t>(kbTick, 0, grid.phraseTicks())) / P * width);
+            const int cy = laneTop + std::clamp(kbLane, 0, laneCount - 1) * laneHeight;
+            g.setColour(juce::Colours::white);
+            g.drawRect(cx - 1, cy + 1, 3, laneHeight - 2, 1);
+            g.fillRect(cx - 3, cy, 7, 2);
+        }
+        // U3: events that no longer fit after a meter / phrase-length change wrap around; say so.
+        {
+            const auto fit = ctl::checkPhraseFit(control.lane, grid.phraseTicks(), &control.permissions);
+            if (fit.conflict())
+            {
+                juce::String text;
+                text << fit.affected() << (fit.affected() == 1 ? " event" : " events") << " past the phrase end (wrapped)";
+                if (fit.lockedAffected > 0)
+                    text << ", " << static_cast<int>(fit.lockedAffected) << " locked";
+                g.setFont(11.0f);
+                const int badgeWidth = juce::jmin(area.getWidth() - 8, static_cast<int>(text.length()) * 6 + 14);
+                const auto badge = juce::Rectangle<int>(area.getRight() - badgeWidth - 4, 1, badgeWidth, 15);
+                g.setColour(juce::Colour(0xf0b3541e));
+                g.fillRoundedRectangle(badge.toFloat(), 4.0f);
+                g.setColour(juce::Colours::white);
+                g.drawText(text, badge, juce::Justification::centred);
+            }
+        }
         if (hasKeyboardFocus(false))
         {
             g.setColour(juce::Colours::white.withAlpha(0.4f));
@@ -327,7 +399,9 @@ public:
             return;
         const auto tick = tickAt(event.x, grid);
         dragLane = lane;
-        selectedIndex = hit(control, lane, tick, P);
+        kbLane = lane; // the keyboard cursor continues from the last click
+        kbTick = tick;
+        selectedIndex = hit(control, lane, tick, P, hitSlopTicks(P));
         hasSelection = selectedIndex >= 0;
         if (hasSelection)
             selectedEvent = control.lane.events[static_cast<std::size_t>(selectedIndex)];
@@ -348,7 +422,14 @@ public:
             }
             const double edge = std::max(6.0, 6.0 * P / std::max(1, getWidth() - labelWidth));
             const double endTick = e.onsetTicks + e.durationTicks;
-            if (std::abs(tick - e.onsetTicks) <= edge)
+            const double pixelsPerTick = static_cast<double>(std::max(1, getWidth() - labelWidth - 4)) / P;
+            if (static_cast<double>(e.durationTicks) * pixelsPerTick < narrowEventPixels)
+            {
+                // Too narrow to have separate edges: a plain drag moves, Shift resizes the end, Alt the start.
+                mode = event.mods.isShiftDown() ? Mode::ResizeEnd
+                       : event.mods.isAltDown() ? Mode::ResizeStart : Mode::Move;
+            }
+            else if (std::abs(tick - e.onsetTicks) <= edge)
                 mode = Mode::ResizeStart;
             else if (std::abs(tick - endTick) <= edge)
                 mode = Mode::ResizeEnd;
@@ -376,7 +457,7 @@ public:
             {
                 dragging = false;
                 if (onMessage)
-                    onMessage(status == ctl::EditStatus::Capacity ? "Event limit reached (32)."
+                    onMessage(status == ctl::EditStatus::Capacity ? "Event limit reached (" + juce::String(static_cast<int>(ctl::maxLaneEvents)) + ")."
                                                                   : "Events of one operation cannot overlap.");
                 return;
             }
@@ -450,7 +531,8 @@ public:
         if (lane < 0 || lane >= laneCount)
             return;
         auto control = access.settings().control;
-        const int index = hit(control, lane, tickAt(event.x, grid), static_cast<double>(grid.phraseTicks()));
+        const double ringTicks = static_cast<double>(grid.phraseTicks());
+        const int index = hit(control, lane, tickAt(event.x, grid), ringTicks, hitSlopTicks(ringTicks));
         if (index >= 0)
         {
             selectedIndex = index;
@@ -461,11 +543,27 @@ public:
     bool keyPressed(const juce::KeyPress& key) override
     {
         if (selectedIndex < 0)
-            return false;
+            return keyboardCursorKey(key);
+        const int code = key.getKeyCode();
         if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
             return deleteSelected();
-        const bool left = key.getKeyCode() == juce::KeyPress::leftKey;
-        const bool right = key.getKeyCode() == juce::KeyPress::rightKey;
+        if (code == juce::KeyPress::escapeKey || code == juce::KeyPress::upKey || code == juce::KeyPress::downKey)
+        {
+            // Back to cursor mode at the start of the event; Up/Down also step to the neighbouring lane.
+            const auto grid = processor.getGridContext();
+            kbLane = std::clamp(static_cast<int>(selectedEvent.operation) + (code == juce::KeyPress::upKey ? -1 : code == juce::KeyPress::downKey ? 1 : 0),
+                                0, laneCount - 1);
+            kbTick = std::clamp<std::int64_t>(selectedEvent.onsetTicks, 0, grid.phraseTicks());
+            selectedIndex = -1;
+            hasSelection = false;
+            if (onSelectionChanged)
+                onSelectionChanged();
+            announceCursor("Event deselected.");
+            repaint();
+            return true;
+        }
+        const bool left = code == juce::KeyPress::leftKey;
+        const bool right = code == juce::KeyPress::rightKey;
         if (!left && !right)
             return false;
         auto control = access.settings().control;
@@ -494,13 +592,18 @@ public:
 
 private:
     enum class Mode { Move, ResizeStart, ResizeEnd };
-    static constexpr int laneCount = 5;
+    static constexpr int laneCount = static_cast<int>(gm::operationCount);
     static constexpr int laneHeight = 24;
     static constexpr int laneTop = 18;
     static constexpr int labelWidth = 72;
+    static constexpr int narrowEventPixels = 16; // narrower events move on a plain drag (U2)
+    static constexpr int hitSlopPixels = 5;      // click tolerance around an event body (U2)
 
     GrooveMorphAudioProcessor& processor;
     SceneEditAccess access;
+    int kbLane = 0;            // keyboard cursor (U1)
+    std::int64_t kbTick = 0;
+    juce::String lastDescription, lastWarning;
     gm::VariationSettings view;
     ctl::SceneControl draft;
     int selectedIndex = -1;
@@ -540,7 +643,8 @@ private:
         const double fraction = static_cast<double>(x - labelWidth) / std::max(1, getWidth() - labelWidth - 4);
         return static_cast<std::int64_t>(std::llround(std::clamp(fraction, 0.0, 1.0) * static_cast<double>(grid.phraseTicks())));
     }
-    static int hit(const ctl::SceneControl& c, int lane, std::int64_t tick, double P) noexcept
+    // slop: extra ticks of tolerance on both sides of the event body (a few pixels), so thin events can be hit.
+    static int hit(const ctl::SceneControl& c, int lane, std::int64_t tick, double P, double slop = 0.0) noexcept
     {
         for (std::size_t i = 0; i < c.lane.count; ++i)
         {
@@ -548,13 +652,122 @@ private:
             if (e.operation != lane)
                 continue;
             const double onset = std::fmod(static_cast<double>(e.onsetTicks), P);
-            double d = std::fmod(static_cast<double>(tick) - onset, P);
+            const double linear = static_cast<double>(tick) - onset;
+            if (linear >= -std::max(1.0, slop) && linear < static_cast<double>(e.durationTicks) + slop)
+                return static_cast<int>(i);
+            double d = std::fmod(linear, P); // the part of a wrapping event that continues at the phrase start
             if (d < 0.0)
                 d += P;
-            if (d < static_cast<double>(e.durationTicks) || std::abs(static_cast<double>(tick) - onset) < 1.0)
+            if (d < static_cast<double>(e.durationTicks))
                 return static_cast<int>(i);
         }
         return -1;
+    }
+    double hitSlopTicks(double P) const noexcept
+    {
+        return static_cast<double>(hitSlopPixels) * P / static_cast<double>(std::max(1, getWidth() - labelWidth - 4));
+    }
+
+    // ---- U1: keyboard cursor and event creation ----
+    juce::String describePosition(std::int64_t ticks, const ctl::GridContext& grid) const
+    {
+        const std::int64_t barTicks = static_cast<std::int64_t>(std::max(1, grid.beatsPerBar)) * ctl::ticksPerBeat;
+        const auto t = std::max<std::int64_t>(0, ticks);
+        return "bar " + juce::String(static_cast<int>(t / barTicks) + 1) + " beat "
+               + juce::String(static_cast<int>((t % barTicks) / ctl::ticksPerBeat) + 1)
+               + (t % ctl::ticksPerBeat != 0 ? " plus " + juce::String(static_cast<int>(t % ctl::ticksPerBeat)) + " ticks" : juce::String());
+    }
+    void announceCursor(const juce::String& what)
+    {
+        const auto grid = processor.getGridContext();
+        juce::String text;
+        const int lane = std::clamp(kbLane, 0, laneCount - 1);
+        text << (what.isEmpty() ? juce::String() : what + " ") << "Cursor: " << operationName(lane) << ", " << describePosition(kbTick, grid) << ".";
+        setDescription(text);
+        lastDescription = text;
+        if (onMessage)
+            onMessage(text);
+        repaint();
+    }
+    static juce::String operationName(int lane)
+    {
+        return lane >= 0 && lane < operationNames.size() ? operationNames[lane] : "Effect " + juce::String(lane + 1);
+    }
+    bool keyboardCursorKey(const juce::KeyPress& key)
+    {
+        const auto grid = processor.getGridContext();
+        const auto control = access.settings().control;
+        const int code = key.getKeyCode();
+        const bool plain = !key.getModifiers().isCtrlDown() && !key.getModifiers().isCommandDown() && !key.getModifiers().isAltDown();
+        if (!plain)
+            return false;
+        const std::int64_t step = key.getModifiers().isShiftDown() ? ctl::ticksPerBeat : std::max<std::int64_t>(1, unit(control));
+        if (code == juce::KeyPress::leftKey || code == juce::KeyPress::rightKey)
+        {
+            kbTick = std::clamp<std::int64_t>(kbTick + (code == juce::KeyPress::rightKey ? step : -step), 0, grid.phraseTicks() - 1);
+            announceCursor(juce::String());
+            return true;
+        }
+        if (code == juce::KeyPress::upKey || code == juce::KeyPress::downKey)
+        {
+            kbLane = std::clamp(kbLane + (code == juce::KeyPress::downKey ? 1 : -1), 0, laneCount - 1);
+            announceCursor(juce::String());
+            return true;
+        }
+        if (code == juce::KeyPress::returnKey || code == juce::KeyPress::insertKey
+            || (key.getTextCharacter() == 'n' || key.getTextCharacter() == 'N'))
+        {
+            createAtCursor();
+            return true;
+        }
+        return false;
+    }
+    void createAtCursor()
+    {
+        auto next = access.settings().control;
+        if (!next.lane.explicitEvents)
+        {
+            announceCursor("Uniform mode: press 'Convert to events' (or enable event lanes) to place events.");
+            return;
+        }
+        const int lane = std::clamp(kbLane, 0, laneCount - 1);
+        if (isLocked(static_cast<std::uint8_t>(lane)))
+        {
+            announceCursor("This lane's events are locked (Generator tab > Locks).");
+            return;
+        }
+        const auto grid = processor.getGridContext();
+        const std::int64_t pt = grid.phraseTicks();
+        ctl::LaneEvent created;
+        created.operation = static_cast<std::uint8_t>(lane);
+        created.onsetTicks = static_cast<std::int32_t>(std::clamp<std::int64_t>(snap(kbTick, next, false), 0, pt - 1));
+        created.durationTicks = static_cast<std::int32_t>(std::clamp<std::int64_t>(unit(next), 1, pt - created.onsetTicks));
+        const auto status = ctl::addEvent(next.lane, created, pt);
+        if (status != ctl::EditStatus::Ok)
+        {
+            announceCursor(status == ctl::EditStatus::Capacity ? "Event limit reached (32)."
+                                                               : "Events of one operation cannot overlap.");
+            return;
+        }
+        selectedEvent = created; // set before the commit so the refresh keeps the selection on the new event
+        hasSelection = true;
+        commit(next);
+        selectedIndex = findSelected(draft.lane);
+        hasSelection = selectedIndex >= 0;
+        if (!hasSelection)
+        {
+            announceCursor("The event was not created (a lock kept the lane unchanged).");
+            return;
+        }
+        kbTick = std::min<std::int64_t>(pt - 1, static_cast<std::int64_t>(created.onsetTicks) + created.durationTicks);
+        if (onSelectionChanged)
+            onSelectionChanged();
+        setDescription("Event created: " + operationName(lane) + " at " + describePosition(created.onsetTicks, grid)
+                       + ", length " + juce::String(created.durationTicks) + " ticks. Arrow keys move it, Delete removes it.");
+        lastDescription = getDescription();
+        if (onMessage)
+            onMessage("Event created: " + operationName(lane) + " at " + describePosition(created.onsetTicks, grid) + ".");
+        repaint();
     }
     // Pixel ranges of one event; wrapping events split in two.
     static std::vector<std::pair<int, int>> eventRanges(const ctl::LaneEvent& e, double P, int width)
@@ -595,7 +808,7 @@ private:
 class PlacementTab final : public InspectorTab
 {
 public:
-    PlacementTab(GrooveMorphAudioProcessor& p, SceneEditAccess a) : InspectorTab(p, a), canvas(p, a)
+    PlacementTab(GrooveMorphAudioProcessor& p, SceneEditAccess a) : InspectorTab(p, a), canvas(p, a), euclid(p, a)
     {
         enable.setButtonText("Enable phrase placement");
         enable.setTooltip("When on, the scene's effects act only inside the chosen window of the "
@@ -727,6 +940,13 @@ public:
         for (auto* c : std::initializer_list<juce::Component*>{&enable, &window, &snap, &snapLabel, &modeButton, &convert,
                                                                &removeSelected, &eventEnabled, &message, &canvas, &eventRestart, &eventLocked, &loopLane})
             addAndMakeVisible(*c);
+        // N03: Euclid generator and chance panel, swapped in over the lower event rows (EuclidPanel.cpp).
+        euclidToggle.setButtonText("Euclid / chance");
+        euclidToggle.setClickingTogglesState(true);
+        euclidToggle.setTooltip("Euclidean pattern generator and per-event / per-lane chance. Shows the panel in place of the event controls below the lanes.");
+        euclidToggle.onClick = [this] { euclid.setVisible(euclidToggle.getToggleState()); };
+        addAndMakeVisible(euclidToggle);
+        addChildComponent(euclid);
     }
 
     void refresh(const gm::VariationSettings& s) override
@@ -788,6 +1008,7 @@ public:
         else if (sel >= 0)
             canvas.select(-1);
         canvas.setSettingsView(s);
+        euclid.refresh(s, canvas.selected());
     }
 
     void resized() override
@@ -805,11 +1026,13 @@ public:
         auto snapRow = nextRow(area);
         snapLabel.setBounds(snapRow.removeFromLeft(150));
         snap.setBounds(snapRow.removeFromLeft(130));
+        euclidToggle.setBounds(snapRow.removeFromLeft(130).reduced(6, 0));
         auto buttons = nextRow(area);
         modeButton.setBounds(buttons.removeFromLeft(130));
         convert.setBounds(buttons.removeFromLeft(130).reduced(2, 0));
         removeSelected.setBounds(buttons.removeFromLeft(100).reduced(2, 0));
-        canvas.setBounds(nextRow(area, 18 + 5 * 24 + 6));
+        canvas.setBounds(nextRow(area, 18 + static_cast<int>(gm::operationCount) * 24 + 6));
+        euclid.setBounds(area); // covers the event rows below the lanes while shown
         eventDepth.layout(nextRow(area), 150);
         eventSlice.layout(nextRow(area), 150);
         eventPriority.layout(nextRow(area), 150);
@@ -831,8 +1054,9 @@ private:
     SliderRow start, span, every, offset, origin, protect, eventDepth, eventSlice, eventPriority, loopBeats;
     MenuToggleButton eventRestart, eventLocked;
     MenuComboBox loopLane;
-    juce::TextButton convert, removeSelected;
+    juce::TextButton convert, removeSelected, euclidToggle;
     LaneCanvas canvas;
+    EuclidPanel euclid;
 };
 
 // ---------------------------------------------------------------------------------------
@@ -895,8 +1119,10 @@ public:
         history.onChange = [this] { recall(); };
         for (std::size_t i = 0; i < gm::operationCount; ++i)
         {
-            protectOp[i].setButtonText(operationShort[static_cast<int>(i)]);
-            protectOp[i].setTooltip("Generator never changes this operation for this run.");
+            // Seven toggles share one row: Sweep and Crush get the shorter Swp / Bit so nothing is ellipsised.
+            static const char* const protectShort[] = {"Rpt", "Rev", "Gate", "Half", "Stop", "Swp", "Bit"};
+            protectOp[i].setButtonText(protectShort[i]);
+            protectOp[i].setTooltip(juce::String("Generator never changes ") + operationNames[static_cast<int>(i)] + " for this run.");
             addAndMakeVisible(protectOp[i]);
             protectOp[i].onClick = [this, i] {
                 if (protectOp[i].getToggleState()) settings.protectedOperations |= 1u << i;
@@ -971,7 +1197,7 @@ public:
         r = nextRow(area);
         protectLabel.setBounds(r.removeFromLeft(80));
         for (auto& b : protectOp)
-            b.setBounds(r.removeFromLeft(r.getWidth() / (5 - static_cast<int>(&b - protectOp.data()))));
+            b.setBounds(r.removeFromLeft(r.getWidth() / (static_cast<int>(protectOp.size()) - static_cast<int>(&b - protectOp.data()))));
         r = nextRow(area, 30);
         generate.setBounds(r.removeFromLeft(150));
         previous.setBounds(r.removeFromLeft(36).reduced(2, 0));
@@ -997,12 +1223,7 @@ public:
     }
 
 private:
-    struct Entry
-    {
-        gm::VariationSettings source;
-        gvar::GeneratorSettings settings;
-        std::size_t scene = 0;
-    };
+    using Entry = gvar::HistoryEntry; // codec and tests: src/core/variation/GeneratorHistory.*
 
     gvar::GeneratorSettings settings;
     std::deque<Entry> entries;
@@ -1148,72 +1369,23 @@ private:
 
     void savePersistentHistory() const
     {
-        std::ostringstream output;
-        output << "groovemorph-generator-history 2\n";
-        output << std::setprecision(9);
-        for (const auto& entry : entries)
-        {
-            gm::scene::SceneBank sourceBank;
-            sourceBank.setVariationSettings(0, entry.source);
-            const auto sourceText = gm::scene::SceneSerializer::serialize(sourceBank);
-            output << "entry " << entry.scene << ' ' << entry.settings.seed << ' '
-                   << static_cast<int>(entry.settings.style) << ' ' << entry.settings.distance << ' '
-                   << entry.settings.candidate << ' ' << entry.settings.protectedOperations << ' '
-                   << (entry.settings.generateEventPatterns ? 1 : 0) << ' ' << entry.settings.phraseTicks << '\n'
-                   << sourceText << "end-entry\n";
-        }
         const auto file = historyFile();
         if (!file.getParentDirectory().createDirectory().failed())
-            file.replaceWithText(juce::String(output.str()));
+            file.replaceWithText(juce::String(gvar::serializeHistory(std::vector<Entry>(entries.begin(), entries.end()))));
     }
 
     void loadPersistentHistory()
     {
         const auto file = historyFile();
-        if (!file.existsAsFile() || file.getSize() <= 0 || file.getSize() > 1024 * 1024)
+        if (!file.existsAsFile() || file.getSize() <= 0
+            || file.getSize() > static_cast<juce::int64>(gvar::maxHistoryFileBytes))
             return;
-        const auto content = file.loadFileAsString().toStdString();
-        std::istringstream input(content);
-        std::string line;
-        if (!std::getline(input, line) || line != "groovemorph-generator-history 2")
-            return;
-        while (entries.size() < 24 && std::getline(input, line))
+        const auto parsed = gvar::parseHistory(file.loadFileAsString().toStdString());
+        for (const auto& entry : parsed)
         {
-            if (line.empty())
-                continue;
-            Entry entry;
-            int styleIndex = 0;
-            int generateEventsValue = 0;
-            std::istringstream header(line);
-            std::string marker;
-            if (!(header >> marker >> entry.scene >> entry.settings.seed >> styleIndex >> entry.settings.distance
-                         >> entry.settings.candidate >> entry.settings.protectedOperations >> generateEventsValue
-                         >> entry.settings.phraseTicks)
-                || marker != "entry" || entry.scene >= gm::variationCount || styleIndex < 0 || styleIndex > 2
-                || (generateEventsValue != 0 && generateEventsValue != 1)
-                || entry.settings.phraseTicks <= 0 || !std::isfinite(entry.settings.distance))
+            if (entries.size() >= gvar::maxHistoryEntries)
                 break;
-            entry.settings.style = static_cast<gvar::Style>(styleIndex);
-            entry.settings.generateEventPatterns = generateEventsValue != 0;
-            std::string sourceText, sourceLine;
-            bool ended = false;
-            while (std::getline(input, sourceLine))
-            {
-                if (sourceLine == "end-entry")
-                {
-                    ended = true;
-                    break;
-                }
-                sourceText += sourceLine;
-                sourceText.push_back('\n');
-            }
-            if (!ended)
-                break;
-            const auto sourceBank = gm::scene::SceneSerializer::deserialize(sourceText);
-            if (sourceBank.report.status == gm::scene::LoadStatus::Defaulted)
-                continue;
-            entry.source = sourceBank.bank.variation(0).settings;
-            entries.push_back(std::move(entry));
+            entries.push_back(entry);
         }
         rebuildHistory();
     }
@@ -1260,12 +1432,27 @@ public:
         duplicate.onClick = [this] {
             const auto from = access.editingIndex();
             const auto to = static_cast<std::size_t>(juce::jmax(0, target.getSelectedId() - 1));
-            message.setText(processor.duplicateVariation(from, to) ? "Duplicated." : "Nothing to duplicate (same scene, identical scenes or preview active).",
-                            juce::dontSendNotification);
+            juce::String text = "Nothing to duplicate (same scene, identical scenes or preview active).";
+            if (processor.duplicateVariation(from, to))
+            {
+                // C03 locks of the destination can keep fields unchanged; do not claim a full copy then.
+                const auto bank = processor.getSceneBank();
+                text = bank.variation(to) == bank.variation(from)
+                    ? juce::String("Duplicated.")
+                    : "Duplicated, but locked fields of scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + to))
+                          + " were kept (Gen tab > Locks).";
+            }
+            message.setText(text, juce::dontSendNotification);
         };
         resetScene.setButtonText("Reset edited scene to factory");
         resetScene.setTooltip("Restores the factory name and settings of the edited scene. One undo step. Keeps the MIDI note. Disabled during a preview.");
-        resetScene.onClick = [this] { processor.resetVariation(access.editingIndex()); message.setText("Scene reset (Undo available).", juce::dontSendNotification); };
+        resetScene.onClick = [this] {
+            const auto index = access.editingIndex();
+            processor.resetVariation(index);
+            const bool exact = processor.getSceneBank().variation(index) == gm::scene::SceneBank::defaultVariation(index);
+            message.setText(exact ? "Scene reset (Undo available)." : "Scene reset, but locked fields were kept (Gen tab > Locks).",
+                            juce::dontSendNotification);
+        };
         op.addItemList(operationNames, 1);
         op.setSelectedId(1, juce::dontSendNotification);
         op.setTooltip("Effect to reset.");
@@ -1274,13 +1461,20 @@ public:
         resetOp.onClick = [this] {
             const auto index = static_cast<std::size_t>(juce::jmax(0, op.getSelectedId() - 1));
             edit([index](auto& s) { s.operations[index] = gm::OperationSettings{}; });
-            message.setText("Effect reset.", juce::dontSendNotification);
+            const bool exact = gm::scene::sameSettings(access.settings().operations[index], gm::OperationSettings{});
+            message.setText(exact ? "Effect reset." : "Effect not fully reset: locked fields were kept (Gen tab > Locks).",
+                            juce::dontSendNotification);
         };
         clearPlacement.setButtonText("Clear placement and events");
         clearPlacement.setTooltip("Returns the edited scene to uniform whole-phrase behavior (keeps effect settings, locks and limits).");
         clearPlacement.onClick = [this] {
             edit([](auto& s) { s.control.placement = ctl::PlacementConfig{}; s.control.lane = ctl::EventLane{}; });
-            message.setText("Placement cleared.", juce::dontSendNotification);
+            ctl::SceneControl remaining;
+            remaining.placement = access.settings().control.placement;
+            remaining.lane = access.settings().control.lane;
+            message.setText(ctl::isDefault(remaining) ? "Placement cleared."
+                                                       : "Placement not fully cleared: a lock kept part of it (Gen tab > Locks).",
+                            juce::dontSendNotification);
         };
         for (auto* c : std::initializer_list<juce::Component*>{&info, &target, &duplicate, &resetScene, &op, &resetOp, &clearPlacement, &message})
             addAndMakeVisible(*c);
@@ -1354,8 +1548,8 @@ public:
         returnUnit.addItemList({"Bars", "Phrases"}, 1);
         returnUnit.setTooltip("Count the return delay in bars or in whole phrases (phrase length comes from the timing settings).");
         setupLabel(returnTargetLabel, "Return to");
-        returnTarget.addItemList({"Previous scene", "A", "B", "C", "D"}, 1);
-        returnTarget.setTooltip("Scene to return to. Previous returns to the scene that was sounding before the switch.");
+        returnTarget.addItemList({"Previous scene", "A", "B", "C", "D", "Dry (no effects)"}, 1);
+        returnTarget.setTooltip("Scene to return to. Previous returns to the scene that was sounding before the switch. Dry turns all effects off at the return point until you pick a scene.");
         setupLabel(returnStatus, "");
 
         for (auto* c : std::initializer_list<juce::Component*>{&morphTitle, &morphTargetLabel, &morphTarget, &morphAmountLabel,
@@ -1367,6 +1561,8 @@ public:
         linkParam(morphTarget, GrooveMorphAudioProcessor::morphTargetId);
         attachments.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::morphAmountId, morphAmount));
         linkParam(morphAmount, GrooveMorphAudioProcessor::morphAmountId);
+        morphAmount.textFromValueFunction = [](double v) { return juce::String(v, 2); }; // the attachment's own text shows 7 decimals
+        morphAmount.updateText();
         attachments.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnBarsId, returnBars));
         linkParam(returnBars, GrooveMorphAudioProcessor::autoReturnBarsId);
         attachments.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnTargetId, returnTarget));
@@ -1380,8 +1576,11 @@ public:
         returnTarget.setEnabled(returnBars.getValue() > 0.0);
         returnUnit.setEnabled(returnBars.getValue() > 0.0);
         const auto t = processor.getAutoReturnTarget();
-        returnStatus.setText(t >= 0 ? "Return pending to scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + t))
-                                    : "No return pending.",
+        const auto dry = processor.getDryReturnState();
+        returnStatus.setText(dry == 2 ? "Dry: effects are off until you pick a scene."
+                             : dry == 1 ? "Return to dry pending."
+                             : t >= 0 ? "Return pending to scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + t))
+                                      : "No return pending.",
                              juce::dontSendNotification);
     }
     void resized() override
@@ -1432,7 +1631,7 @@ public:
         enable.setButtonText("Limit scheduled effects at once");
         enable.setTooltip("Keeps only the highest-priority gated-on effects at any moment. Limits SCHEDULED effects, not CPU load or loudness.");
         enable.onClick = [this] { edit([this](auto& s) { s.control.activity.enabled = enable.getToggleState(); }); };
-        maxSlider.setup(*this, "Maximum at once", "1-5 effects may be active together. Only enabled effects count.", 1, 5, 1, 0);
+        maxSlider.setup(*this, "Maximum at once", "1-7 effects may be active together. Only enabled effects count.", 1, static_cast<double>(gm::operationCount), 1, 0);
         maxSlider.commit = [this] { edit([this](auto& s) { s.control.activity.maxConcurrent = static_cast<std::uint8_t>(maxSlider.slider.getValue()); }); };
         for (std::size_t i = 0; i < gm::operationCount; ++i)
         {
@@ -1449,7 +1648,7 @@ public:
         reduce.setButtonText("Reduce events");
         reduce.setTooltip("Drops lower-priority events until the spacing and coverage limits hold. Events of lanes with a locked Events bit are kept. One undo step.");
         reduce.onClick = [this] { run(true); };
-        regionSelect.addItemList({"Region 1", "Region 2", "Region 3", "Region 4"}, 1);
+        regionSelect.addItemList({"Region 1", "Region 2", "Region 3", "Region 4", "Region 5", "Region 6", "Region 7", "Region 8"}, 1);
         regionSelect.setSelectedId(1, juce::dontSendNotification);
         regionSelect.setTooltip("Protected regions: no effect sounds inside them (placed on the phrase, in beats).");
         regionSelect.onChange = [this] { refresh(access.settings()); };
@@ -1632,7 +1831,7 @@ public:
         bars.setTooltip("Length of a captured or imported loop in bars (uses the current beats-per-bar). Auto works the bar count out from the file length so that its tempo is closest to the current tempo. For a capture, Auto records 2 bars. If you know the loop's tempo, type it in the BPM box instead: that is the most reliable way to import.");
         loopBpmField.setInputRestrictions(7, "0123456789.");
         loopBpmField.setTextToShowWhenEmpty("BPM", juce::Colours::grey);
-        loopBpmField.setTooltip("The loop's own tempo in BPM (20-400), for imports. Leave empty to work it out automatically. The loop then plays at its original speed when the plugin tempo equals this value, and proportionally faster or slower at other tempos (no time-stretching, so pitch follows).");
+        loopBpmField.setTooltip("The loop's own tempo in BPM (20-400), for imports. Leave empty to work it out automatically. The loop then plays at its original speed when the plugin tempo equals this value, and proportionally faster or slower at other tempos (unless 'Stretch to host tempo' is on, pitch follows the tempo).");
         matchTempo.setButtonText("Set tempo to loop");
         matchTempo.setTooltip("Sets the manual tempo to the tempo of the loaded loop so it plays at its original speed (when Timing method is Sample Clock, or in Standalone).");
         matchTempo.onClick = [this] { message.setText(processor.matchTempoToLoop() ? "Tempo set to the loop's tempo." : "No loop loaded, or its tempo is outside the tempo range.", juce::dontSendNotification); };
@@ -1642,10 +1841,13 @@ public:
             if (processor.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Idle)
                 processor.cancelLoopCapture();
             else if (!processor.armLoopCapture(barChoice() == 0 ? 2 : barChoice()))
-                message.setText("Capture could not start.", juce::dontSendNotification);
+            {
+                const auto busy = processor.captureConflict(GrooveMorphAudioProcessor::CaptureKind::LoopCapture);
+                message.setText(busy.isNotEmpty() ? busy : juce::String("Capture could not start."), juce::dontSendNotification);
+            }
         };
         importButton.setButtonText("Import file...");
-        importButton.setTooltip("Loads a WAV, AIFF, FLAC or OGG file of up to 20 seconds as a loop. Its tempo comes from the BPM box if filled in, otherwise from the bars choice (Auto works it out). It plays locked to the beat grid at the plugin tempo; there is no time stretching, so pitch follows tempo.");
+        importButton.setTooltip("Loads a WAV, AIFF, FLAC or OGG file of up to 20 seconds as a loop. Its tempo comes from the BPM box if filled in, otherwise from the bars choice (Auto works it out). It plays locked to the beat grid at the plugin tempo; pitch follows tempo unless 'Stretch to host tempo' is on.");
         importButton.onClick = [this] {
             chooser = std::make_unique<juce::FileChooser>("Choose an audio loop", juce::File{}, "*.wav;*.aif;*.aiff;*.flac;*.ogg");
             chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -1669,6 +1871,10 @@ public:
         clearLoop.setTooltip("Discards the captured/imported loop.");
         clearLoop.onClick = [this] { processor.clearLoop(); if (processor.getSourceMode() == 2) { processor.setSourceMode(0); source.setSelectedId(1, juce::dontSendNotification); } };
         setupLabel(loopInfo, "");
+        stretchToggle.setButtonText("Stretch to host tempo (keeps pitch)");
+        stretchToggle.setTooltip("Off (default): the loop is beat-locked and its pitch follows the tempo. On: a pitch-preserving copy of the loop is rendered in the background whenever the tempo settles (ratio 0.5 to 2.0). Transients can double or smear a little; until the new copy is ready the loop plays at the old tempo's speed.");
+        stretchToggle.setClickingTogglesState(true);
+        setupLabel(stretchInfo, "");
         setupLabel(message, "");
         message.setColour(juce::Label::textColourId, juce::Colours::orange);
 
@@ -1680,6 +1886,9 @@ public:
         bandSlope.setTooltip("Slope of the crossover filter around the effected band. 12 dB/oct rejects the other band more strongly; "
                              "the bypassed band is always the exact complement, so nothing is lost when the effects are off.");
         addAndMakeVisible(bandSlope);
+        bandTopology.addItemList({"Classic", "Linkwitz-Riley 12", "Linkwitz-Riley 24"}, 1);
+        bandTopology.setTooltip("Crossover type. Classic: the original filters (the slope menu applies). Linkwitz-Riley 12 or 24 dB/oct: the low and high parts sum back to a flat level; the slope menu is ignored.");
+        addAndMakeVisible(bandTopology);
         setupLabel(crossoverLabel, "Crossover");
         crossover.setSliderStyle(juce::Slider::LinearHorizontal);
         crossover.setTextBoxStyle(juce::Slider::TextBoxRight, false, 62, 22);
@@ -1701,13 +1910,16 @@ public:
         midiMacros.setTooltip("CC 20 = Intensity, CC 21 = Dry/Wet, CC 22 = Morph amount; program change 0-3 = scene A-D. Applied at about 20 Hz via the host parameters. Off by default; not saved.");
         midiMacros.onClick = [this] { processor.setMidiMacrosEnabled(midiMacros.getToggleState()); };
 
-        for (auto* c : std::initializer_list<juce::Component*>{&sourceTitle, &source, &bars, &loopBpmField, &capture, &importButton, &clearLoop, &matchTempo, &loopInfo,
+        for (auto* c : std::initializer_list<juce::Component*>{&sourceTitle, &source, &bars, &loopBpmField, &capture, &importButton, &clearLoop, &matchTempo, &loopInfo, &stretchToggle, &stretchInfo, &waveform,
                                                                &message, &bandTitle, &bandModeLabel, &bandMode, &crossoverLabel, &crossover,
                                                                &triggerTitle, &triggerLabel, &trigger, &sensLabel, &sens, &onsets, &midiMacros})
             addAndMakeVisible(*c);
         auto& apvts = processor.parameters;
+        stretchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(apvts, GrooveMorphAudioProcessor::loopStretchId, stretchToggle);
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandModeId, bandMode));
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandSlopeId, bandSlope));
+        combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandTopologyId, bandTopology));
+        linkParam(bandTopology, GrooveMorphAudioProcessor::bandTopologyId);
         linkParam(bandMode, GrooveMorphAudioProcessor::bandModeId);
         linkParam(bandSlope, GrooveMorphAudioProcessor::bandSlopeId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::bandCrossoverId, crossover));
@@ -1716,6 +1928,8 @@ public:
         linkParam(trigger, GrooveMorphAudioProcessor::audioTriggerId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerSensId, sens));
         linkParam(sens, GrooveMorphAudioProcessor::audioTriggerSensId);
+        sens.textFromValueFunction = [](double v) { return juce::String(v, 2); };
+        sens.updateText();
         sens.setNumDecimalPlacesToDisplay(2);
     }
     void refresh(const gm::VariationSettings&) override
@@ -1735,6 +1949,12 @@ public:
                         message.setText("Capture refused: that many bars would exceed 20 seconds at this tempo.", juce::dontSendNotification);
                     else if (why == 2)
                         message.setText("Capture stopped: the transport stopped or jumped while recording.", juce::dontSendNotification);
+                    else if (why == 3)
+                        message.setText("Capture stopped: the tempo changed while recording. Keep the tempo steady and try again.", juce::dontSendNotification);
+                    else if (why == 4)
+                        message.setText("Capture stopped: the meter changed, so the bar length no longer matches.", juce::dontSendNotification);
+                    else if (why == 5)
+                        message.setText("The capture is kept but could not be loaded yet; retrying.", juce::dontSendNotification);
                 }
                 break;
             case State::Armed: capture.setButtonText("Waiting for bar line (click to cancel)"); break;
@@ -1746,6 +1966,29 @@ public:
                          juce::dontSendNotification);
         clearLoop.setEnabled(processor.hasLoop());
         matchTempo.setEnabled(processor.hasLoop());
+        {
+            juce::String text;
+            if (processor.isLoopStretchEnabled() && processor.hasLoop())
+                text = processor.isLoopStretchBusy() ? "Stretching to the host tempo..."
+                       : "Stretch ratio " + juce::String(processor.getLoopStretchRatio(), 3)
+                             + (processor.isLoopStretchLimited() ? " (limited to 0.5-2.0 or 20 s; the rest is varispeed)" : "");
+            switch (processor.getLoopPersistWarning())
+            {
+                case 1: text += (text.isEmpty() ? "" : "  ") + juce::String("Loop too large to save with the project."); break;
+                case 2: text += (text.isEmpty() ? "" : "  ") + juce::String("Loop could not be saved with the project."); break;
+                case 3: text += (text.isEmpty() ? "" : "  ") + juce::String("The loop saved in this project could not be restored."); break;
+                default: break;
+            }
+            stretchInfo.setText(text, juce::dontSendNotification);
+        }
+        {
+            std::vector<float> lo, hi;
+            processor.getLoopPeaks(waveform.preferredColumns(), lo, hi);
+            waveform.setPeaks(lo, hi);
+            const auto grid = processor.getGridContext();
+            waveform.setGrid(processor.hasLoop() ? processor.getLoopBeats() : 0.0, processor.getLoopOriginBeats(), grid.beatsPerBar);
+            waveform.setPlayhead(processor.getLoopPlayFraction());
+        }
         crossover.setEnabled(bandMode.getSelectedId() > 1); // the crossover only matters when the bass is split
         sens.setEnabled(trigger.getSelectedId() > 1);        // sensitivity only matters when a trigger action is chosen
         onsets.setText("Transients detected: " + juce::String(processor.getOnsetCount()), juce::dontSendNotification);
@@ -1765,6 +2008,10 @@ public:
         clearLoop.setBounds(r.removeFromLeft(100).reduced(4, 0));
         matchTempo.setBounds(r.removeFromLeft(150).reduced(4, 0));
         loopInfo.setBounds(nextRow(area));
+        r = nextRow(area);
+        stretchToggle.setBounds(r.removeFromLeft(250));
+        stretchInfo.setBounds(r);
+        waveform.setBounds(nextRow(area, 44));
         message.setBounds(nextRow(area));
         area.removeFromTop(8);
         bandTitle.setBounds(nextRow(area));
@@ -1774,6 +2021,7 @@ public:
         bandSlope.setBounds(r.removeFromLeft(110).reduced(6, 0));
         r = nextRow(area);
         crossoverLabel.setBounds(r.removeFromLeft(100));
+        bandTopology.setBounds(r.removeFromRight(170).reduced(6, 0));
         crossover.setBounds(r);
         area.removeFromTop(8);
         triggerTitle.setBounds(nextRow(area));
@@ -1790,8 +2038,12 @@ public:
 private:
     // 0 = automatic (import); a capture needs a number, so Auto records 2 bars.
     int barChoice() const { constexpr int values[] = {0, 1, 2, 4, 8}; return values[juce::jlimit(0, 4, bars.getSelectedId() - 1)]; }
+    WaveformView waveform;
+    MenuToggleButton stretchToggle;
+    juce::Label stretchInfo;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> stretchAttachment;
     juce::Label sourceTitle, loopInfo, message, bandTitle, bandModeLabel, crossoverLabel, triggerTitle, triggerLabel, sensLabel, onsets;
-    MenuComboBox source, bars, bandMode, bandSlope, trigger;
+    MenuComboBox source, bars, bandMode, bandSlope, bandTopology, trigger;
     int lastCaptureFailure = 0;
     juce::TextButton capture, importButton, clearLoop, matchTempo;
     juce::TextEditor loopBpmField;
@@ -1829,8 +2081,8 @@ public:
         cancel.setButtonText("Cancel queued");
         cancel.setTooltip("Cancels a queued launch.");
         cancel.onClick = [this] { processor.cancelQueuedSwitch(); };
-        const char* names[] = {"Intensity", "Dry / wet", "Morph amount"};
-        for (std::size_t i = 0; i < 3; ++i)
+        const char* names[] = {"Intensity", "Dry / wet", "Morph amount", "Chaos"};
+        for (std::size_t i = 0; i < macros.size(); ++i)
         {
             setupLabel(macroLabels[i], names[i]);
             macros[i].setSliderStyle(juce::Slider::LinearHorizontal);
@@ -1889,6 +2141,10 @@ public:
         phaseOffset.commit = [this] {
             edit([this](auto& s) { s.control.phase.offsetBeats = static_cast<float>(phaseOffset.slider.getValue()); });
         };
+        phaseSmooth.setup(*this, "Transition smoothing (ms)", "Length of the cross-fade when the pattern jumps as this scene launches. 0 = default (3 ms), up to 250 ms.", 0.0, 250.0, 1.0, 0);
+        phaseSmooth.commit = [this] {
+            edit([this](auto& s) { s.control.phase.smoothingMs = static_cast<float>(phaseSmooth.slider.getValue()); });
+        };
         restartScene.setButtonText("Restart scene now");
         restartScene.setTooltip("Restarts the active scene's pattern now. The transport and the active scene do not change.");
         restartScene.onClick = [this] { processor.restartActiveScene(); };
@@ -1905,10 +2161,18 @@ public:
         linkParam(transition, GrooveMorphAudioProcessor::transitionModeId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::masterIntensityId, macros[0]));
         linkParam(macros[0], GrooveMorphAudioProcessor::masterIntensityId);
+        macros[0].textFromValueFunction = [](double v) { return juce::String(v, 2); };
+        macros[0].updateText();
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::dryWetId, macros[1]));
         linkParam(macros[1], GrooveMorphAudioProcessor::dryWetId);
+        macros[1].textFromValueFunction = [](double v) { return juce::String(v, 2); };
+        macros[1].updateText();
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::morphAmountId, macros[2]));
         linkParam(macros[2], GrooveMorphAudioProcessor::morphAmountId);
+        sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::chaosId, macros[3]));
+        linkParam(macros[3], GrooveMorphAudioProcessor::chaosId);
+        macros[2].textFromValueFunction = [](double v) { return juce::String(v, 2); };
+        macros[2].updateText();
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::morphTargetId, morphTarget));
         linkParam(morphTarget, GrooveMorphAudioProcessor::morphTargetId);
         for (auto& m : macros)
@@ -1916,6 +2180,7 @@ public:
         macros[0].setTooltip("Same control as the main Intensity slider: 0 = unprocessed sound, 1 = full effect. With MIDI macros on, CC 20 moves it.");
         macros[1].setTooltip("Same control as the main Dry/wet slider: mix between unprocessed (0) and processed (1) sound. With MIDI macros on, CC 21 moves it.");
         macros[2].setTooltip("How far the sound morphs from the sounding scene towards the Morph target scene (0 = not at all, 1 = fully the target). With MIDI macros on, CC 22 moves it.");
+        macros[3].setTooltip("Same control as Chaos in Easy mode: makes the sounding scene busier (more effects, deeper and shorter slices) without changing the stored scenes. 0 = the scene exactly as stored.");
         morphTarget.setTooltip("Scene to morph toward. Off disables morphing. Same control as in the Morph tab.");
         transition.setTooltip("When a scene change takes effect: Immediate, next beat, next bar, next phrase, or Manual (waits for Trigger). Same control as the main window.");
         evolveScene.setTooltip("Scene that evolves while it sounds: every N phrases it plays as a slightly changed variation of its stored settings. The stored scene itself is never edited.");
@@ -1931,6 +2196,7 @@ public:
         if (!phasePolicy.isPopupActive())
             phasePolicy.setSelectedId(static_cast<int>(settings.control.phase.policy) + 1, juce::dontSendNotification);
         phaseOffset.set(settings.control.phase.offsetBeats);
+        phaseSmooth.set(settings.control.phase.smoothingMs);
         const double shift = processor.getPhaseShiftBeats();
         phaseInfo.setText(shift == 0.0 ? "Pattern follows the transport."
                                        : "Pattern is shifted by " + juce::String(shift, 3) + " beats from the transport.",
@@ -1979,7 +2245,7 @@ public:
         transition.setBounds(r.removeFromLeft(130));
         trigger.setBounds(r.removeFromLeft(120).reduced(4, 0));
         cancel.setBounds(r.removeFromLeft(120).reduced(4, 0));
-        for (std::size_t i = 0; i < 3; ++i)
+        for (std::size_t i = 0; i < macros.size(); ++i)
         {
             r = nextRow(area);
             macroLabels[i].setBounds(r.removeFromLeft(110));
@@ -2011,6 +2277,7 @@ public:
         phasePolicy.setBounds(r.removeFromLeft(170));
         restartScene.setBounds(r.removeFromLeft(150).reduced(4, 0));
         phaseOffset.layout(nextRow(area), 150);
+        phaseSmooth.layout(nextRow(area), 150);
         phaseInfo.setBounds(nextRow(area));
     }
 private:
@@ -2027,9 +2294,9 @@ private:
     juce::Label transitionLabel, morphLabel, gestureTitle, gestureInfo, evolveTitle, evolveInfo, phaseTitle, phaseInfo;
     juce::ComboBox phasePolicy;
     juce::TextButton restartScene;
-    SliderRow phaseOffset;
-    std::array<juce::Label, 3> macroLabels;
-    std::array<MenuSlider, 3> macros;
+    SliderRow phaseOffset, phaseSmooth;
+    std::array<juce::Label, 4> macroLabels;
+    std::array<MenuSlider, 4> macros;
     MenuComboBox transition, morphTarget, gestureTarget, evolveScene, evolveStyle;
     juce::TextButton trigger, cancel, record, play, clearGesture;
     MenuToggleButton evolveOn;
@@ -2051,26 +2318,30 @@ public:
         text.setCaretVisible(false);
         text.setTooltip("Honest list of what this alpha implements and what it does not (read only).");
         text.setText(
-            "ALPHA FEATURE STATUS (see docs/alpha/ALPHA-FEATURE-STATUS.md)\n\n"
+            "BETA FEATURE STATUS (see docs/alpha/ALPHA-FEATURE-STATUS.md)\n\n"
             "Implemented (automated tests; not tried in a DAW or by ear):\n"
-            " - Placement window/cadence/origin/snap, downbeat protect, up to 4 protected regions, event lanes\n"
-            "   with per-event depth, slice, priority, cycle restart and lock; per-lane loop lengths\n"
+            " - Seven effects: Repeat, Reverse, Gate, Half-time, Tape stop, Filter sweep, Bit crush\n"
+            " - Placement window/cadence/origin/snap, downbeat protect, up to 8 protected regions, event lanes\n"
+            "   with per-event depth, slice, priority, cycle restart and lock; per-lane loop lengths;\n"
+            "   Euclidean pattern generator and per-event / per-lane chance\n"
             " - Generator: seed, style, distance, three-option gallery, event-pattern generation, locks,\n"
             "   preview/apply/revert, locally saved 24-entry history\n"
             " - Scenes: duplicate, reset, copy FX, rename, undo/redo, morph, auto-return (bars/phrases),\n"
-            "   scene start phase (follow / restart / snap to next beat, offset, Restart scene now)\n"
+            "   scene start phase, per-scene transition smoothing (follow / restart / snap to next beat, offset, Restart scene now)\n"
             " - Limits: effects at once + priority; spacing/coverage via Reduce; Events x2 and /2\n"
-            " - Input: demo loop, capture/import loop (beat-locked), band split (6 or 12 dB/oct), audio\n"
-            "   trigger, MIDI CC/program-change macros (tick MIDI macros first)\n"
-            " - Perform: scene launch, macros, gesture lane, phrase evolution\n"
+            " - Input: demo loop, capture/import loop (beat-locked, optional stretch to host tempo, saved in the\n"
+            "   project), band split (Classic 6/12 dB or Linkwitz-Riley 12/24 dB), audio trigger,\n"
+            "   MIDI CC/program-change macros (tick MIDI macros first)\n"
+            " - Perform: scene launch, macros, gesture lane, phrase evolution, Chaos macro\n"
+            " - Presets bar (factory and user presets, host programs), Easy mode with first-run guide; Dry return target\n"
+            " - Print: record the processed output for N bars to a 24-bit WAV, drag it into the DAW (untested)\n"
             " - Right-click on any control: exact value, copy/paste, reset, MIDI learn; Visual window\n"
             " - Host Variation parameter follows the sounding scene\n\n"
-            "Not implemented / limited in this alpha:\n"
-            " - Per-scene transition smoothing time; Linkwitz-Riley or steeper crossovers; loop-aware Reduce\n"
-            " - No time stretching for loops; loop audio is not saved with the project. Generator history\n"
-            "   is saved locally on this computer, not embedded in the DAW project\n"
+            "Not implemented / limited in this beta:\n"
+            " - Loop stretch is WSOLA only (ratio 0.5 to 2.0); saved loop audio is 16-bit\n"
+            " - Generator history is saved locally on this computer, not embedded in the DAW project\n"
             "   (gesture curve, evolution settings and MIDI links are); gestures run at ~20 Hz\n"
-            " - Capture is stereo-limited, 20 s max; CLAP and other formats\n\n"
+            " - Capture is stereo-limited, 20 s max; only two crossover bands; AU, AAX and LV2 are not planned\n\n"
             "Untested: real DAW hosts, audio hardware, listening quality.",
             false);
         addAndMakeVisible(text);
@@ -2093,11 +2364,12 @@ struct InspectorPanel::Impl
           input(std::make_unique<InputTab>(p, a)),
           perform(std::make_unique<PerformTab>(p, a)),
           status(std::make_unique<StatusTab>()),
+          print(std::make_unique<PrintPanel>(p)),
           tabs(juce::TabbedButtonBar::TabsAtTop)
     {
         const auto bg = juce::Colour(0xff1b232e);
         // Short names keep eight tabs on one row; the tooltips carry the full names.
-        const char* names[] = {"Place", "Gen", "Scene", "Morph", "Limit", "Input", "Perform", "Info"};
+        const char* names[] = {"Place", "Gen", "Scene", "Morph", "Limit", "Input", "Perform", "Info", "Print"};
         const char* full[] = {"Place: choose where in the phrase effects act (window, every N phrases) and draw event lanes",
                               "Gen: generate variations of a scene (seed, style, distance) and lock parts of it",
                               "Scene: duplicate, copy, reset and clear scenes and effects",
@@ -2105,10 +2377,11 @@ struct InspectorPanel::Impl
                               "Limit: cap how many effects play at once and how busy a scene may get",
                               "Input: choose the input source, capture or import a loop, split the bass, audio triggers, MIDI macros",
                               "Perform: live macros, record and play back a gesture, evolve a scene over phrases",
-                              "Info: what this alpha version implements and what is untested"};
+                              "Info: what this alpha version implements and what is untested",
+                              "Print: record the processed output for N bars to a WAV file, drag it into your DAW or reuse it as the loop source"};
         juce::Component* contents[] = {placement.get(), generator.get(), scenes.get(), morph.get(), limits.get(), input.get(),
-                                       perform.get(), status.get()};
-        for (int i = 0; i < 8; ++i)
+                                       perform.get(), status.get(), print.get()};
+        for (int i = 0; i < 9; ++i)
         {
             tabs.addTab(names[i], bg, contents[i], false);
             if (auto* button = tabs.getTabbedButtonBar().getTabButton(i))
@@ -2124,6 +2397,7 @@ struct InspectorPanel::Impl
     std::unique_ptr<InputTab> input;
     std::unique_ptr<PerformTab> perform;
     std::unique_ptr<StatusTab> status;
+    std::unique_ptr<PrintPanel> print; // N04
     juce::TabbedComponent tabs;
 };
 

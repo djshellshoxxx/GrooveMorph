@@ -5,6 +5,8 @@
 
 namespace groovemorph::core
 {
+static_assert(trace::stageCount == operationCount, "trace frames carry one amount per operation");
+
 namespace
 {
 constexpr std::size_t opIndex(OperationType type) noexcept
@@ -33,6 +35,8 @@ void RhythmEngine::prepare(double sampleRate, int maxBlockSize, int maxChannels)
     if (!(sampleRate > 0.0) || !std::isfinite(sampleRate) || maxChannels <= 0)
     {
         rings.clear();
+        sweepState.clear();
+        crushHeld.clear();
         capacity = 0;
         historySamples = 0;
         channelCount = 0;
@@ -41,14 +45,25 @@ void RhythmEngine::prepare(double sampleRate, int maxBlockSize, int maxChannels)
     historySamples = static_cast<std::size_t>(std::ceil(maxHistorySeconds * sampleRate));
     capacity = historySamples + static_cast<std::size_t>(std::max(0, maxBlockSize)) + 8;
     channelCount = maxChannels;
+    sampleRateHz = sampleRate;
+    sweepState.assign(static_cast<std::size_t>(channelCount), stage::SvfState{});
+    crushHeld.assign(static_cast<std::size_t>(channelCount), 0.0f);
     rings.assign(historyStageCount * static_cast<std::size_t>(channelCount) * capacity, 0.0f);
     fadeSamples = std::max(1, static_cast<int>(std::lround(crossfadeSeconds * sampleRate)));
     gateRamp = std::max(1, static_cast<int>(std::lround(gateRampSeconds * sampleRate)));
     reset();
 }
 
+void RhythmEngine::resetEffectState() noexcept
+{
+    std::fill(sweepState.begin(), sweepState.end(), stage::SvfState{});
+    std::fill(crushHeld.begin(), crushHeld.end(), 0.0f);
+    crushClock = stage::CrushClock{};
+}
+
 void RhythmEngine::reset() noexcept
 {
+    resetEffectState();
     std::fill(rings.begin(), rings.end(), 0.0f);
     now = 0;
     initialised = false;
@@ -65,6 +80,7 @@ void RhythmEngine::reset() noexcept
 void RhythmEngine::resetHistory() noexcept
 {
     now = 0;
+    resetEffectState();
     voices.fill(Voice{});
     // Amounts of history operations drop at once: ramping them down would read the emptied history.
     for (std::size_t op = 0; op < operationCount; ++op)
@@ -87,6 +103,8 @@ float RhythmEngine::readRing(const float* ring, std::int64_t time, double r) con
 {
     const auto cap = static_cast<std::int64_t>(capacity);
     const double t = static_cast<double>(time);
+    if (!std::isfinite(r))
+        r = t; // a non-finite read position (hostile phase offset) must not reach the int64 cast below
     r = std::clamp(r, t - static_cast<double>(cap - 2), t);
     const double base = std::floor(r);
     const double frac = r - base;
@@ -161,7 +179,9 @@ void RhythmEngine::process(float* const* channels,
 
     const bool tracing = traceSink != nullptr && traceSink->active();
     std::array<double, historyStageCount> newR{};
-    const float fadeNorm = 1.0f / static_cast<float>(fadeSamples + 1);
+    int requestedFade = fadeSamples; // per-scene smoothing (W3); the default keeps the legacy bits
+    if (std::isfinite(timing.crossfadeSeconds) && timing.crossfadeSeconds >= 0.0)
+        requestedFade = static_cast<int>(std::lround(std::clamp(timing.crossfadeSeconds, 0.0, 0.25) * sampleRateHz));
 
     for (int n = 0; n < numSamples; ++n)
     {
@@ -187,6 +207,41 @@ void RhythmEngine::process(float* const* channels,
             }
         }
 
+        // FilterSweep / BitCrush: slice position on each operation's own grid (computed once per sample).
+        stage::SvfCoeffs sweepCoeffs;
+        bool crushRefresh = false;
+        double crushE = 0.0;
+        {
+            const std::size_t sw = opIndex(OperationType::FilterSweep);
+            if (amounts[sw] > 0.0f)
+            {
+                double p = 0.0;
+                bool opening = false;
+                if (timingOk)
+                {
+                    const stage::SliceCursor cur = stage::sliceCursor(beat - timing.phaseOffsetBeats[sw], sliceBeats[sw], spb, sliceSamples[sw]);
+                    p = sliceSamples[sw] > 0.0 ? cur.pos / sliceSamples[sw] : 0.0;
+                    opening = (cur.index & 1) != 0;
+                }
+                sweepCoeffs = stage::svfCoeffs(stage::sweepCutoffHz(p, opening, sampleRateHz), sampleRateHz);
+            }
+            const std::size_t cr = opIndex(OperationType::BitCrush);
+            if (amounts[cr] > 0.0f)
+            {
+                if (timingOk)
+                {
+                    const stage::SliceCursor cur = stage::sliceCursor(beat - timing.phaseOffsetBeats[cr], sliceBeats[cr], spb, sliceSamples[cr]);
+                    crushE = sliceSamples[cr] > 0.0 ? cur.pos / sliceSamples[cr] : 0.0;
+                }
+                crushRefresh = crushClock.tick(stage::crushHold(crushE, sampleRateHz));
+            }
+            else
+            {
+                crushClock = stage::CrushClock{};
+            }
+        }
+        const double crushBitsNow = stage::crushBits(crushE);
+
         // Read positions of history-based operations.
         for (std::size_t op = 0; op < operationCount; ++op)
         {
@@ -198,6 +253,7 @@ void RhythmEngine::process(float* const* channels,
             {
                 v.valid = false;
                 v.tapCount = 0;
+                v.sinceJump = 0;
                 continue;
             }
             const double len = sliceSamples[op];
@@ -211,13 +267,22 @@ void RhythmEngine::process(float* const* channels,
                 const double predicted = v.prevR + v.prevRate;
                 if (std::abs(r - predicted) > 0.5)
                 {
-                    if (v.tapCount == static_cast<int>(v.taps.size()))
+                    int len = requestedFade;
+                    if (len > fadeSamples)
+                        len = std::min(len, std::max(fadeSamples, v.sinceJump)); // never longer than the gap between jumps
+                    if (v.tapCount > 0)
+                        len = std::max(len, v.taps[static_cast<std::size_t>(v.tapCount - 1)].remaining); // taps expire in order
+                    if (len > 0)
                     {
-                        v.taps[0] = v.taps[1];
-                        v.tapCount = 1;
+                        if (v.tapCount == static_cast<int>(v.taps.size()))
+                        {
+                            v.taps[0] = v.taps[1];
+                            v.tapCount = 1;
+                        }
+                        v.taps[static_cast<std::size_t>(v.tapCount++)] =
+                            Voice::Tap{predicted, v.prevRate, len, 1.0f / static_cast<float>(len + 1)};
                     }
-                    v.taps[static_cast<std::size_t>(v.tapCount++)] =
-                        Voice::Tap{predicted, v.prevRate, fadeSamples};
+                    v.sinceJump = 0;
                 }
             }
             v.prevR = r;
@@ -256,12 +321,30 @@ void RhythmEngine::process(float* const* channels,
                             {
                                 const auto& prev = v.taps[static_cast<std::size_t>(k - 1)];
                                 const float next = readRing(ring, now, v.taps[static_cast<std::size_t>(k)].r);
-                                old = next + static_cast<float>(prev.remaining) * fadeNorm * (old - next);
+                                old = next + static_cast<float>(prev.remaining) * prev.norm * (old - next);
                             }
                             const auto& last = v.taps[static_cast<std::size_t>(v.tapCount - 1)];
-                            wet += static_cast<float>(last.remaining) * fadeNorm * (old - wet);
+                            wet += static_cast<float>(last.remaining) * last.norm * (old - wet);
                         }
                         x += amount * (wet - x);
+                    }
+                }
+                else if (op == opIndex(OperationType::FilterSweep))
+                {
+                    auto& st = sweepState[static_cast<std::size_t>(c)];
+                    if (amount > 0.0f)
+                        x += amount * (stage::svfLowPass(st, sweepCoeffs, x) - x);
+                    else
+                        stage::svfTrack(st, x);
+                }
+                else if (op == opIndex(OperationType::BitCrush))
+                {
+                    if (amount > 0.0f)
+                    {
+                        float& held = crushHeld[static_cast<std::size_t>(c)];
+                        if (crushRefresh)
+                            held = stage::crushQuantise(x, crushBitsNow); // quantise at capture, hold the result
+                        x += amount * (held - x);
                     }
                 }
                 else if (amount > 0.0f)
@@ -283,6 +366,8 @@ void RhythmEngine::process(float* const* channels,
 
         for (auto& v : voices)
         {
+            if (v.sinceJump < (1 << 30))
+                ++v.sinceJump;
             for (int k = 0; k < v.tapCount; ++k)
             {
                 auto& tap = v.taps[static_cast<std::size_t>(k)];

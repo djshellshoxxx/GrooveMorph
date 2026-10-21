@@ -15,8 +15,7 @@ LedgerView::LedgerView()
 void LedgerView::setLedger(groovemorph::core::viz::Ledger newLedger)
 {
     ledger = std::move(newLedger);
-    setTitle("Change ledger");
-    setDescription(asText());
+    setDescriptionThrottled(*this, descriptionThrottle, asText());
     repaint();
 }
 

@@ -18,6 +18,8 @@ enum class Effect : std::uint8_t
     Gate = 3,
     HalfTime = 4,
     TapeStop = 5,
+    FilterSweep = 6, // tonal: never moves a thread; used by Stations and Rings
+    BitCrush = 7,
 };
 
 struct WeaveParams

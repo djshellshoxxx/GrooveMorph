@@ -7,7 +7,7 @@ evolution settings and MIDI links are saved), Linkwitz-Riley / steeper crossover
 1. Unzip; run `GrooveMorph.exe` (no installer). Windows SmartScreen may warn: the build is unsigned.
 2. In the Standalone window use **Options > Audio/MIDI Settings**: choose your output device. Pick an input only if you want live input (beware feedback; mute the monitor or use headphones).
 3. Tick **Demo loop** (top bar) to replace the input with a built-in drum loop. In Standalone, *Timing method: Automatic* behaves as a free-running clock at the Manual tempo (default 120 BPM, 4/4, 4-bar phrase).
-4. JUCE Standalone shows a yellow banner that audio input is muted to avoid a feedback loop. That is expected; the Demo loop replaces the input anyway. The window is 1290x740 by default (minimum 1230x700) and scales itself down to fit smaller displays.
+4. JUCE Standalone shows a yellow banner that audio input is muted to avoid a feedback loop. That is expected; the Demo loop replaces the input anyway. The window is 1290x784 by default (minimum 1230x784) and scales itself down to fit smaller displays.
 5. Raise **Intensity** (default 0.5; 1.0 = full effect, 0 = dry). Keep the volume low at first.
 
 ## Try the main effects
@@ -25,7 +25,7 @@ evolution settings and MIDI links are saved), Linkwitz-Riley / steeper crossover
 - **Perform:** launch scenes, move the macros, **Record** a gesture while moving Morph amount and **Play** it back, and enable **Evolve scene**.
 
 ## Visual evaluation checklist (record defects)
-1. Window opens, nothing clipped at the default size; resize to the minimum (1230x700) and to full screen.
+1. Window opens, nothing clipped at the default size; resize to the minimum (1230x784) and to full screen.
 2. Top bar: Demo loop and Bypass visible; status line shows "Playing | editing X | bar | beat" and the playhead moves.
 3. Scene buttons: active/queued/editing states are legible and update when switching.
 4. Each inspector tab: labels fully visible, tooltips appear on hover, disabled controls are greyed.

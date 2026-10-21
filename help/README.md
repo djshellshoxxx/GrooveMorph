@@ -12,17 +12,26 @@
 6. [Visual guide and screenshot capture](VISUAL-GUIDE.md): arrows, numbered labels, and screenshot verification process.
 7. [The Visual window](VISUAL-WINDOW.md): the live picture of what the plugin is doing to the sound (alpha).
 8. [Right-click menu, MIDI links, Play/Stop and Reset](RIGHT-CLICK-AND-MIDI.md): exact values, copy/paste, MIDI learn, the transport buttons, loop tempo.
+9a. [Loops: stretch, saving and the waveform](LOOPS.md): optional pitch-preserving stretch, loop saved with the project, capture safety.
 9. [Seeded generator and candidate gallery](GENERATOR.md): repeatable options, event-pattern generation, preview/apply and saved local history.
+10. [Presets](PRESETS.md): factory and user presets for the whole scene bank, the preset bar, host preset menu, import/export.
+10. [Filter sweep and Bit crush](EFFECTS-SWEEP-CRUSH.md): the two tonal effects.
+10. [Euclidean patterns and chance](EUCLID-AND-CHANCE.md): fill a lane with a Euclidean rhythm and make events play only some of the time, repeatably.
+10. [MIDI notes, MIDI learn and host automation of effects](MIDI-AND-AUTOMATION.md): note swap, learn rules, panic messages, per-effect automation trims, update rates.
+11. [Keyboard editing, event lanes and screen readers](KEYBOARD-AND-ACCESSIBILITY.md): create events with the keyboard, thin events, phrase-end badge, undo steps, accessible names.
+10. [Easy mode](EASY.md): the compact single-screen view, the Chaos knob, Surprise me and the first-run guide.
+10. [Print to WAV](PRINT.md): record the processed output for N bars to a WAV file and drag it into your DAW.
 
 ## Scope
 
-GrooveMorph is a **rhythmic audio effect** (not an instrument). This version implements four variations A–D, five short-window transformations, wet/dry mixing, master effect intensity (zero = dry), transition quantization, MIDI note triggering, variation audition, undo/redo, host parameter/state persistence, and host/manual timing.
+GrooveMorph is a **rhythmic audio effect** (not an instrument). This version implements four variations A–D, seven transformations (five short-window time effects plus Filter sweep and Bit crush), wet/dry mixing, master effect intensity (zero = dry), transition quantization, MIDI note triggering, variation audition, undo/redo, host parameter/state persistence, and host/manual timing.
 
 The illustrated SVGs in `help/images/` are **source-derived UI diagrams**, **not captured screenshots**. They map to bounds and labels in `src/PluginEditor.cpp` and deliberately distinguish verified controls from imagery. True Windows/Linux screenshots, arrow overlays and visual QA must be captured from a running built binary before calling the image set complete. See [visual guide](VISUAL-GUIDE.md).
 
 ## What this beta does not claim
 
-The original MVP had no event lanes, file import, morphing or band split; the alpha adds them (see `docs/alpha/ALPHA-FEATURE-STATUS.md`). Full-song capture, time stretching, CLAP export and validated native DAW compatibility are not established. The F01–F12 specifications are drafts (PR #6).
+The original MVP had no event lanes, file import, morphing or band split; the alpha adds them (see `docs/alpha/ALPHA-FEATURE-STATUS.md`). Full-song capture, time stretching, CLAP host compatibility (a CLAP build exists but has never been loaded in a host) and validated native DAW compatibility are not established. The F01–F12 specifications are drafts (PR #6).
+The original MVP had no event lanes, file import, morphing or band split; the alpha adds them (see `docs/alpha/ALPHA-FEATURE-STATUS.md`). Full-song capture, CLAP export and validated native DAW compatibility are not established. The F01–F12 specifications are drafts (PR #6).
 
 ## Useful code links
 

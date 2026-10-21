@@ -1,95 +1,63 @@
 # GrooveMorph TODO and implementation ledger
 
-Updated 2026-10-14. See the alpha integration section below and docs/alpha/ALPHA-FEATURE-STATUS.md for the current state (the older text further down is historical).
-This ledger reflects runtime behavior, not every proposed feature. The historical
-feature audit examined earlier main `61d5156`; use the new QA ledger for current
-release validation evidence. Check active PRs before claiming ownership.
+Updated 2026-10-20 for the beta branch. This ledger says what runs, what was tested and what
+nobody has checked yet. It does not claim a release. The per-requirement join of spec, test,
+code and UI is generated into [the completeness matrix](specs/COMPLETENESS-MATRIX.md)
+(`python3 shared/scripts/spec_matrix.py`); every B item below is referenced from it.
 
-## Alpha integration (2026-10-14)
+**What "tested" means here:** the portable core has automated tests that pass on Linux, and the
+GitHub workflows build the JUCE targets. Nobody has loaded GrooveMorph in a DAW for this beta,
+run it on audio hardware, listened to the output, used it with a screen reader, or loaded the CLAP
+in a CLAP host. Native host and device QA is [issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19)
+and it stays **open**. Several UI and processor edits in the beta were written on a machine that
+cannot build JUCE; they are compiled by CI only and are listed in B-01 and B-02.
 
-Windows Standalone alpha work: see [alpha feature status](alpha/ALPHA-FEATURE-STATUS.md),
-[known issues](alpha/KNOWN-ISSUES.md) and [test results](alpha/TEST-RESULTS.md). Delivered subsets:
-A01/C01 placement + event lanes, A02 host Variation sync, A03/C02/C03 generator with locks, A04 scene tools,
-C05 auto-return, C06 activity limits, F02 morph, F03 downbeat protection, F08 local generation history, demo loop,
-Standalone free-run clock fix, and (merged alpha) C04 start phase, per-event locks and cycle restart, protected regions,
-F04-F07 and F09-F12 subsets, the Visual window, right-click/MIDI learn, 12 dB crossover option. Still open: per-scene
-transition smoothing, loop-aware Reduce, Linkwitz-Riley crossover, CLAP; native host/device QA (issue #19).
+## Completed in the beta (code, with tests where stated)
 
-## Completed
+- [x] Runtime: four scenes, seven operations (Filter Sweep and Bit Crush added, N01), one Scheduler,
+  Automatic / Host PPQ / Sample Clock, MIDI, audition, scene undo, host state.
+- [x] Phrase placement and bounded event lanes (A01/C01, capacity 256), permissions (C03), start phase (C04) and
+  per-scene smoothing, automatic return and Dry target (C05), activity limits and loop-aware Reduce (C06, F06).
+- [x] Generator with locks, seed, style, distance and event patterns (F01/C02), local history with a tested core codec (F08).
+- [x] Morphing (F02), downbeat protection and Linkwitz-Riley crossover (F03/F10), performance macros and scene
+  shortcuts 1-4, T, Esc (F04), phrase evolution (F05), audio trigger (F07), loop import with optional stretch and
+  project-saved loop (F09/W4), gesture recorder with a write threshold (F11).
+- [x] Presets (N02), Euclid and chance (N03), Print to WAV (N04), Easy mode and first-run guide (N05).
+- [x] MIDI note swap dialog (A04 as built by W10), operation live trims `op<N>Enable/Depth/Slice` (A06 as built by W10).
+- [x] CLAP target through clap-juce-extensions, packaging scripts and `beta-release.yml` (N06). Built in CI only.
+- [x] Visual window (Weave, Ledger, Rings, Stations) and its core.
+- [x] Spec completeness audit: every spec acceptance row has an audited status; spec files carry an as-built block.
+- [x] Docs aligned: GM-QR-012 amended for Print to WAV, CLAP in scope, `operationCount` is 7.
 
-- [x] Reconcile Claude DSP/scenes/state with Codex PPQ calculations using one Scheduler.
-- [x] Merge runtime to main (PR #7); preserve PR #2/#4 ancestry and canonical contracts.
-- [x] Implement persisted Automatic / Host PPQ / Sample Clock selector and legacy recall.
-- [x] Wire four scene editors, five operation controls, MIDI mapping, audition/compare and scene undo/redo.
-- [x] Fix fractional PPQ boundaries, sub-block phase advancement, queued Manual button availability and stale audio after seeks.
-- [x] Verify Windows/Linux VST3 and Standalone builds, portable ASan/UBSan and Windows startup at 7f2784a.
-- [x] Run eight matching local Linux test executables successfully (2026-10-13).
-- [x] Merge help pages and annotated source-derived SVG maps (PR #8).
-- [x] Publish and merge feature audit (PR #11); record exact build evidence (PR #10).
-- [x] Merge six musical control specs (PR #14) and portable deterministic variation-planning core (PR #9).
-- [x] Add MIDI assignment collision diagnostic and tooltip (PR #15).
-- [x] Integrate settings-only Copy FX with single-transaction undo (PR #17).
-- [x] Correct reported host effect tail and demonstrate repeat-after-silence (PR #18).
-- [x] Add Linux/Windows strictness-5 headless pluginval CI and portable 4-rate/3-block numerical quality fixtures (PR #16).
-- [ ] Complete native host/device, GUI, objective audio/listening, RT deadline/allocations, deployment and licensing gates ([issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19)).
+## Remaining work
 
-## Active work, dependencies and acceptance
+Each item has an acceptance criterion so it can be closed without argument.
 
-| ID / priority | Status / owner | Next action | Required acceptance |
-|---|---|---|---|
-| A01 / P0 feature contract | Missing; unassigned | Specify and implement editable phrase origin, subdivision and bounded event lanes; then migrate scene schema/UI | Chosen interval alone is processed; visual/audio boundaries agree; independent scenes; legacy recall; loop/tempo/block fixtures |
-| A02 / P0 release QA | Automated pluginval Win/Linux and numerical core matrix pass PR #16; host/device QA open | Complete native REAPER Win/Linux, MIDI, automation, PDC, audio/listening, memory/deadline/alloc instrumentation in issue #19 | Archive host/hardware and thresholds; CI does not replace DAW compatibility evidence |
-| A03 / P1 workflow bug | Reproduced; unassigned | Define requested versus active Variation semantics and safe host feedback | UI/MIDI/automation/cancel/reopen stay coherent without callback host notification |
-| A04 / P1 MIDI conflict | Diagnostic warning implemented (PR #15); mapping policy still first-match | Decide whether to add auto-swap/reject; validate the warning in a native host | Duplicate assignments are visible, prior saved maps remain valid; first match keeps existing behavior |
-| A05 / P1 generator | Portable planner merged (PR #9); UI absent | Design non-destructive preview/apply integration, seed and candidate controls | Existing planner Linux/Windows/sanitizer CI passed; seed/protection determinism and isolated preview remain required end-to-end |
-| A06 / P1 authoring | Copy FX implemented/merged PR #17; full scene copy and automation still missing | Native host validate Copy FX/undo, define stable operation automation IDs, full-scene duplicate and fade policy | Settings copy independent and undoable; host parameter IDs unchanged |
-| A07 / P2 documentation/UX | Partial; unassigned | Native host screenshots + checked arrows/manifest, help entrypoint, effective slice-limit feedback, keyboard/scaling QA | Accurate clickable bounds and tested platforms; limitations visible |
-| A08 / P2 expansion | Draft PR #6; confirm existing owner | Pin canonical baseline; complete/review F01–F12 interfaces, tasks, schemas, numerical fixtures | Package becomes READY only when measurable contracts and review evidence are complete |
-| Distribution / P0 beta gate | Engineering CI artifacts only; unassigned | Complete issue #19: versioned Win/Linux VST3/Standalone packages, install guide, product/third-party license review, clean-machine check | Artifact/source match; install/remove paths and licensing verified; no production claim from CI startup alone |
+| ID | Item | Acceptance |
+|---|---|---|
+| B-01 | **Native DAW, device and UI QA (issue #19, open).** REAPER on Windows, Linux and macOS; VST3, Standalone and CLAP; automation, MIDI, PDC, state round trip with a large loop, listening checks, screen reader pass, CPU and callback deadline and allocation measurement, keyboard-only pass, scene shortcuts typed in a real window | A written record per host/OS/format with versions, buffer sizes, devices and outcomes under `docs/qa/`; rows marked MANUAL in the matrix move to a tested status or stay with a reason |
+| B-02 | **Processor-level tests that need the JUCE build** (F02-T06, F04-T09, F05 locks/audition/seek, F06-T07, F07-T05/T10, F11, A06-T07, bandTopology legacy restore, C04 smoothing, C05 same-sample return) | Tests added to `tests/PluginProcessorTests.cpp` or `W3ProcessorTests.cpp`, run green in CI |
+| B-03 | **Licence and notices.** Product licence decision (GM-DEC-10) is the owner's and not made. No `LICENSE`, no notice generator, no About view, no SBOM, notices not embedded in binaries | Owner decision recorded; `LICENSE` added; generator fails on unknown components; About view; SBOM attached to the release |
+| B-04 | **UI gaps:** loop ring not drawn on the lane canvas, UI scale setting, F1 help, capped-slice indicator, phase preview, Ctrl/Cmd+Z in the editor, Tab/Alt+arrow lane editing | Each built and shown in a screenshot or manual record; A07 and F06-T08 rows updated |
+| B-05 | **MIDI policy:** reject or warn CC 20/21/22 links while macros are on, skip macro slots, describe shared CCs in the menu, soft pickup for CC links (A04-T07..T09, F12-T11) | Core tests for the policy, UI text, rows updated |
+| B-06 | **Deliberate non-goals for the beta:** three or more bands (F10-T08), multiple gesture lanes and resolution above 20 Hz (F11-T08), evolution over several scenes and step preview (F05-T09) | Build them or keep them out; the specs say so either way |
+| B-07 | **Audio trigger tuning:** rendered drum, bass-heavy and dense-sustained fixtures with a measured retrigger rate (F07-T09) | Fixtures committed, thresholds recorded |
+| B-08 | **History inside the DAW project** (F08-T08). Kept a local file by decision | Only if the owner asks; then a spec change plus tests |
+| B-09 | **Classic 12 dB/oct split has no portable test** (F03-T06). The code is in `PluginProcessor.cpp` | Move into core or add a processor test |
+| B-10 | **Human reviews:** no-Gross-Beat-likeness design review, colour-blind review of the Visual window | Written sign-off |
+| B-11 | **First beta-release workflow run:** four-leg build, clap-validator, `lipo -archs`, checksums, notices in each archive. CLAP never loaded in a CLAP host | A successful run read by a person, plus B-01 CLAP host result |
 
-P0 feature contract means mandatory in the original target specification; it does
-not mean the existing short-history engine fails to run. P0 QA is missing evidence,
-not a missing DSP module. Priorities are from the feature audit; optional expansion
-must not erase unmet original requirements or be treated as already delivered.
+## Not delivered and not claimed
 
-## Branch coordination
+Audio quality, latency figures, CPU figures and DAW compatibility are unmeasured. Pitch-preserving
+stretch is an optional WSOLA mode, not studio quality, and has not been listened to. The saved loop
+is 16-bit. No production or release claim is made.
 
-- PRs #2/#4/#7: merged/reconciled. Do not reinstall the superseded M0 processor.
-- PR #6: spec/groovemorph-expansion-v1; INCOMPLETE, twelve draft features. Timing
-  integration is resolved; specification depth/interface/state/test review remains.
-- PR #9: merged deterministic planner core with regression tests after Linux/Release
-  test repair; the end-user generator and C02 controls remain unimplemented.
-- PR #14: six-control specification package merged; contract does not equal runtime.
-- Seed storage, undo history and four-second audio history are not full F01, F08
-  or F09 implementations. Morphing, groove protection, performance mode, evolution,
-  polyrhythm, audio triggers, import/capture, multiband, gestures and CLAP are absent.
+## Where the evidence lives
 
-## Evidence and task closure
-
-[Feature audit](feature-audit/FEATURE_AUDIT_2026-10-13.md) contains historical source locations,
-reproduction outputs and next-action criteria. [Current QA ledger](qa/DAW_AUDIO_RELEASE_READINESS.md)
-records validation gates and evidence. [Timing handoff](TIMING_INTEGRATION_HANDOFF.md)
-contains original integration CI evidence and limits. [Traceability](TRACEABILITY.md)
-records requirement coverage. Close tasks only with relevant current tests and
-user-facing wiring; update this ledger and help when behavior changes. No numeric
-project completion percentage is asserted.
-
-## Visual feedback window (2026-10-14)
-
-- [x] Research, [plan](visual-feedback/PLAN.md), [developer spec](visual-feedback/SPEC.md) and [integration plan](visual-feedback/INTEGRATION-PLAN.md).
-- [x] Slices S1-S10: trace ring and engine sink, StageGeometry, path resolver, weave layout, planned paths and plan builder, ledger, Visual window (Weave, Ledger, Rings, Stations, Orbit), palette checks, toolbar, [help page](../help/VISUAL-WINDOW.md).
-- [ ] S11 native validation (Windows / REAPER, CPU with the window open, Standalone vs VST3) under [issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19).
-- [ ] User review of the design against the Gross Beat anti-resemblance rules (PLAN 4b), screen-reader pass, human colour-blind review.
-- [ ] Optional S12: per-stage in/out peaks (delta strips), repeat/self-similarity map, keyboard thread cursor, planned view for evolution/gestures.
-
-## Six-control specification package (2026-10-13)
-
-- [x] Author [six detailed specs and shared integration plan](control-specs/README.md).
-- [ ] Implement shared v2 scene/parameter/model prerequisites with legacy fixtures.
-- [ ] Implement C01 placement/event authoring, then C03 permissions and C06 activity limits.
-- [ ] Integrate the merged PR #9 planner into C02 distance/candidate workflow with safe preview/apply and host/state tests.
-- [ ] Extend canonical Scheduler for C04 phase and C05 automatic return.
-- [ ] Wire six contextual inspector tabs and validate host/state/DSP/UI/RT acceptance.
-
-Existing A01–A08 tasks remain; these specs elaborate them and do not mark the
-separate F01–F12 package or features implemented.
+[Completeness matrix](specs/COMPLETENESS-MATRIX.md) (generated), [spec index](SPEC_INDEX.md),
+[alpha/beta feature status](alpha/ALPHA-FEATURE-STATUS.md), [known issues](alpha/KNOWN-ISSUES.md),
+[QA ledger](qa/DAW_AUDIO_RELEASE_READINESS.md), [decisions](coordination/DECISIONS.md),
+[timing handoff](TIMING_INTEGRATION_HANDOFF.md), [traceability](TRACEABILITY.md) and the older
+[feature audit](feature-audit/FEATURE_AUDIT_2026-10-13.md) (historical, from before the beta work).
+Close a task only with a current test or a recorded manual result, and update this file.

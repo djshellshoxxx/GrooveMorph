@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "core/viz/Palette.h"
+#include "core/viz/TextThrottle.h"
 #include "core/viz/WeaveLayout.h"
 
 // Shared palette for the Visual window (docs/visual-feedback/SPEC.md section 11). Effect colours are
@@ -21,6 +22,15 @@ inline const juce::Colour hatch{shared::hatch};
 inline const juce::Colour warning{shared::warning};
 } // namespace palette
 
+// U7: the views are refreshed at 30 Hz, but screen readers only need a new description when the text
+// changed, and not more than about 4 times per second.
+inline void setDescriptionThrottled(juce::Component& component, groovemorph::core::viz::TextThrottle& throttle,
+                                    const juce::String& text)
+{
+    if (throttle.apply(static_cast<std::int64_t>(juce::Time::getMillisecondCounter()), text.toStdString()))
+        component.setDescription(text);
+}
+
 inline juce::Colour effectColour(groovemorph::core::viz::Effect e)
 {
     using E = groovemorph::core::viz::Effect;
@@ -31,6 +41,8 @@ inline juce::Colour effectColour(groovemorph::core::viz::Effect e)
         case E::Gate: return juce::Colour(palette::shared::gate);
         case E::HalfTime: return juce::Colour(palette::shared::halfTime);
         case E::TapeStop: return juce::Colour(palette::shared::tapeStop);
+        case E::FilterSweep: return juce::Colour(palette::shared::filterSweep);
+        case E::BitCrush: return juce::Colour(palette::shared::bitCrush);
         case E::Live: break;
     }
     return juce::Colour(palette::shared::live);
@@ -46,6 +58,8 @@ inline const char* effectName(groovemorph::core::viz::Effect e)
         case E::Gate: return "gate";
         case E::HalfTime: return "half-time";
         case E::TapeStop: return "tape-stop";
+        case E::FilterSweep: return "filter-sweep";
+        case E::BitCrush: return "bit-crush";
         case E::Live: break;
     }
     return "live";

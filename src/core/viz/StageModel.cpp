@@ -34,8 +34,9 @@ std::array<StageView, operationCount> buildStages(const VariationSettings& scene
                                                   const std::array<std::uint8_t, operationCount>& locks,
                                                   const trace::TraceFrame* last)
 {
-    static constexpr const char* names[operationCount] = {"Repeat", "Reverse", "Gate", "HalfTime", "TapeStop"};
-    static constexpr Effect effects[operationCount] = {Effect::Repeat, Effect::Reverse, Effect::Gate, Effect::HalfTime, Effect::TapeStop};
+    static constexpr const char* names[operationCount] = {"Repeat", "Reverse", "Gate", "HalfTime", "TapeStop", "FilterSweep", "BitCrush"};
+    static constexpr Effect effects[operationCount] = {Effect::Repeat, Effect::Reverse, Effect::Gate, Effect::HalfTime, Effect::TapeStop,
+                                                 Effect::FilterSweep, Effect::BitCrush};
     const bool timed = last != nullptr && (last->flags & trace::TimingOk) != 0;
     std::array<StageView, operationCount> out{};
     for (std::size_t i = 0; i < operationCount; ++i)

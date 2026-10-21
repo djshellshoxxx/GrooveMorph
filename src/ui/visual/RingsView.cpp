@@ -19,6 +19,8 @@ viz::Effect primaryOfCell(const viz::LapCell& c)
     if (c.active(3)) return viz::Effect::HalfTime;
     if (c.active(1)) return viz::Effect::Reverse;
     if (c.active(0)) return viz::Effect::Repeat;
+    if (c.active(5)) return viz::Effect::FilterSweep; // tonal stages: lowest priority, they move no time
+    if (c.active(6)) return viz::Effect::BitCrush;
     return viz::Effect::Live;
 }
 
@@ -49,7 +51,7 @@ void RingsView::setData(Data d)
                 ++differing;
         text << (differing == 0 ? "The newest lap matches the previous lap so far." : juce::String(differing) + " positions differ from the previous lap.");
     }
-    setDescription(text);
+    setDescriptionThrottled(*this, descriptionThrottle, text);
     repaint();
 }
 

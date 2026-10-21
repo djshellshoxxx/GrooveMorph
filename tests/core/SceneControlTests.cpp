@@ -113,11 +113,11 @@ int main()
         EventLane full;
         const auto pt = grid.phraseTicks();
         int added = 0;
-        for (int i = 0; i < 40; ++i)
+        for (int i = 0; i < static_cast<int>(maxLaneEvents) + 8; ++i)
         {
             LaneEvent x;
-            x.operation = static_cast<std::uint8_t>(i % 5);
-            x.onsetTicks = (i / 5) * 100;
+            x.operation = static_cast<std::uint8_t>(i % 7);
+            x.onsetTicks = (i / 7) * 100;
             x.durationTicks = 50;
             if (addEvent(full, x, pt) == EditStatus::Ok)
                 ++added;

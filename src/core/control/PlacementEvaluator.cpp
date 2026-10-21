@@ -1,4 +1,5 @@
 #include "core/control/PlacementEvaluator.h"
+#include "core/control/Chance.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,6 +14,19 @@ double positiveMod(double a, double m) noexcept
 {
     const double r = std::fmod(a, m);
     return r < 0.0 ? r + m : r;
+}
+
+// floor() as int64 that never overflows: huge or non-finite inputs saturate (A3-04: the cast of an out-of-range
+// double is undefined behaviour; transport positions are bounded upstream, this keeps evaluate() total on its own).
+std::int64_t floorToInt64(double v) noexcept
+{
+    constexpr double limit = 4.0e18; // < 2^62
+    v = std::floor(v);
+    if (!(v > -limit))
+        return -4000000000000000000LL; // also NaN
+    if (v > limit)
+        return 4000000000000000000LL;
+    return static_cast<std::int64_t>(v);
 }
 
 // Circular distance (ticks) from `phase` forward to boundary `b` in a ring of size `ring`.
@@ -119,6 +133,10 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
             const double since = positiveMod(opPhase - onset, ring);
             if (windowOpen && !on[e.operation] && since < dur)
             {
+                // N03 chance: one pure decision per lane cycle (the cycle that holds the event onset).
+                if ((e.chance < 100 || c.lane.chanceByOp[e.operation] < 100)
+                    && !eventFires(c.lane, e, floorToInt64((q - onset) / ring)))
+                    continue;
                 on[e.operation] = true;
                 scale[e.operation] = std::clamp(e.depth, 0.0f, 1.0f);
                 slice[e.operation] = e.sliceBeats;
