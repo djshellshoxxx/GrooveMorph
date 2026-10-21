@@ -60,7 +60,7 @@ VariationSettings scene(int which, bool alt) {
 }
 
 // Fixture: scene `which`, switching to the alternate slice settings halfway (exercises crossfade taps).
-std::uint64_t run(int which, int block, float intensity) {
+std::uint64_t run(int which, int block, float intensity, double fadeSeconds = -1.0) {
     RhythmEngine engine;
     engine.prepare(sampleRate, 1024, 2);
     std::vector<float> left = makeInput(), right = left;
@@ -71,6 +71,7 @@ std::uint64_t run(int which, int block, float intensity) {
         const int n = static_cast<int>(len);
         float* chans[] = {left.data() + start, right.data() + start};
         RhythmTiming timing{samplesPerBeat, static_cast<double>(start) / samplesPerBeat, true};
+        timing.crossfadeSeconds = fadeSeconds;
         engine.process(chans, 2, n, scene(which, start >= totalSamples / 2), intensity, timing);
         start += len;
     }
@@ -113,6 +114,8 @@ int main(int argc, char** argv) {
         if (print) { std::cout << "{" << c.which << ", " << c.intensity << "f, 0x" << std::hex << h128 << std::dec << "ull}, // split-invariant=" << (h128 == h513) << "\n"; continue; }
         if (h128 != c.expected) { std::cerr << "golden mismatch case " << c.which << " intensity " << c.intensity << ": got 0x" << std::hex << h128 << "\n"; ++failures; }
         if (h128 != h513) { std::cerr << "block-split dependence in case " << c.which << "\n"; ++failures; }
+        // W3 C04 smoothing: an explicit request equal to the engine default (3 ms) is bit-identical to the legacy path.
+        if (run(c.which, 128, c.intensity, 0.003) != c.expected) { std::cerr << "explicit 3 ms differs from default in case " << c.which << "\n"; ++failures; }
     }
     if (!print && failures == 0) std::cout << "EngineGoldenTests: all checks passed\n";
     return failures == 0 ? 0 : 1;

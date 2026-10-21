@@ -1,6 +1,7 @@
 #include "core/control/VariationBlend.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace groovemorph::core::control
@@ -40,9 +41,140 @@ VariationSettings blendDistance(const VariationSettings& source, const Variation
     return out;
 }
 
-VariationSettings morph(const VariationSettings& a, const VariationSettings& b, float weight) noexcept
+namespace
+{
+using EventPtrs = std::array<const LaneEvent*, maxLaneEvents>;
+
+bool linearOverlap(const LaneEvent& x, const LaneEvent& y) noexcept
+{
+    return static_cast<std::int64_t>(x.onsetTicks) < static_cast<std::int64_t>(y.onsetTicks) + y.durationTicks
+           && static_cast<std::int64_t>(y.onsetTicks) < static_cast<std::int64_t>(x.onsetTicks) + x.durationTicks;
+}
+
+// Collects the enabled events of one side. A legacy-uniform side contributes one full-phrase event per enabled
+// operation (written to `legacy`, which must outlive the pointers).
+std::size_t collectEvents(const VariationSettings& v, std::int64_t phraseTicks, std::array<LaneEvent, laneCount>& legacy,
+                          EventPtrs& out) noexcept
+{
+    std::size_t n = 0;
+    if (v.control.lane.explicitEvents)
+    {
+        for (std::size_t i = 0; i < v.control.lane.count && i < maxLaneEvents; ++i)
+            if (v.control.lane.events[i].enabled && v.control.lane.events[i].operation < laneCount)
+                out[n++] = &v.control.lane.events[i];
+        return n;
+    }
+    for (std::size_t op = 0; op < laneCount && op < operationCount; ++op)
+    {
+        if (!v.operations[op].enabled)
+            continue;
+        LaneEvent e;
+        e.operation = static_cast<std::uint8_t>(op);
+        e.onsetTicks = 0;
+        e.durationTicks = static_cast<std::int32_t>(phraseTicks > 0 ? std::min<std::int64_t>(phraseTicks, 1966080) : 1966080);
+        e.priority = v.control.activity.priority[op];
+        legacy[op] = e;
+        out[n++] = &legacy[op];
+    }
+    return n;
+}
+
+// Placement, activity, regions and lane events of both scenes (docs/specs/W3-MORPH.md section 2.2).
+void morphControl(const VariationSettings& a, const VariationSettings& b, float w, std::int64_t phraseTicks,
+                  SceneControl& out) noexcept
+{
+    const bool dominantIsB = w >= 0.5f;
+    const SceneControl& dom = dominantIsB ? b.control : a.control;
+    out.placement = dom.placement;
+    out.placement.startPhase = lerp(a.control.placement.startPhase, b.control.placement.startPhase, w);
+    out.placement.spanPhase = lerp(a.control.placement.spanPhase, b.control.placement.spanPhase, w);
+    out.activity = dom.activity;
+    out.lane.loopBeats = dom.lane.loopBeats;
+    out.lane.chanceByOp = dom.lane.chanceByOp;
+    out.lane.chanceSeed = dom.lane.chanceSeed;
+    out.phase = a.control.phase;
+    out.permissions = a.control.permissions;
+    out.lane.explicitEvents = a.control.lane.explicitEvents || b.control.lane.explicitEvents;
+    out.lane.count = 0;
+    out.lane.events = {};
+    if (!out.lane.explicitEvents)
+        return;
+
+    std::array<LaneEvent, laneCount> legacyA{}, legacyB{};
+    EventPtrs ea{}, eb{};
+    const std::size_t na = collectEvents(a, phraseTicks, legacyA, ea);
+    const std::size_t nb = collectEvents(b, phraseTicks, legacyB, eb);
+    std::array<bool, maxLaneEvents> usedA{}, usedB{};
+    std::array<int, maxLaneEvents> matchOfA{};
+    matchOfA.fill(-1);
+    for (std::size_t i = 0; i < na; ++i)
+        for (std::size_t j = 0; j < nb; ++j)
+            if (!usedB[j] && ea[i]->operation == eb[j]->operation && ea[i]->onsetTicks == eb[j]->onsetTicks
+                && ea[i]->durationTicks == eb[j]->durationTicks)
+            {
+                matchOfA[i] = static_cast<int>(j);
+                usedB[j] = true;
+                break;
+            }
+
+    const auto ringOf = [&](std::uint8_t op) -> std::int64_t {
+        const std::uint8_t loop = out.lane.loopBeats[op % laneCount];
+        return loop > 0 ? static_cast<std::int64_t>(loop) * ticksPerBeat : phraseTicks;
+    };
+    const auto overlaps = [&](const LaneEvent& x, const LaneEvent& y) {
+        if (x.operation != y.operation)
+            return false;
+        const auto ring = ringOf(x.operation);
+        return ring > 0 ? eventsOverlap(x, y, ring) : linearOverlap(x, y);
+    };
+    const auto push = [&](const LaneEvent& e) {
+        if (e.depth <= 0.0f || out.lane.count >= maxLaneEvents)
+            return;
+        for (std::size_t k = 0; k < out.lane.count; ++k)
+            if (overlaps(out.lane.events[k], e))
+                return;
+        out.lane.events[out.lane.count++] = e;
+    };
+
+    // 1. matched events (a order)
+    for (std::size_t i = 0; i < na; ++i)
+    {
+        if (matchOfA[i] < 0)
+            continue;
+        const LaneEvent& x = *ea[i];
+        const LaneEvent& y = *eb[static_cast<std::size_t>(matchOfA[i])];
+        LaneEvent e = dominantIsB ? y : x;
+        e.enabled = true;
+        e.depth = lerp(x.depth, y.depth, w);
+        e.priority = static_cast<std::uint8_t>(std::clamp(std::lround(lerp(static_cast<float>(x.priority), static_cast<float>(y.priority), w)), 0l, 100l));
+        e.sliceBeats = (x.sliceBeats > 0.0f && y.sliceBeats > 0.0f) ? logLerp(x.sliceBeats, y.sliceBeats, w)
+                                                                    : (dominantIsB ? y.sliceBeats : x.sliceBeats);
+        push(e);
+    }
+    // 2. unmatched events of the dominant side, 3. of the other side
+    const auto unmatched = [&](bool sideB) {
+        const EventPtrs& list = sideB ? eb : ea;
+        const std::size_t n = sideB ? nb : na;
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            if (sideB ? usedB[i] : matchOfA[i] >= 0)
+                continue;
+            LaneEvent e = *list[i];
+            e.depth = std::clamp(e.depth, 0.0f, 1.0f) * (sideB ? w : 1.0f - w);
+            push(e);
+        }
+    };
+    unmatched(dominantIsB);
+    unmatched(!dominantIsB);
+}
+} // namespace
+
+VariationSettings morph(const VariationSettings& a, const VariationSettings& b, float weight,
+                        std::int64_t phraseTicks) noexcept
 {
     const float w = clamp01(weight);
+    if (w <= 0.0f)
+        return a;
     VariationSettings out = a;
     for (std::size_t i = 0; i < operationCount; ++i)
     {
@@ -72,6 +204,8 @@ VariationSettings morph(const VariationSettings& a, const VariationSettings& b, 
             o = x;
         }
     }
+    if (w > 0.0f && !sameControl(a.control, b.control))
+        morphControl(a, b, w, phraseTicks, out.control);
     return out;
 }
 
