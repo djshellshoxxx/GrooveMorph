@@ -87,7 +87,7 @@ int main(int argc, char** argv)
     }
     // Narrowest supported size.
     editor->showInspectorTab(0);
-    editor->setSize(1230, 744);
+    editor->setSize(1230, 784);
     pump(120);
     save(*editor, out.getChildFile("editor-minimum-size.png"));
     delete editor;
@@ -97,9 +97,9 @@ int main(int argc, char** argv)
     {
         auto* easyEditor = dynamic_cast<GrooveMorphAudioProcessorEditor*>(processor.createEditor());
         easyEditor->setVisible(true);
-        easyEditor->setSize(1290, 740);
+        easyEditor->setSize(1290, 784);
         save(*easyEditor, out.getChildFile("editor-easy.png"));
-        easyEditor->setSize(1230, 700);
+        easyEditor->setSize(1230, 784);
         save(*easyEditor, out.getChildFile("editor-easy-minimum-size.png"));
         delete easyEditor;
     }

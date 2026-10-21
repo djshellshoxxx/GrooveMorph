@@ -283,7 +283,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
             setScaleFactor(juce::jmax(0.5f, fit));
     }
     setResizable(true, true);
-    setResizeLimits(1230, 744, 1900, 1100);
+    setResizeLimits(1230, 784, 1900, 1100); // 784 = bottom of the preset bar (772) + margin; seven operation rows
     groovemorph::ui::finishControlMenus(*this, audioProcessor);
     setSize(1290, 784);
     applyEasyMode(audioProcessor.isEasyMode());
@@ -592,7 +592,7 @@ void GrooveMorphAudioProcessorEditor::resized()
     demoButton.setBounds(contentWidth() - 240, 16, 110, 30);
     visualButton.setBounds(contentWidth() - 340, 16, 90, 30);
     if (inspector != nullptr) inspector->setBounds(contentWidth(), 8, inspectorWidth - 8, getHeight() - 16);
-    presetBar.setBounds(20, 692, contentWidth() - 40, 40); // N02: preset bar in the free strip under the MIDI row
+    presetBar.setBounds(20, 732, contentWidth() - 40, 40); // N02: preset bar in the strip under the MIDI status row (ends at 772 < minimum height 784)
     intensitySlider.setBounds(144, 56, column - 124, 30);
     dryWetSlider.setBounds(20 + column + 110, 56, column - 110, 30);
     timingMode.setBounds(144, 94, column - 134, 30);

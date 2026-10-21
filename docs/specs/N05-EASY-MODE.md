@@ -100,7 +100,7 @@ a 2x2 grid of macro sliders (Intensity, Dry / wet, Morph, Chaos), an action row 
 "Undo last change", "Reset / Panic") and a one-line message area.
 
 * The view fills the editor bounds, so it scales exactly like the editor (the editor's existing
-  `setScaleFactor` fit and `setResizeLimits(1230, 700, 1900, 1100)`). `computeEasyLayout(w, h)` is pure and
+  `setScaleFactor` fit and `setResizeLimits(1230, 784, 1900, 1100)`). `computeEasyLayout(w, h)` is pure and
   tested at the minimum size, the maximum size, and a small 640x400 case: every rectangle inside the bounds,
   none overlapping, every button at least 44 px high.
 * Sliders are `MenuSlider`s attached to the host parameters `masterIntensity`, `dryWet`, `morphAmount`
@@ -181,7 +181,7 @@ the guide still works for the session.
 | N05-S2 | Surprise respects locks, returns `ok = false` when everything is locked | `SurpriseTests` |
 | N05-S3 | Processor: request arms a preview without changing the bank; commit at the next phrase boundary is one undo step; cancel restores; Busy while previewing | `PluginProcessorTests` (CI only) |
 | N05-E1 | Easy mode default ON fresh, OFF for state without `Ui`, round-trips both values | `PluginProcessorTests` (CI only) |
-| N05-E2 | Layout fits and does not overlap at 1230x700, 1900x1100 and 640x400; buttons >= 44 px | `EasyViewTests` |
+| N05-E2 | Layout fits and does not overlap at 1230x784 (editor minimum; the pure layout is also checked at 700), 1900x1100 and 640x400; buttons >= 44 px | `EasyViewTests` |
 | N05-E3 | Plain-language timing text for each timing situation | `EasyViewTests` |
 | N05-E4 | First-run steps: exactly 4, ordered as specified, navigation clamps, dismiss semantics | `EasyViewTests` |
 | N05-U1 | Accessible names on every new control; Easy view shows/hides with the toggle; guide persists "seen" | Not automated: JUCE UI cannot be built on the authoring machine. Covered by code review and CI compilation only |

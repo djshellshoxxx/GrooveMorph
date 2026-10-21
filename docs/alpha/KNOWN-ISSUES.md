@@ -12,7 +12,7 @@ Ranked by severity.
 8. **Audio trigger / macros** use a simple detector and a ~20 Hz parameter write rate; expect false or missed triggers on dense material.
 9. **Host automation.** Slice/placement/limits are scene state, not host parameters (beta: per-effect Enable/Depth/Slice can be automated as live trims on the sounding scene, `op<N>Enable/Depth/Slice`; stored scenes are not automatable). Morph/auto-return/band/trigger/variation are parameters, block-observed. A host in automation-write mode may record the Variation realignment.
 10. **Scene sliders apply on release** (depth/slice/placement) to keep one undo step per drag.
-11. **Small screens.** Default 1290x740, minimum 1230x700. The editor now scales itself down to fit the primary display's usable area (not yet confirmed on a Windows machine; the earlier 1024x768 CI screenshot showed it cropped).
+11. **Small screens.** Default 1290x784, minimum 1230x784. The editor now scales itself down to fit the primary display's usable area (not yet confirmed on a Windows machine; the earlier 1024x768 CI screenshot showed it cropped).
 12. **Screenshots:** Linux-rendered via the project's snapshot tool (software rendering of the real editor); the only Windows capture is the CI startup screenshot.
 13. **Help pages** under `help/` predate the new controls.
 14. Remaining unimplemented items (CLAP and those listed in ALPHA-FEATURE-STATUS.md). Per-scene smoothing, Linkwitz-Riley, loop-aware Reduce and the Dry return are implemented by W3.
