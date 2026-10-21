@@ -4,6 +4,7 @@
 #include "core/scene/SceneBank.h"
 #include "ui/InspectorPanel.h"
 #include "ui/ControlMenu.h"
+#include "ui/PresetBar.h"
 #include "ui/visual/VisualWindow.h"
 
 #include <memory>
@@ -42,6 +43,7 @@ private:
     groovemorph::ui::MenuToggleButton visualButton{"Visual"};
     std::unique_ptr<groovemorph::ui::visual::VisualWindow> visualWindow;
     std::unique_ptr<groovemorph::ui::InspectorPanel> inspector;
+    groovemorph::ui::PresetBar presetBar{audioProcessor}; // N02
     std::array<juce::TextButton, 4> variationButtons;
     std::array<OperationRow, groovemorph::core::operationCount> operations;
     juce::TextEditor variationName;
