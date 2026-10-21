@@ -55,6 +55,7 @@ struct LaneEvent
     std::uint8_t priority = 50;       // 0..100, higher survives the activity limit
     bool restartCycle = false;        // true: the effect's beat grid restarts at the event onset
     bool locked = false;              // C03 per-event lock: survives generation and edits unchanged
+    std::uint8_t chance = 100;        // N03: percent 0..100 that the event fires in a lane cycle
 };
 
 struct EventLane
@@ -65,6 +66,10 @@ struct EventLane
     // F06 polyrhythm: loop length of each operation's events in meter beats (0 = the phrase).
     // Events of an operation repeat every loopBeats[op] beats, independent of the phrase.
     std::array<std::uint8_t, laneCount> loopBeats{};
+    // N03 chance: per-operation-lane percent (multiplies each event's own chance) and the per-scene
+    // seed of the deterministic decision hash (core/control/Chance.h). 0 = not yet assigned.
+    std::array<std::uint8_t, laneCount> chanceByOp{100, 100, 100, 100, 100};
+    std::uint32_t chanceSeed = 0;
 };
 
 // Field lock bits per operation row (C03).

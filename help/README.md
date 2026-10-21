@@ -15,6 +15,7 @@
 9. [Seeded generator and candidate gallery](GENERATOR.md): repeatable options, event-pattern generation, preview/apply and saved local history.
 10. [Presets](PRESETS.md): factory and user presets for the whole scene bank, the preset bar, host preset menu, import/export.
 10. [Filter sweep and Bit crush](EFFECTS-SWEEP-CRUSH.md): the two tonal effects.
+10. [Euclidean patterns and chance](EUCLID-AND-CHANCE.md): fill a lane with a Euclidean rhythm and make events play only some of the time, repeatably.
 
 ## Scope
 

@@ -62,6 +62,7 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         src/PresetManager.cpp
         src/ui/PresetBar.cpp
         src/ui/InspectorPanel.cpp
+        src/ui/EuclidPanel.cpp
         src/ui/ControlMenu.cpp
         src/ui/visual/VisualWindow.cpp
         src/ui/visual/WeaveView.cpp

@@ -1,5 +1,6 @@
 #include "ui/InspectorPanel.h"
 #include "ui/ControlMenu.h"
+#include "ui/EuclidPanel.h"
 
 #include "PluginProcessor.h"
 #include "core/control/PlacementEvaluator.h"
@@ -257,6 +258,22 @@ public:
                                                 static_cast<float>(laneHeight - 6));
                     g.setColour(operationColours[e.operation % gm::operationCount].withAlpha(e.enabled ? 0.35f + 0.55f * e.depth : 0.15f));
                     g.fillRoundedRectangle(rect, 3.0f);
+                    const int laneChancePct = control.lane.chanceByOp[e.operation % laneCount];
+                    if (e.chance < 100 || laneChancePct < 100) // N03: events that do not always play are hatched
+                    {
+                        juce::Graphics::ScopedSaveState hatchState(g);
+                        g.reduceClipRegion(rect.toNearestInt());
+                        g.setColour(juce::Colours::black.withAlpha(0.5f));
+                        for (float hx = rect.getX() - rect.getHeight(); hx < rect.getRight(); hx += 5.0f)
+                            g.drawLine(hx, rect.getBottom(), hx + rect.getHeight(), rect.getY(), 1.0f);
+                        if (rect.getWidth() > 34.0f)
+                        {
+                            g.setColour(juce::Colours::white);
+                            g.setFont(10.0f);
+                            g.drawText(juce::String(e.chance * laneChancePct / 100) + "%", rect.toNearestInt(),
+                                       juce::Justification::centred);
+                        }
+                    }
                     g.setColour(static_cast<int>(i) == selectedIndex ? juce::Colours::white
                                                                      : operationColours[e.operation % gm::operationCount]);
                     g.drawRoundedRectangle(rect, 3.0f, static_cast<int>(i) == selectedIndex ? 2.0f : 1.0f);
@@ -598,7 +615,7 @@ private:
 class PlacementTab final : public InspectorTab
 {
 public:
-    PlacementTab(GrooveMorphAudioProcessor& p, SceneEditAccess a) : InspectorTab(p, a), canvas(p, a)
+    PlacementTab(GrooveMorphAudioProcessor& p, SceneEditAccess a) : InspectorTab(p, a), canvas(p, a), euclid(p, a)
     {
         enable.setButtonText("Enable phrase placement");
         enable.setTooltip("When on, the scene's effects act only inside the chosen window of the "
@@ -730,6 +747,13 @@ public:
         for (auto* c : std::initializer_list<juce::Component*>{&enable, &window, &snap, &snapLabel, &modeButton, &convert,
                                                                &removeSelected, &eventEnabled, &message, &canvas, &eventRestart, &eventLocked, &loopLane})
             addAndMakeVisible(*c);
+        // N03: Euclid generator and chance panel, swapped in over the lower event rows (EuclidPanel.cpp).
+        euclidToggle.setButtonText("Euclid / chance");
+        euclidToggle.setClickingTogglesState(true);
+        euclidToggle.setTooltip("Euclidean pattern generator and per-event / per-lane chance. Shows the panel in place of the event controls below the lanes.");
+        euclidToggle.onClick = [this] { euclid.setVisible(euclidToggle.getToggleState()); };
+        addAndMakeVisible(euclidToggle);
+        addChildComponent(euclid);
     }
 
     void refresh(const gm::VariationSettings& s) override
@@ -791,6 +815,7 @@ public:
         else if (sel >= 0)
             canvas.select(-1);
         canvas.setSettingsView(s);
+        euclid.refresh(s, canvas.selected());
     }
 
     void resized() override
@@ -808,11 +833,13 @@ public:
         auto snapRow = nextRow(area);
         snapLabel.setBounds(snapRow.removeFromLeft(150));
         snap.setBounds(snapRow.removeFromLeft(130));
+        euclidToggle.setBounds(snapRow.removeFromLeft(130).reduced(6, 0));
         auto buttons = nextRow(area);
         modeButton.setBounds(buttons.removeFromLeft(130));
         convert.setBounds(buttons.removeFromLeft(130).reduced(2, 0));
         removeSelected.setBounds(buttons.removeFromLeft(100).reduced(2, 0));
         canvas.setBounds(nextRow(area, 18 + static_cast<int>(gm::operationCount) * 24 + 6));
+        euclid.setBounds(area); // covers the event rows below the lanes while shown
         eventDepth.layout(nextRow(area), 150);
         eventSlice.layout(nextRow(area), 150);
         eventPriority.layout(nextRow(area), 150);
@@ -834,8 +861,9 @@ private:
     SliderRow start, span, every, offset, origin, protect, eventDepth, eventSlice, eventPriority, loopBeats;
     MenuToggleButton eventRestart, eventLocked;
     MenuComboBox loopLane;
-    juce::TextButton convert, removeSelected;
+    juce::TextButton convert, removeSelected, euclidToggle;
     LaneCanvas canvas;
+    EuclidPanel euclid;
 };
 
 // ---------------------------------------------------------------------------------------
