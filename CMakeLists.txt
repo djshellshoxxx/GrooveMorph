@@ -89,7 +89,13 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     )
 
+    # Redesigned GUI: every .cpp in these folders is compiled (docs/specs/UI-REDESIGN.md).
+    file(GLOB GM_UI_REDESIGN_SOURCES CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/theme/*.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/ui/shell/*.cpp)
+
     target_sources(GrooveMorphPlugin PRIVATE
+        ${GM_UI_REDESIGN_SOURCES}
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
         src/PresetManager.cpp
