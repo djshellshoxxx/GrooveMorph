@@ -2124,8 +2124,8 @@ public:
         cancel.setButtonText("Cancel queued");
         cancel.setTooltip("Cancels a queued launch.");
         cancel.onClick = [this] { processor.cancelQueuedSwitch(); };
-        const char* names[] = {"Intensity", "Dry / wet", "Morph amount"};
-        for (std::size_t i = 0; i < 3; ++i)
+        const char* names[] = {"Intensity", "Dry / wet", "Morph amount", "Chaos"};
+        for (std::size_t i = 0; i < macros.size(); ++i)
         {
             setupLabel(macroLabels[i], names[i]);
             macros[i].setSliderStyle(juce::Slider::LinearHorizontal);
@@ -2208,6 +2208,8 @@ public:
         linkParam(macros[1], GrooveMorphAudioProcessor::dryWetId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::morphAmountId, macros[2]));
         linkParam(macros[2], GrooveMorphAudioProcessor::morphAmountId);
+        sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::chaosId, macros[3]));
+        linkParam(macros[3], GrooveMorphAudioProcessor::chaosId);
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::morphTargetId, morphTarget));
         linkParam(morphTarget, GrooveMorphAudioProcessor::morphTargetId);
         for (auto& m : macros)
@@ -2215,6 +2217,7 @@ public:
         macros[0].setTooltip("Same control as the main Intensity slider: 0 = unprocessed sound, 1 = full effect. With MIDI macros on, CC 20 moves it.");
         macros[1].setTooltip("Same control as the main Dry/wet slider: mix between unprocessed (0) and processed (1) sound. With MIDI macros on, CC 21 moves it.");
         macros[2].setTooltip("How far the sound morphs from the sounding scene towards the Morph target scene (0 = not at all, 1 = fully the target). With MIDI macros on, CC 22 moves it.");
+        macros[3].setTooltip("Same control as Chaos in Easy mode: makes the sounding scene busier (more effects, deeper and shorter slices) without changing the stored scenes. 0 = the scene exactly as stored.");
         morphTarget.setTooltip("Scene to morph toward. Off disables morphing. Same control as in the Morph tab.");
         transition.setTooltip("When a scene change takes effect: Immediate, next beat, next bar, next phrase, or Manual (waits for Trigger). Same control as the main window.");
         evolveScene.setTooltip("Scene that evolves while it sounds: every N phrases it plays as a slightly changed variation of its stored settings. The stored scene itself is never edited.");
@@ -2279,7 +2282,7 @@ public:
         transition.setBounds(r.removeFromLeft(130));
         trigger.setBounds(r.removeFromLeft(120).reduced(4, 0));
         cancel.setBounds(r.removeFromLeft(120).reduced(4, 0));
-        for (std::size_t i = 0; i < 3; ++i)
+        for (std::size_t i = 0; i < macros.size(); ++i)
         {
             r = nextRow(area);
             macroLabels[i].setBounds(r.removeFromLeft(110));
@@ -2329,8 +2332,8 @@ private:
     juce::ComboBox phasePolicy;
     juce::TextButton restartScene;
     SliderRow phaseOffset, phaseSmooth;
-    std::array<juce::Label, 3> macroLabels;
-    std::array<MenuSlider, 3> macros;
+    std::array<juce::Label, 4> macroLabels;
+    std::array<MenuSlider, 4> macros;
     MenuComboBox transition, morphTarget, gestureTarget, evolveScene, evolveStyle;
     juce::TextButton trigger, cancel, record, play, clearGesture;
     MenuToggleButton evolveOn;
