@@ -174,6 +174,19 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         target_link_libraries(GrooveMorphAudioSmokeTests PRIVATE GrooveMorphPlugin)
         add_test(NAME GrooveMorphAudioSmokeTests COMMAND GrooveMorphAudioSmokeTests)
 
+        # The processor tests hold several multi-megabyte processors by value in main(). MSVC (above) and
+        # Apple's linker default to smaller main-thread stacks than the frames need (a Bus error on macOS),
+        # so give every processor test a 64 MiB main-thread stack. Test executables only.
+        if(APPLE)
+            foreach(gm_stack_test GrooveMorphPluginTests GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests)
+                target_link_options(${gm_stack_test} PRIVATE -Wl,-stack_size,0x4000000)
+            endforeach()
+        elseif(MSVC)
+            foreach(gm_stack_test GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests)
+                target_link_options(${gm_stack_test} PRIVATE /STACK:67108864)
+            endforeach()
+        endif()
+
         # Developer tool (not a CTest): renders the real editor, software-rendered, to PNG files.
         add_executable(GrooveMorphEditorSnapshot tools/EditorSnapshot.cpp)
         target_include_directories(GrooveMorphEditorSnapshot PRIVATE
