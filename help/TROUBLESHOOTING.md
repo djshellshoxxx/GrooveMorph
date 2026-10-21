@@ -30,7 +30,7 @@ The engine invalidates short-window history at detected seeks/loop wraps. A natu
 
 ## Where are audio import, visual step sequencing, morphing, and CLAP?
 
-Audio import and capture are on the Input tab, event lanes on the Place tab and scene morphing on the Morph tab (alpha). CLAP is not available. The F01–F12 specifications are drafts (PR #6).
+Audio import and capture are on the Input tab, event lanes on the Place tab and scene morphing on the Morph tab (alpha). A CLAP build (`GrooveMorph.clap`) ships in the beta packages; it has not been tested in a CLAP host, so report any problem with the host name and version. See `docs/beta/INSTALL.md` for where to put it. The F01–F12 specifications are drafts (PR #6).
 
 ## What to include with a bug report
 

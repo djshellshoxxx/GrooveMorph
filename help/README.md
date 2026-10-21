@@ -22,7 +22,7 @@ The illustrated SVGs in `help/images/` are **source-derived UI diagrams**, **not
 
 ## What this beta does not claim
 
-The original MVP had no event lanes, file import, morphing or band split; the alpha adds them (see `docs/alpha/ALPHA-FEATURE-STATUS.md`). Full-song capture, time stretching, CLAP export and validated native DAW compatibility are not established. The F01–F12 specifications are drafts (PR #6).
+The original MVP had no event lanes, file import, morphing or band split; the alpha adds them (see `docs/alpha/ALPHA-FEATURE-STATUS.md`). Full-song capture, time stretching, CLAP host compatibility (a CLAP build exists but has never been loaded in a host) and validated native DAW compatibility are not established. The F01–F12 specifications are drafts (PR #6).
 
 ## Useful code links
 

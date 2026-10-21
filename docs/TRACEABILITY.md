@@ -23,6 +23,7 @@ This table supersedes the M0-only checklist. It describes the reconciled process
 | GM-QR-006 latency | Causal look-behind operations; processor reports zero latency | Headless zero-latency assertion | Host PDC/impulse validation |
 | GM-QR-007 deterministic output | Reset clears DSP state; same scene/input yields identical output; seed persists without random generation | Core deterministic-reset test; serializer seed round trip | Offline/real-time host render comparison |
 | GM-QR-011 portability | Standard-library portable core, pinned JUCE 8.0.7 VST3/Standalone build definition | Local GCC 13.3 Release: all seven portable CTest targets passed | Linux VST3 + Standalone and 8/8 CTest pass on combined code; Windows/Linux builds and processor tests, sanitizer tests and Windows startup passed at 7f2784a; see TIMING_INTEGRATION_HANDOFF.md |
+| N06 CLAP + beta packaging | CLAP via clap-juce-extensions (pinned commit), single-source `VERSION`, `beta-release.yml`, `tools/package/` | `VersionTests` (local, core); CLAP build, ctest per platform, clap-validator verdict and packaging only run in CI | CI run of `beta-release.yml` (see docs/beta/RELEASE-PROCESS.md); CLAP host load, install on clean machines, DAW and listening tests not done |
 
 ## Current verification and next actions (2026-10-13)
 
