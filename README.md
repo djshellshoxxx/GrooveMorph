@@ -1,6 +1,6 @@
 # GrooveMorph
 
-GrooveMorph is a phrase-aware rhythmic audio effect. The integrated MVP provides four editable variations, five rhythmic transformations and selectable musical/sample timing.
+GrooveMorph is an alpha-stage phrase-aware rhythmic audio effect. The integrated MVP provides four editable variations, five rhythmic transformations and selectable musical/sample timing.
 
 ## Current approved direction
 
