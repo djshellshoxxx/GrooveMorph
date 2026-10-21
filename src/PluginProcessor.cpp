@@ -177,7 +177,12 @@ GrooveMorphAudioProcessor::createParameterLayout()
         sliceRange.setSkewForCentre(1.0f); // 1 (no change) sits mid-travel
         layout.add(std::make_unique<juce::AudioParameterFloat>(
             juce::ParameterID{juce::String(core::control::operationTrimId(op, TrimKind::Slice)), 1},
-            juce::String(core::control::operationTrimName(op, TrimKind::Slice)), sliceRange, 1.0f));
+            juce::String(core::control::operationTrimName(op, TrimKind::Slice)), sliceRange, 1.0f,
+            // Three decimals: the default seven-digit text of a skewed range does not survive value -> text ->
+            // value -> text (clap-validator param-conversions), so hosts saw a different string after editing.
+            juce::AudioParameterFloatAttributes()
+                .withStringFromValueFunction([](float v, int) { return juce::String(v, 3); })
+                .withValueFromStringFunction([](const juce::String& t) { return t.getFloatValue(); })));
     }
     // N05 Chaos macro: 0 = the scene exactly as stored; higher = a busier sounding scene (never stored).
     layout.add(std::make_unique<juce::AudioParameterFloat>(

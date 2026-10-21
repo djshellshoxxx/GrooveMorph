@@ -106,6 +106,8 @@ jobs:
     needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    permissions:
+      contents: write   # only used by the per-platform publish step, which runs when publishing was requested
     strategy:
       fail-fast: false
       matrix:
@@ -203,6 +205,33 @@ jobs:
             dist/*.status.txt
           if-no-files-found: error
           retention-days: 30
+
+      # Each platform is attached to the prerelease as soon as its own build, tests and packaging succeed,
+      # without waiting for the other legs. The final `release` job below still adds SHA256SUMS and the full notes.
+      - name: Publish this platform to the prerelease
+        if: needs.prepare.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -uo pipefail
+          title="GrooveMorph ${VERSION} (Beta)"
+          notes="BETA prerelease. Packages are attached as each platform finishes; the full notes and SHA256SUMS are added when all four are done. Build run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          files=("dist/GrooveMorph-${VERSION}-${PLATFORM}.zip" "dist/GrooveMorph-${VERSION}-${PLATFORM}.zip.sha256")
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber && { ok=1; break; }
+            else
+              gh release create "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+                --prerelease --latest=false --title "$title" --notes "$notes" && { ok=1; break; }
+            fi
+            sleep $((attempt * 5))   # legs can race to create the release; the loser retries as an upload
+          done
+          test "$ok" = 1
 
       - name: Upload logs
         if: always()

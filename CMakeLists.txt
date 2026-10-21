@@ -180,15 +180,39 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         target_link_libraries(GrooveMorphAudioSmokeTests PRIVATE GrooveMorphPlugin)
         add_test(NAME GrooveMorphAudioSmokeTests COMMAND GrooveMorphAudioSmokeTests)
 
+        # Randomized fuzz/stress run through the real processor. CTest runs a short smoke (3 rounds);
+        # run GrooveMorphFuzzTests <rounds> <firstSeed> <seconds> directly for a long soak.
+        add_executable(GrooveMorphFuzzTests tests/FuzzStressTests.cpp)
+        target_include_directories(GrooveMorphFuzzTests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            $<TARGET_PROPERTY:GrooveMorphPlugin,INCLUDE_DIRECTORIES>
+        )
+        target_compile_definitions(GrooveMorphFuzzTests PRIVATE
+            $<TARGET_PROPERTY:GrooveMorphPlugin,COMPILE_DEFINITIONS>
+        )
+        target_link_libraries(GrooveMorphFuzzTests PRIVATE GrooveMorphPlugin)
+        add_test(NAME GrooveMorphFuzzTests COMMAND GrooveMorphFuzzTests 3 1 4)
+
+        # Randomized UI exerciser (needs a display; run under xvfb-run). Not a CTest.
+        add_executable(GrooveMorphUiFuzzTests tests/UiFuzzTests.cpp)
+        target_include_directories(GrooveMorphUiFuzzTests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            $<TARGET_PROPERTY:GrooveMorphPlugin,INCLUDE_DIRECTORIES>
+        )
+        target_compile_definitions(GrooveMorphUiFuzzTests PRIVATE
+            $<TARGET_PROPERTY:GrooveMorphPlugin,COMPILE_DEFINITIONS>
+        )
+        target_link_libraries(GrooveMorphUiFuzzTests PRIVATE GrooveMorphPlugin)
+
         # The processor tests hold several multi-megabyte processors by value in main(). MSVC (above) and
         # Apple's linker default to smaller main-thread stacks than the frames need (a Bus error on macOS),
         # so give every processor test a 64 MiB main-thread stack. Test executables only.
         if(APPLE)
-            foreach(gm_stack_test GrooveMorphPluginTests GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests)
+            foreach(gm_stack_test GrooveMorphPluginTests GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests GrooveMorphFuzzTests GrooveMorphUiFuzzTests)
                 target_link_options(${gm_stack_test} PRIVATE -Wl,-stack_size,0x4000000)
             endforeach()
         elseif(MSVC)
-            foreach(gm_stack_test GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests)
+            foreach(gm_stack_test GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests GrooveMorphFuzzTests GrooveMorphUiFuzzTests)
                 target_link_options(${gm_stack_test} PRIVATE /STACK:67108864)
             endforeach()
         endif()
