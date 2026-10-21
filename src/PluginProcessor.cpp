@@ -2334,7 +2334,8 @@ void GrooveMorphAudioProcessor::updateGesture()
     }
     // The host is called without holding gestureMutex (a host may save state from this notification).
     // Playback is a stream of plugin-driven values, not a user touch, so it is not a change gesture.
-    if (playbackValue >= 0.0f)
+    // F11-T06: skip writes that would not move the parameter by more than 1/512.
+    if (playbackValue >= 0.0f && core::control::GestureLane::worthWriting(target->getValue(), playbackValue))
         target->setValueNotifyingHost(playbackValue);
 }
 

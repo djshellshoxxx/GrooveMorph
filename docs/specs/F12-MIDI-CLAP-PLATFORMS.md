@@ -1,8 +1,16 @@
 # F12 MIDI control, plugin formats and platforms
 
-Status: PARTIALLY IMPLEMENTED (MIDI control, VST3 + Standalone), spec COMPLETE with W9 and W10 targets. Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED (MIDI control, VST3 + Standalone + CLAP build path). CLAP is IN scope for the beta (N06); it is built and validator-checked in CI only and has never been loaded in a CLAP host (TODO B-01, B-11). Updated 2026-10-20 by the A1 completeness audit.
 Replaces draft `docs/expansion/features/F12-MIDI-CLAP-PLATFORMS.md` (PR #6). Related: [A04](A04-MIDI-CONFLICT-POLICY.md), [A06](A06-AUTOMATION-IDS-AND-FADE.md),
 [N06](N06-CLAP-AND-RELEASE.md).
+
+
+## Beta audit status (2026-10-20)
+
+- Section 2.2 below describes the alpha: the beta adds `GROOVEMORPH_ENABLE_CLAP` (default ON), macOS arm64 and Intel, Linux, and `.github/workflows/beta-release.yml` (N06).
+- Built: A04 note swap dialog and learn fixes (W10-MIDI-ASSIGN), A06 operation trims (W10-OP-TRIMS), panic and rates (W10-MIDI-PANIC-RATES).
+- Open: CC 20/21/22 versus link conflicts and the shared-CC description (A04-T07..T09, B-05), soft pickup (F12-T11, B-05), host automation QA (F12-T13, B-01).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -24,7 +32,7 @@ Control GrooveMorph from MIDI and automation reliably, and ship the same DSP cor
 ### 2.2 Formats and platforms
 Formats `VST3 Standalone` (`CMakeLists.txt`). Windows x64 and Linux x86_64 artifacts and a macOS arm64 + Intel alpha workflow exist (`.github/workflows/windows-alpha.yml`,
 `macos-alpha.yml`, `build.yml`); CI runs headless pluginval (strictness 5) on Windows/Linux (`pluginval.yml`). Version `0.1.0`, manufacturer code `Djsl`, plugin code `Gm01`.
-CLAP is not built. Standalone ignores the wrapper's transport and free-runs the Sample Clock (see TIMING help). State is shared across formats because `getStateInformation`
+CLAP was not built in the alpha; the beta adds it (see the status block above and N06). Standalone ignores the wrapper's transport and free-runs the Sample Clock (see TIMING help). State is shared across formats because `getStateInformation`
 is format independent.
 
 ## 3. Parameters
@@ -59,13 +67,13 @@ badge overlay shows linked controls and the learning state. Input tab: "MIDI mac
 | F12-T04 | Processor learn: first moving CC is linked, old movement ignored, linked CC drives the parameter | EXISTS | `tests/PluginProcessorTests.cpp` "learning", "old movement does not complete learning", "first moving controller is linked" |
 | F12-T05 | Macros and program change | EXISTS | PluginProcessorTests "CC 20 sets intensity", "program change selects a scene" |
 | F12-T06 | MIDI sub-block timing and PPQ independence | EXISTS | PluginProcessorTests "midi immediate at offset", "MIDI sub-block PPQ switch at actual bar" |
-| F12-T07 | State survives format change: a state saved by the VST3 wrapper loads in Standalone and CLAP | MISSING, owned by W9 | CLAP smoke + state fixture |
-| F12-T08 | CLAP build: exposes the same parameter IDs and state; passes clap-validator | MISSING, owned by W9 | see N06 |
-| F12-T09 | Stable host-automation IDs for per-operation scene fields (A06) | MISSING, owned by W10 | see A06 |
-| F12-T10 | MIDI duplicate-assignment policy (A04) incl. CC link conflicts and note/CC overlap | MISSING, owned by W10 | see A04 |
-| F12-T11 | Soft pickup option for CC links (target 8) | MISSING (feature absent) | deferred unless W10 adds it |
+| F12-T07 | State survives format change: a state saved by the VST3 wrapper loads in Standalone and CLAP | MANUAL | A state saved by VST3 loading in Standalone and CLAP needs a CLAP host (B-01, B-11). |
+| F12-T08 | CLAP build: exposes the same parameter IDs and state; passes clap-validator | CHECKED | `CMakeLists.txt` "GrooveMorphPlugin_CLAP"; `run-clap-validator.sh` "clap-validator" CLAP target and clap-validator step are defined in CMake and the beta workflow; no CI run has been read by this audit (B-11). |
+| F12-T09 | Stable host-automation IDs for per-operation scene fields (A06) | EXISTS | `PluginProcessorTests.cpp` "A06-06 a trim exists for every operation and kind"; `OperationTrimsTests.cpp` "A06-01 ids unique over 16 operations" |
+| F12-T10 | MIDI duplicate-assignment policy (A04) incl. CC link conflicts and note/CC overlap | PARTIAL | `MidiNoteAssignTests.cpp` "A04-03 swap"; `MidiLinksTests.cpp` "A04-07 full" Note swap/cancel and learn conflicts are tested; CC 20/21/22 versus links and shared-CC description are not built (A04-T07..T09, B-05). |
+| F12-T11 | Soft pickup option for CC links (target 8) | DEFERRED | Soft pickup for CC links is not built. Open as TODO B-05. |
 | F12-T12 | pluginval strictness 5 on VST3 after every parameter addition | EXISTS in CI (workflow) | `.github/workflows/pluginval.yml`; not a local test |
-| F12-T13 | Native host automation write/read of every parameter (REAPER on Windows/Linux/macOS) | MISSING, requires native host QA (issue #19) | manual QA ledger |
+| F12-T13 | Native host automation write/read of every parameter (REAPER on Windows/Linux/macOS) | MANUAL | Native host automation write/read in REAPER on Windows, Linux and macOS (issue #19, B-01). |
 
 ## 8. Gaps and targets
 

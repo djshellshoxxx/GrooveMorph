@@ -21,6 +21,16 @@ public:
     // Interpolated value at the phrase position (wrapping between the nearest recorded bins);
     // negative when nothing has been recorded.
     [[nodiscard]] float sample(double phraseFraction) const noexcept;
+    // F11-T06: playback writes the host parameter only when the sampled value moved by more than 1/512 of
+    // the range, so a host in write mode is not flooded with identical automation points. Negative
+    // (nothing recorded) and non-finite samples are never written.
+    [[nodiscard]] static bool worthWriting(float currentNormalised, float sampled) noexcept
+    {
+        if (!(sampled >= 0.0f && sampled <= 1.0f && currentNormalised >= 0.0f && currentNormalised <= 1.0f))
+            return false; // also rejects NaN
+        const float delta = sampled > currentNormalised ? sampled - currentNormalised : currentNormalised - sampled;
+        return delta > 1.0f / 512.0f;
+    }
 
     // Text form for project state: space-separated "bin:value" pairs of the recorded bins.
     [[nodiscard]] std::string serialize() const;

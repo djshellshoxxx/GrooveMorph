@@ -1,8 +1,15 @@
 # F04 Live performance mode
 
-Status: IMPLEMENTED (Perform tab and MIDI macros), spec COMPLETE with W10 targets. Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED (Perform tab, MIDI macros, scene keyboard shortcuts). Beta audit: layout and thread-assert rows open. Updated 2026-10-20 by the A1 completeness audit.
 Replaces draft `docs/expansion/features/F04-PERFORMANCE-MODE.md` (PR #6). The draft's priority queue, Hold Fill and Return to Base
 are replaced by the existing Scheduler plus C05 automatic return (section 7).
+
+
+## Beta audit status (2026-10-20)
+
+- Built by the audit: keys 1-4 (request scene), T (fire queued switch), Esc (cancel queued switch) in `PluginEditor::keyPressed`, with Space unchanged and modifier chords ignored. Compiled in CI only; not typed in a real window (B-01).
+- Open: dedicated large-format layout (F04-T08, manual), macro-path thread-assert test (F04-T09, B-02).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -57,9 +64,9 @@ Main editor: scene row, queued/sounding indicators, MIDI note per scene, "return
 | F04-T04 | Macros off by default; CC 20/21/22 and program change behave when on | EXISTS | PluginProcessorTests "macros off by default: CC and program change ignored", "CC 20 sets intensity", "CC 22 sets morph amount", "program change selects a scene" |
 | F04-T05 | Bypass reaches exact dry and ramps click-free | EXISTS | PluginProcessorTests "bypass reaches exact dry", "bypass ramps", "bypass click-free" |
 | F04-T06 | Learnable links (learn, relink, bounds, serialization) | EXISTS | `tests/core/MidiLinksTests.cpp` (all cases); processor cases "learning", "first moving controller is linked" |
-| F04-T07 | Scene keyboard shortcuts (target section 8): keys 1-4 request scenes A-D, Esc cancels queued switch, T triggers | MISSING, owned by W10 | `tests/PluginProcessorTests.cpp` editor section |
-| F04-T08 | Large-format layout renders without clipping at 1230x700 minimum | MISSING (needs native UI run) | manual QA item |
-| F04-T09 | Macro CC application never calls the host from the audio thread | MISSING, owned by W10 | thread-assert test |
+| F04-T07 | Scene keyboard shortcuts (target section 8): keys 1-4 request scenes A-D, Esc cancels queued switch, T triggers | MANUAL | `PluginEditor.cpp` "audioProcessor.triggerManualSwitch();" Keys 1-4, T and Esc implemented in PluginEditor::keyPressed by the A1 audit; compiled in CI only and not typed in a real window (B-01). |
+| F04-T08 | Large-format layout renders without clipping at 1230x700 minimum | MANUAL | Layout at the 1230x700 minimum needs a native UI run (B-01). |
+| F04-T09 | Macro CC application never calls the host from the audio thread | DEFERRED | The macro path writes parameters from the message-thread timer, not from the audio thread, by design (DECISIONS: plugin-originated writes are bracketed with begin/endChangeGesture); no thread-assert test. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
 
 ## 8. Gaps and targets
 

@@ -5,15 +5,19 @@
 **Repository:** [djshellshoxxx/GrooveMorph](https://github.com/djshellshoxxx/GrooveMorph) — current source inspected at main 61d5156 on 2026-10-13; runtime 7f2784a is integrated.
 **Name:** Working name; branding and product name remain open.
 
-## Current implementation overlay (2026-10-13)
+## Current implementation overlay (2026-10-20, beta)
 
 This document retains requirements, future designs and original research history;
 it is not a claim that every described capability is implemented. Main delivers
-four editable operation-setting variations, five bounded-history effects, one
+four editable operation-setting variations, seven bounded-history effects (the
+original five plus Filter Sweep and Bit Crush, so `operationCount` is 7), one
 Scheduler, selectable Automatic/Host PPQ/Sample Clock, MIDI input, scene undo,
-audition/compare, host state and VST3/Standalone builds. Windows/Linux builds,
-portable sanitizers and Windows startup passed at 7f2784a. DAW/device/performance
-acceptance remains unverified. See [TODO](TODO.md), [feature audit](feature-audit/FEATURE_AUDIT_2026-10-13.md)
+audition/compare, presets, Euclid and chance, Print to WAV, Easy mode, host state
+and VST3, Standalone and CLAP build targets. CLAP is built and validator-checked in CI
+only and has never been loaded in a CLAP host. Native DAW/device/performance
+acceptance (issue #19) remains unverified. See [TODO](TODO.md), the generated
+[completeness matrix](specs/COMPLETENESS-MATRIX.md), the older
+[feature audit](feature-audit/FEATURE_AUDIT_2026-10-13.md)
 and [timing contract/evidence](TIMING_INTEGRATION_HANDOFF.md).
 
 FR-001/002 remain partial: phrase origin/subdivision authoring and event lanes are
@@ -24,14 +28,15 @@ not global APVTS controls. No external preset-bank browser is delivered.
 
 Later lane/event/model/parameter examples below are target designs, not frozen
 public interfaces or shipped IDs. Preserve actual IDs in PluginProcessor.h.
-F01–F12 expansion direction is approved, but PR #6 technical specs remain drafts;
-PR #9 is only an unmerged planner core with a Linux compilation blocker. Do not
-mark proposals complete or remove unmet requirements just to match current code.
+F01–F12 and N01-N06 are merged on the beta branch with audited statuses in each
+spec; open items are listed in [the matrix](specs/COMPLETENESS-MATRIX.md) and
+[TODO](TODO.md). Do not mark proposals complete or remove unmet requirements just
+to match current code.
 Original source-access dates and provisional numeric targets remain unchanged.
 
 ## 1. Project inputs and critical unknowns
 
-GrooveMorph is proposed as a real-time rhythmic audio effect with a standalone test application. It is intended for electronic music producers, DJs, beatmakers, sound designers, and performers. The product premise is that users work with musical phrases, named variations, and transitions, rather than only drawing one effect lane or choosing a preset. The research brief initially treated Windows, Linux, VST3, CLAP, and standalone as provisional targets. A later repository decision approved C++20, JUCE, CMake, VST3, and JUCE Standalone for the current spike, with CLAP deferred; see the repository decision overlay below.
+GrooveMorph is proposed as a real-time rhythmic audio effect with a standalone test application. It is intended for electronic music producers, DJs, beatmakers, sound designers, and performers. The product premise is that users work with musical phrases, named variations, and transitions, rather than only drawing one effect lane or choosing a preset. The research brief initially treated Windows, Linux, VST3, CLAP, and standalone as provisional targets. A later repository decision approved C++20, JUCE, CMake, VST3, and JUCE Standalone for the current spike. CLAP was added to the beta scope (N06) through clap-juce-extensions; see the overlay above.
 
 The product owner has not decided supported DAWs/versions, capture duration, acceptable latency, whether pitch-preserving stretch is needed, exact trigger sources, multiband/random features, or reusable-scene file behavior. These affect architecture and release scope. Recommendations below make each choice explicit and keep irreversible commitments out of the MVP.
 
@@ -48,7 +53,7 @@ The repository records the following decisions as approved for the current engin
 
 - Build system and framework: CMake + JUCE.
 - Current deliverables: VST3 and JUCE Standalone, for Windows x64 and Linux x86_64.
-- CLAP is deferred unless the owner explicitly requests it after M0 validation.
+- CLAP is in scope for the beta (N06, `GROOVEMORPH_ENABLE_CLAP`). It is built and validator-checked in CI only; no CLAP host has loaded it yet.
 - Reference hosts: REAPER on Windows x64 and Linux x86_64.
 - MVP: phrase variations and transition policy using bounded short-window rhythmic operations. Full phrase capture and pitch-preserving stretch remain out of scope.
 - The M0 spike must validate build, host load, state/parameter behavior, low-latency constraints, and bounded operation feasibility before broader implementation.
@@ -63,7 +68,7 @@ This MVP tests the distinctive hypothesis: **a musician can make, compare, and p
 
 **Critical engineering constraint:** long phrase capture, reverse, and time manipulation require access to past samples and therefore latency, buffering, or a non-live render model. Plugin delay compensation cannot make monitoring latency disappear. Keep the first release low-latency by operating on bounded short slices and musical timing metadata; offer full captured-phrase playback later only with an explicit, measurable latency mode and host-tested reporting. Do not imply that beats/transients can be inferred reliably for all material.
 
-**Recommended stack (current repository approval):** C++20, CMake, and JUCE for the shared processor/UI and VST3/standalone, subject to the M0 build and target-host checks. CLAP remains deferred unless the owner reopens it; if reopened, validate the selected JUCE version/adapter against the CLAP validator and target hosts. CLAP has a stable C ABI and first-party SDK, but the JUCE CLAP extension research surfaced official-roadmap statements and a separately maintained community adapter; do not assume equivalent host-format support across JUCE versions. If the adapter is unacceptable, compare iPlug2 and a native CLAP wrapper before locking the stack. Use REAPER on Windows and Linux as the first reference host because its current documentation lists VST3 and CLAP on both systems. Add other hosts based on owner usage.
+**Recommended stack (current repository approval):** C++20, CMake, and JUCE for the shared processor/UI and VST3/standalone, subject to the M0 build and target-host checks. CLAP is now built through clap-juce-extensions (beta, N06); validate the adapter against the CLAP validator and target hosts, which has not yet been done in a real host. CLAP has a stable C ABI and first-party SDK, but the JUCE CLAP extension research surfaced official-roadmap statements and a separately maintained community adapter; do not assume equivalent host-format support across JUCE versions. If the adapter is unacceptable, compare iPlug2 and a native CLAP wrapper before locking the stack. Use REAPER on Windows and Linux as the first reference host because its current documentation lists VST3 and CLAP on both systems. Add other hosts based on owner usage.
 
 ### Recommended release boundary
 
@@ -206,7 +211,7 @@ Targets below are **proposed acceptance targets**, not externally established st
 | GM-QR-009 | State recovery | Corrupt/unknown state loads safe defaults without crash; save/load round trip preserves model and stable parameter IDs. |
 | GM-QR-010 | Accessibility | Keyboard reachable controls and focus order; visible focus; labels/value text; status never color-only; UI remains legible at minimum supported size and 100–200% OS scaling. |
 | GM-QR-011 | Portability | Core DSP and model compile without JUCE UI or OS headers; platform adapters limited to plugin/standalone, file paths, audio device APIs and GUI. |
-| GM-QR-012 | Privacy/security | No network sockets, analytics, telemetry, account, or audio export in MVP; dependency inventory and license notices generated at release. |
+| GM-QR-012 | Privacy/security | No network sockets, analytics, telemetry or account. Audio leaves the plug-in only through the user-initiated Print to WAV feature (N04), which writes one file to a folder the user picks; no other audio export; dependency inventory and license notices generated at release. |
 
 The proposed numeric CPU, memory, click and timing criteria require a benchmark spike and owner acceptance. They are targets, not claims of achieved performance.
 
@@ -219,7 +224,7 @@ The proposed numeric CPU, memory, click and timing criteria require a benchmark 
 | Windows x64 | Provisional MVP | Pick supported Windows baseline after JUCE/build tool and host matrix validation; MSVC toolset and runtime packaging pinned in build docs. |
 | Linux x86_64 | Provisional MVP | Pick distribution baseline (recommend current Ubuntu LTS for CI and REAPER; test at least one additional mainstream distro before broad claim); document glibc/runtime and audio backend requirements. |
 | VST3 | Recommended | Use Steinberg SDK current stable release or verified JUCE wrapper; test validator and REAPER. VST3 SDK is documented as MIT-licensed and Linux build steps are documented by Steinberg. |
-| CLAP | Deferred | Excluded from current M0/MVP build unless the owner explicitly reopens the decision; retain the portable core boundary so a later adapter remains possible. |
+| CLAP | In beta scope (N06) | Built with clap-juce-extensions behind `GROOVEMORPH_ENABLE_CLAP` (default ON). CI builds and validates it; never loaded in a real CLAP host (TODO B-01, B-11). |
 | Standalone | Recommended harness | JUCE audio-device host or equivalent; same core processor; simulated host transport, MIDI input, audio input and test vectors. |
 | macOS/AU/AAX | Open/deferred | Revisit after owner selects audience, signing budget, build environment and format obligations. |
 
@@ -248,7 +253,7 @@ Start with REAPER on Windows and Linux as it publicly documents VST3 and CLAP su
 
 ### Dependency direction
 
-`CoreModel` and `DSP` depend only on the standard library and explicitly approved portable DSP code. `PluginAdapters` map VST3 host contracts into core events and parameters; a CLAP adapter is a later optional extension if approved. `StandaloneHost` maps audio devices and simulated transport/MIDI. `UI` talks to an application/controller interface and bounded queues; it never calls DSP internals from its message thread. `AnalysisWorker` receives copied snapshots and emits suggestions; DSP does not depend on the analyzer.
+`CoreModel` and `DSP` depend only on the standard library and explicitly approved portable DSP code. `PluginAdapters` map VST3 host contracts into core events and parameters; the CLAP adapter (beta) is generated by clap-juce-extensions from the same processor. `StandaloneHost` maps audio devices and simulated transport/MIDI. `UI` talks to an application/controller interface and bounded queues; it never calls DSP internals from its message thread. `AnalysisWorker` receives copied snapshots and emits suggestions; DSP does not depend on the analyzer.
 
 ```mermaid
 flowchart TD
@@ -277,7 +282,7 @@ flowchart TD
 | GM-MOD-07 StateCodec | Versioned encoding/decoding for parameters and scenes; no external assets in MVP. | Called outside real-time process; bounded input size, schema validation. Invalid state yields defaults + diagnostic. Fuzz/round-trip tests. Portable. |
 | GM-MOD-08 CommandBridge | Bounded producer-consumer transport for UI edits, analysis suggestions, audio-thread status. | Explicit SPSC or bounded MPSC policy; avoid shared mutable scene graphs. Queue-full behavior defined. Concurrency stress tests. Portable core with adapter as needed. |
 | GM-MOD-09 AnalysisWorker (P1) | Analyze bounded copied audio snapshots; estimate transient candidates/grid confidence. | Worker owns FFT/window scratch; never blocks process callback. Stale/cancelled result discarded by generation ID. Offline labeled corpus tests. |
-| GM-MOD-10 PluginAdapters | VST3 lifecycle, ports, parameters, transport, MIDI, state, latency/tail, GUI handoff; CLAP adapter deferred. | Framework/API-specific; delegates all DSP. Unsupported host data maps to absent optional fields. Format validator + host matrix. |
+| GM-MOD-10 PluginAdapters | VST3 lifecycle, ports, parameters, transport, MIDI, state, latency/tail, GUI handoff; CLAP adapter via clap-juce-extensions (beta). | Framework/API-specific; delegates all DSP. Unsupported host data maps to absent optional fields. Format validator + host matrix. |
 | GM-MOD-11 StandaloneHost | Audio device setup, host-context simulator, input/test signals, diagnostics and shared processor. | Platform audio backend boundary. Device failure shown; no effect on plugin targets. Device/API tests. |
 | GM-MOD-12 UserInterface | Quick mode and detail editor; scene lanes, grid, status, trigger mapping, undo/compare. | Message thread only; reads snapshots and submits commands. Stale data tolerated; status shows unavailable. UI automation/accessibility checks. |
 
@@ -370,8 +375,8 @@ Accessibility: keyboard navigation and labels, screen-readable parameter names/v
 2. **Deterministic DSP:** impulse, silence, DC, sine sweep, white noise, drum transient and bass fixtures; verify dry path, timing, ring wrap, reverse window, repeat lengths, bounded peak, denormal handling, discontinuity and reset.
 3. **Property/fuzz:** random valid/invalid scenes, parameter events, transport jumps, malformed state, extreme tempos/sample rates/block sizes. Assert no out-of-bounds, unbounded work, NaN/Inf output or crash.
 4. **Concurrency:** UI edits while audio runs, rapid scene switching, queue full, preset load at lifecycle boundary, analyzer cancellation. Thread sanitizer where available; no races in model handoff.
-5. **Format validation:** VST3 validator/host scan and JUCE Standalone launch; parameter metadata, state, audio port, latency and lifecycle checks. Run CLAP validation only if that deferred target is approved.
-6. **Host matrix:** REAPER Windows/Linux VST3; JUCE Standalone on both; subsequent hosts selected by owner. CLAP remains deferred. Test transport start/stop/seek/loop/tempo ramp/meter change, PDC, MIDI, automation, bypass, mono/stereo, save/reopen, repeated instance, suspend/resume, sample-rate/block-size changes.
+5. **Format validation:** VST3 validator/host scan and JUCE Standalone launch; parameter metadata, state, audio port, latency and lifecycle checks. Run CLAP validation as well (beta scope).
+6. **Host matrix:** REAPER Windows/Linux VST3; JUCE Standalone on both; subsequent hosts selected by owner. CLAP is in beta scope but has no host result yet. Test transport start/stop/seek/loop/tempo ramp/meter change, PDC, MIDI, automation, bypass, mono/stereo, save/reopen, repeated instance, suspend/resume, sample-rate/block-size changes.
 7. **Performance:** CPU and memory profile worst-scene complexity at 44.1/48/96 kHz and 64/128/512/1024 samples; record machine and host details; 24-hour stress test before beta.
 8. **UI/accessibility:** keyboard-only core tasks, scaling, minimum window size, state/disabled/error text, non-color cues, screenshots and user task test.
 9. **Release integrity:** clean-machine install/uninstall, plugin scan path, signatures/checksums, dependency/license notices, version metadata, upgrade-over-prior-beta and rollback instructions.
@@ -388,7 +393,7 @@ Accessibility: keyboard navigation and labels, screen-readable parameter names/v
 ## 15. Build, packaging, support and release
 
 - CMake presets for Windows/Linux and plugin formats; pin compiler, SDK, framework, adapter commits and build options.
-- Separate targets: portable core tests, VST3, and JUCE Standalone. CLAP is deferred by the approved repository decision.
+- Separate targets: portable core tests, VST3, and JUCE Standalone. CLAP is in beta scope (N06).
 - CI: Linux and Windows build + unit/DSP tests; format validators; artifact checks; optional sanitizer jobs; license inventory. Build failures block release.
 - Package native formats using documented platform locations; do not bundle host-provided runtimes unless required. Windows installer should be signed if distribution is public and signing is feasible. Linux release should include tested package/archive, dependencies and install/uninstall steps.
 - Version product and state schema independently. Beta release notes list supported OS/format/host versions and known limitations, especially latency and host trigger gaps.
@@ -397,13 +402,13 @@ Accessibility: keyboard navigation and labels, screen-readable parameter names/v
 
 ### Beta release acceptance
 
-All P0 requirements pass; no known crash/corruption/high-severity audio-thread defect; VST3 validation and target hosts pass (CLAP is deferred); state recall and automation work; performance thresholds are measured; latency is reported truthfully; documented OS/host matrix exists; license inventory approved; install/uninstall verified on clean machines; owner approves release scope and known limitations.
+All P0 requirements pass; no known crash/corruption/high-severity audio-thread defect; VST3 validation and target hosts pass (CLAP is in beta scope; host result still missing); state recall and automation work; performance thresholds are measured; latency is reported truthfully; documented OS/host matrix exists; license inventory approved; install/uninstall verified on clean machines; owner approves release scope and known limitations.
 
 ## 16. Incremental implementation plan (planning only)
 
 | Milestone | Output and exit criteria | Principal risk |
 |---|---|---|
-| M0 — stack validation | Build portable core tests, VST3 and JUCE Standalone; validate REAPER Windows/Linux loading, parameters/state, transport fallback, latency and real-time constraints. CLAP remains deferred. | Local toolchain and target-host access; JUCE license terms. |
+| M0 — stack validation | Build portable core tests, VST3 and JUCE Standalone; validate REAPER Windows/Linux loading, parameters/state, transport fallback, latency and real-time constraints. CLAP is added for the beta (N06). | Local toolchain and target-host access; JUCE license terms. |
 | M1 — deterministic core | CoreModel, PhraseClock, Scheduler, tests; no UI or effect suite. Demonstrate stable timing at tempo/seek/block fixtures. | Host context differences. |
 | M2 — safe audio skeleton | Stereo pass-through, fixed history, dry/wet, bypass, zero/known latency, real-time audit, audio tests. | Latency/click behavior. |
 | M3 — first transformation | Stutter/repeat and gate, followed by bounded reverse slice and rate curve; deterministic tests and measured CPU. | Slice boundaries/artifacts. |
@@ -432,7 +437,7 @@ Implementation should stop and revise the spec if the M0 spike disproves stack v
 | ID | Decision needed | Recommendation / impact | Gate |
 |---|---|---|---|
 | GM-DEC-01 | Exact Windows/Linux versions and architectures | Windows x64 + Linux x86_64 first; pick supported baseline from actual audience and CI availability. | M0 |
-| GM-DEC-02 | Plugin formats and reference DAWs | Approved: VST3 + JUCE Standalone; CLAP deferred unless reopened by owner. REAPER Windows/Linux first; add owner’s DAWs. | M0 |
+| GM-DEC-02 | Plugin formats and reference DAWs | Approved: VST3 + JUCE Standalone; CLAP added to the beta scope (N06). REAPER Windows/Linux first; add owner’s DAWs. | M0 |
 | GM-DEC-03 | Phrase capture requirement and max duration | Defer full audio capture; use timing grid plus bounded look-behind in MVP. Capture introduces memory and latency consequences. | Before M2/M3 |
 | GM-DEC-04 | Timing source precedence | Host position/tempo → configured manual values → explicit free-run; analyzer suggestions never override. | M1 |
 | GM-DEC-05 | Pitch-preserving stretching | Defer; MVP rate changes may alter pitch and must disclose that behavior. | Before rate-ramp release |
@@ -448,7 +453,7 @@ Implementation should stop and revise the spec if the M0 spike disproves stack v
 | ID | Risk | Mitigation / trigger |
 |---|---|---|
 | GM-RSK-01 | Phrase buffer creates monitoring latency or PDC instability | Keep full capture out of MVP; prove every latency-affecting mode in hosts before design freeze. |
-| GM-RSK-02 | JUCE-to-CLAP adapter lags or loses format-specific behavior | CLAP is deferred; if reopened, pin and test its adapter while retaining the independent core boundary. |
+| GM-RSK-02 | JUCE-to-CLAP adapter lags or loses format-specific behavior | CLAP is in beta scope; the adapter is pinned in CMake and only CI-validated so far (TODO B-11). The independent core boundary is retained. |
 | GM-RSK-03 | Tempo/transient analysis is wrong on ambiguous material | Confidence and user correction; never auto-commit uncertain grid. |
 | GM-RSK-04 | Host transport context is missing/inconsistent | Optional-field model and manual fallback; host matrix. |
 | GM-RSK-05 | Clicks during event or tempo changes | Operation-specific edge policies, bounded transitions and listening/measurement tests. |
@@ -492,13 +497,13 @@ Primary documentation used for current format/framework/product claims:
 17. Dixon, **Automatic Extraction of Tempo and Beat From Expressive Performances**, Journal of New Music Research 30(1), 39–58, 2001: https://doi.org/10.1076/jnmr.30.1.39.7119.
 18. Driedger & Müller, **A Review of Time-Scale Modification of Music Signals**, Applied Sciences 6(2), 57–82, 2016: https://doi.org/10.3390/app6020057 (algorithm selection background; confirm preferred method with listening/performance tests).
 
-Evidence limitations: product pages document marketed features, not exhaustive feature parity; exact host/version support must be checked at release. JUCE current public feature summary does not list CLAP; if the owner reopens that target, CLAP-JUCE support must be verified against the pinned JUCE release and adapter. The cited onset, beat-tracking and time-scale-modification papers support method selection context; algorithm choice still requires implementation-specific listening and performance tests. The repository was inspected through GitHub on 2026-10-10; its approved M0 direction is summarized above. The working tree and build environment were not available in that earlier research pass.
+Evidence limitations: product pages document marketed features, not exhaustive feature parity; exact host/version support must be checked at release. JUCE current public feature summary does not list CLAP; CLAP-JUCE support must be verified against the pinned JUCE release and adapter. The cited onset, beat-tracking and time-scale-modification papers support method selection context; algorithm choice still requires implementation-specific listening and performance tests. The repository was inspected through GitHub on 2026-10-10; its approved M0 direction is summarized above. The working tree and build environment were not available in that earlier research pass.
 
 ## 21. Final specification audit
 
 - **Coverage:** requirements, user journeys, audio behavior, architecture, modules, data/state, UI, integrations, platform constraints, security/privacy/accessibility, testing, release, milestones, traceability, risks, decisions, glossary and sources are included.
 - **Testability:** all P0 requirements have observable acceptance criteria and verification methods. Proposed performance/audio numeric thresholds are marked provisional and require owner approval and benchmark validation.
-- **Consistency:** full phrase capture is not simultaneously promised as zero latency; it is deferred behind an explicit latency/capture decision. Host, manual and analysis timing have distinct precedence and missing-data behavior. CLAP is deferred by the current repository decision.
+- **Consistency:** full phrase capture is not simultaneously promised as zero latency; it is deferred behind an explicit latency/capture decision. Host, manual and analysis timing have distinct precedence and missing-data behavior. CLAP is in beta scope (N06).
 - **Real-time review:** audio-thread restrictions and thread ownership are specified; analysis, state parsing, file work and UI are outside the process callback.
 - **Remaining uncertainties:** exact target hosts/versions, owner hardware, capture duration and monitoring tolerance, JUCE license/business fit, stable JUCE CLAP route, acceptable quality/CPU tradeoffs, final scene-bank format, product license and name. This document is a research/specification artifact; the separate M0 engineering work is tracked in the repository.
 

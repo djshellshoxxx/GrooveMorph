@@ -1,8 +1,15 @@
 # F05 Phrase evolution
 
-Status: IMPLEMENTED (single scene), spec COMPLETE. Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED (single scene; step prepared on the message thread and applied on the audio thread at the phrase boundary, W3-TIMER-EVOLUTION). Beta audit: processor-level rows open (TODO B-02). Updated 2026-10-20 by the A1 completeness audit.
 Replaces draft `docs/expansion/features/F05-PHRASE-EVOLUTION.md` (PR #6); the draft's multi-cycle transition graph and lineage
 commit/rollback are NOT implemented and are listed as deferred.
+
+
+## Beta audit status (2026-10-20)
+
+- Built: evolution never edits the stored bank; settings (not the step counter) are saved with the project.
+- Open: processor tests for locks per step, audition suppression, not-the-sounding-scene and seek-back (F05-T06..T08, T10, B-02); multi-scene evolution and step preview are not built (F05-T09, B-06).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -57,11 +64,11 @@ Perform tab: "Phrase evolution (sounding only, never edits scenes)": "Evolve sce
 | F05-T03 | Evolution off restores the stored sound | EXISTS | PluginProcessorTests "evolution off" |
 | F05-T04 | Settings restore from a project; fresh processor has none | EXISTS | PluginProcessorTests "evolution restored", "a fresh processor has no evolution" |
 | F05-T05 | Sequence reproducible: same stored scene + settings + step gives identical candidate | EXISTS (via builder determinism) | CandidateBuilderTests "same inputs same candidate" |
-| F05-T06 | Locks respected by every step | MISSING (builder-level lock tests exist; no evolution-level test) | processor test |
-| F05-T07 | Auditioning a scene suppresses evolution for the preview | MISSING | processor test |
-| F05-T08 | Evolving scene is not the sounding scene: step still happens, no audio effect until the scene sounds | MISSING | processor test |
-| F05-T09 | Preview of upcoming steps | MISSING (feature absent) | deferred |
-| F05-T10 | Loop-aware cadence on seek: a seek backwards does not skip or double-fire steps | MISSING | processor test |
+| F05-T06 | Locks respected by every step | DEFERRED | Locks are asserted at builder level (CandidateBuilderTests F01-T04); evolution reuses buildCandidate. No evolution-level assertion. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
+| F05-T07 | Auditioning a scene suppresses evolution for the preview | DEFERRED | Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
+| F05-T08 | Evolving scene is not the sounding scene: step still happens, no audio effect until the scene sounds | DEFERRED | Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
+| F05-T09 | Preview of upcoming steps | DEFERRED | Preview of upcoming steps is not built. Open as TODO B-06. |
+| F05-T10 | Loop-aware cadence on seek: a seek backwards does not skip or double-fire steps | DEFERRED | Seek-back across a boundary is implemented by the W3 timer/plan design but not asserted. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
 
 ## 8. Gaps
 

@@ -1,8 +1,15 @@
 # F07 Audio-triggered scene actions
 
-Status: IMPLEMENTED (transient detector -> scene action), spec COMPLETE. Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED (transient detector to scene action). Beta audit: tuning on real material open (TODO B-07). Updated 2026-10-20 by the A1 completeness audit.
 Replaces draft `docs/expansion/features/F07-AUDIO-TRIGGERS.md` (PR #6). Sidechain input, per-band detection and calibrated confidence from the
 draft are NOT implemented (section 8).
+
+
+## Beta audit status (2026-10-20)
+
+- Added by the audit: sensitivity monotonic (F07-T06) and 120 ms refractory (F07-T07) in `OnsetDetectorTests.cpp`.
+- Open: queued-mode and C05 interaction processor tests (F07-T05, T10, B-02); rendered drum/bass/dense fixtures with a measured retrigger rate (F07-T09, B-07).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -56,12 +63,12 @@ Perform/main scene row shows the resulting queued scene.
 | F07-T02 | Silence and steady tone trigger nothing; start-up transient bounded; recovers after silence | EXISTS | OnsetDetectorTests "silence triggers nothing", "steady tone triggers nothing after start", "constant-level signal gives at most the start-up transient", "detector still works after long silence" |
 | F07-T03 | Non-finite input is safe | EXISTS | OnsetDetectorTests "non-finite input is safe" |
 | F07-T04 | Onsets are counted and "Next scene" advances the scene | EXISTS | `tests/PluginProcessorTests.cpp` "onsets detected", "audio trigger advanced the scene" |
-| F07-T05 | "Trigger queued" mode fires a Manual-mode queued switch | MISSING | processor test |
-| F07-T06 | Sensitivity monotonic: higher sensitivity never detects fewer onsets on the same fixture | MISSING | OnsetDetectorTests |
-| F07-T07 | Refractory: two clicks closer than 120 ms yield one onset | MISSING | OnsetDetectorTests |
-| F07-T08 | Parameters exist, default Off, restore from project | PARTIAL (existence in "new parameters exist") | PluginProcessorTests |
-| F07-T09 | Realistic material fixtures (drum loop, bass-heavy, dense sustained) with retrigger rate measured | MISSING (needs rendered fixtures; ALPHA doc lists "sustained dense material can retrigger") | recorded tuning task |
-| F07-T10 | C05 auto-return is disarmed by a trigger-requested scene | MISSING | processor test |
+| F07-T05 | "Trigger queued" mode fires a Manual-mode queued switch | DEFERRED | Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
+| F07-T06 | Sensitivity monotonic: higher sensitivity never detects fewer onsets on the same fixture | EXISTS | `OnsetDetectorTests.cpp (label F07-T06)` |
+| F07-T07 | Refractory: two clicks closer than 120 ms yield one onset | EXISTS | `OnsetDetectorTests.cpp (label F07-T07)` |
+| F07-T08 | Parameters exist, default Off, restore from project | PARTIAL | `PluginProcessorTests.cpp` "new parameters exist" Parameter existence is asserted; restore from a project relies on the generic APVTS restore. |
+| F07-T09 | Realistic material fixtures (drum loop, bass-heavy, dense sustained) with retrigger rate measured | DEFERRED | No rendered drum-loop / bass-heavy / dense-sustained fixtures with a measured retrigger rate. Open as TODO B-07. |
+| F07-T10 | C05 auto-return is disarmed by a trigger-requested scene | DEFERRED | Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
 
 ## 8. Gaps
 

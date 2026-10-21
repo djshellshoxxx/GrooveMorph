@@ -717,6 +717,27 @@ bool GrooveMorphAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         updateTransportButtons();
         return true;
     }
+    // A07 / F04 section 3.1: 1-4 request scene A-D, T fires the queued switch (Manual mode), Esc cancels it.
+    // A focused text field consumes its own characters before the editor sees the key, so typing is unaffected.
+    if (!key.getModifiers().isAnyModifierKeyDown())
+    {
+        const auto c = key.getTextCharacter();
+        if (c >= '1' && c <= '4')
+        {
+            audioProcessor.requestVariation(static_cast<std::size_t>(c - '1'));
+            return true;
+        }
+        if (c == 't' || c == 'T')
+        {
+            audioProcessor.triggerManualSwitch();
+            return true;
+        }
+        if (key == juce::KeyPress::escapeKey)
+        {
+            audioProcessor.cancelQueuedSwitch();
+            return true;
+        }
+    }
     return false;
 }
 

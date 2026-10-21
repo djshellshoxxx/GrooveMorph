@@ -1,9 +1,17 @@
 # F01 Controlled variation generation
 
-Status: IMPLEMENTED (subset), spec COMPLETE. Written 2026-10-20 against `c83e8b2`. Replaces the INCOMPLETE draft
+Status: IMPLEMENTED (settings + opt-in event patterns). Beta audit: every acceptance row has a test or a recorded reason. Updated 2026-10-20 by the A1 completeness audit.
 `docs/expansion/features/F01-VARIATION-GENERATOR.md` (unmerged PR #6, branch `spec/groovemorph-expansion-v1`).
 Cross-refs: [C02](../control-specs/features/C02-VARIATION-DISTANCE.md), [C03](../control-specs/features/C03-CHANGE-PERMISSIONS.md),
 [F08](F08-VARIATION-HISTORY.md).
+
+
+## Beta audit status (2026-10-20)
+
+- Built: seed, style, distance, gallery, never-touch, locks, deterministic event patterns, capacity 256 (W3), Euclid/chance (N03).
+- Added by the audit: golden candidate fixture (F01-T08), capacity bound with a full locked lane (F01-T09), restartCycle only for Experimental (F01-T10), in `tests/core/CompletenessTests.cpp`.
+- Not verified: the Generate/Apply/Revert buttons (F01-T11) are UI built in CI only. Musical intelligence (accent preservation, density scoring) is a non-goal for the beta.
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -78,10 +86,10 @@ and routes through `finishControlMenus` (right-click value entry / MIDI learn wh
 | F01-T05 | Invalid/non-finite input bounded; unselected invalid fields preserved | EXISTS | `tests/core/VariationPlannerTests.cpp` "selected invalid input becomes finite and bounded", "unselected invalid fields preserved exactly" |
 | F01-T06 | Locked events, loop lengths, protected regions, placement lock, capacity honoured by event generation | EXISTS | CandidateBuilderTests "locked event retained exactly", "lane loop lengths retained", "generated events avoid protected region", "placement lock freezes event generation", "generated events fit capacity" |
 | F01-T07 | Preview never modifies the bank; Apply is one undo step; Revert restores | EXISTS | `tests/core/SceneUndoAuditionTests.cpp` "bank untouched by audition", "commit undoable"; PluginProcessorTests "audition does not touch bank", "audition commit" |
-| F01-T08 | Golden fixture: fixed seed/style/candidate/source yields a literal expected settings + event list, identical on GCC, Clang, MSVC | MISSING | add `CandidateBuilderTests` "golden candidate" with literal values; CI matrix already builds three compilers |
-| F01-T09 | Capacity 256: generation never exceeds the new `maxLaneEvents` | MISSING (depends on W3 capacity change) | extend "generated events fit capacity" |
-| F01-T10 | Experimental style only sets `restartCycle`; Conservative never does | MISSING | new CandidateBuilderTests case |
-| F01-T11 | GUI wiring: Generate/Apply/Revert buttons exist, drive processor, tooltips present | MISSING (JUCE UI cannot be built locally) | `tests/PluginProcessorTests.cpp` editor section |
+| F01-T08 | Golden fixture: fixed seed/style/candidate/source yields a literal expected settings + event list, identical on GCC, Clang, MSVC | EXISTS | `CompletenessTests.cpp (label F01-T08)` |
+| F01-T09 | Capacity 256: generation never exceeds the new `maxLaneEvents` | EXISTS | `CompletenessTests.cpp (label F01-T09)` |
+| F01-T10 | Experimental style only sets `restartCycle`; Conservative never does | EXISTS | `CompletenessTests.cpp (label F01-T10)` |
+| F01-T11 | GUI wiring: Generate/Apply/Revert buttons exist, drive processor, tooltips present | MANUAL | `PluginProcessorTests.cpp` "audition commit"; `PluginProcessorTests.cpp` "editor revert preserves stored bank" Generate/Apply/Revert buttons and tooltips are UI built in CI only; the processor path is tested (audition commit/revert). |
 
 ## 8. Gaps and owners
 

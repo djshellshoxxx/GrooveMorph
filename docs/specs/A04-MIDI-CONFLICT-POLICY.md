@@ -1,7 +1,15 @@
 # A04 MIDI duplicate-assignment policy
 
-Status: SPEC COMPLETE, decision RECOMMENDED (owner to confirm), implementation owned by W10. Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED as the W10 variant (Swap/Cancel dialog); CC reserved-slot policy not built (TODO B-05). Updated 2026-10-20 by the A1 completeness audit.
 Source item: `docs/TODO.md` A04 ("Decide whether to add auto-swap/reject"). Related: [F12](F12-MIDI-CLAP-PLATFORMS.md), [F04](F04-PERFORMANCE-MODE.md).
+
+
+## Beta audit status (2026-10-20)
+
+- The decision in section 3 (silent auto-swap with an undoable notice) was NOT what shipped. W10 chose a confirmation dialog with Cancel as the default and no Fix button; see `docs/specs/W10-MIDI-ASSIGN.md` (the as-built spec). A legacy duplicate map still loads unchanged and dispatches first-match.
+- Rows A04-T03..T06 are re-pointed at the as-built tests in `MidiNoteAssignTests.cpp` and `PluginProcessorTests.cpp`. There is no `resolveDuplicates()`.
+- Not built: CC 20/21/22 rejection while macros are on, macro-slot skipping, shared-CC description (A04-T07..T09, B-05). A link on CC 20/21/22 and the macro both drive their targets today.
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -16,7 +24,7 @@ No silent MIDI collisions: every way two controls can claim the same MIDI input 
 3. CC macros (`midiMacros` on): CC 20/21/22 and program change are handled in `handleMidi`. `ccInbox.push` runs BEFORE the macro branch, so a link on CC 20 AND the macro both drive their targets.
 4. A CC used as a link can also be the CC another instance/hardware uses; not detectable by the plugin and out of scope.
 
-## 3. Decision (recommended)
+## 3. Decision (the original recommendation; NOT what shipped, see the Beta audit status above and W10-MIDI-ASSIGN)
 
 Auto-swap for scene notes, with a non-modal, undoable notice; reject for reserved CCs. Rationale: scene notes are a permutation-like assignment of 4 scenes; rejecting forces a three-step dance (move
 A away, set B, set A) that is awkward when the player is learning a pad layout; swapping always leaves every scene reachable. A modal confirmation blocks a live performer, so the "confirmation" is an undoable
@@ -24,7 +32,7 @@ notice. Rejecting reserved CCs is correct because a macro/link double-drive can 
 
 Alternative if the owner prefers least surprise: reject duplicates entirely (revert the control, show the message). Record the choice in `docs/coordination/DECISIONS.md` (W10 writes the entry).
 
-## 4. Required behavior
+## 4. Required behavior (original draft; only the note-collision part shipped, as a Swap/Cancel dialog)
 
 ### 4.1 Scene notes (`SceneBank::setMidiNoteMap` path, editor note slider)
 - Setting scene X to note N where scene Y (Y != X) already has N: set Y to X's previous note (swap). One undoable scene edit (single `commitBankLocked`; Undo restores both notes).
@@ -60,14 +68,14 @@ Editor: note slider per scene (existing), status/notice line (existing `midiLabe
 |---|---|---|---|
 | A04-T01 | Collision diagnostics: duplicate, nonadjacent, first reported deterministically, out-of-range ignored, cleared by edit | EXISTS | `tests/core/SceneBankTests.cpp` "detect colliding MIDI note", "detect nonadjacent collision", "report first collision deterministically", "ignore out-of-range note collisions", "clearing collision removes warning" |
 | A04-T02 | Legacy project with duplicates loads unchanged and is mentioned | EXISTS | `tests/core/SceneSerializerTests.cpp` "duplicate notes load unchanged", "duplicate notes are mentioned" |
-| A04-T03 | `assignNote` swaps with the owner of the note; result duplicate-free | MISSING, owned by W10 | `tests/core/SceneBankTests.cpp` |
-| A04-T04 | Swap is one undo step and Undo restores both notes | MISSING, owned by W10 | `tests/PluginProcessorTests.cpp` |
-| A04-T05 | `resolveDuplicates` is deterministic and terminates for all 128-note edge cases (all four on 127; all four on 0) | MISSING, owned by W10 | SceneBankTests |
-| A04-T06 | Assigning a note already unique to the scene is a no-op (no undo entry) | MISSING, owned by W10 | SceneBankTests |
-| A04-T07 | Linking CC 20/21/22 is rejected while macros are on, accepted when off; learn ignores them | MISSING, owned by W10 | MidiLinksTests + processor test |
-| A04-T08 | Macro slot skipped when a link uses the same CC (no double drive) | MISSING, owned by W10 | processor test |
-| A04-T09 | Shared CC description lists all targets | MISSING, owned by W10 | MidiLinksTests |
-| A04-T10 | Notice text and "Fix" button exist and update (native UI) | MISSING (needs JUCE build) | editor test on CI |
+| A04-T03 | `assign(index, note, Swap)` swaps with the owner of the note; result duplicate-free | EXISTS | `MidiNoteAssignTests.cpp` "A04-03 swap"; `MidiNoteAssignTests.cpp` "A04-03 swap result has no conflict" |
+| A04-T04 | Swap is one undo step and Undo restores both notes | EXISTS | `PluginProcessorTests.cpp` "A04-08 one undo reverts both notes"; `PluginProcessorTests.cpp` "A04-08 map swapped in the bank" |
+| A04-T05 | Legacy duplicate maps keep first-match dispatch, and a swap touches only the first owner (there is no `resolveDuplicates`) | EXISTS | `MidiNoteAssignTests.cpp` "A04-04 legacy dispatch is first-match"; `MidiNoteAssignTests.cpp` "A04-04 swap takes first owner only" As built there is no resolveDuplicates(): legacy duplicate maps are left alone (first match) and fixed by assigning again; see the rewritten spec. |
+| A04-T06 | Assigning a note already unique to the scene is a no-op (no undo entry) | EXISTS | `MidiNoteAssignTests.cpp` "A04-03 same note is not a change"; `MidiNoteAssignTests.cpp` "A04-02 unchanged" |
+| A04-T07 | Linking CC 20/21/22 is rejected while macros are on, accepted when off; learn ignores them | DEFERRED | Not built: linking CC 20/21/22 is still allowed while macros are on (the link and the macro both drive their targets). Open as TODO B-05. |
+| A04-T08 | Macro slot skipped when a link uses the same CC (no double drive) | DEFERRED | Not built (same as A04-T07). Open as TODO B-05. |
+| A04-T09 | Shared CC description lists all targets | DEFERRED | Not built: the right-click menu does not list other targets that share a CC. Open as TODO B-05. |
+| A04-T10 | Swap/Cancel dialog, table-full notice and slider reset exist (native UI; the Fix button was not built) | MANUAL | The Swap/Cancel dialog replaced the planned Fix button; UI code is compiled in CI only and has not been clicked (W10-MIDI-ASSIGN A04-10). |
 
 ## 8. Non-goals
 

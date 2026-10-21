@@ -1,0 +1,1662 @@
+{
+ "A04-10": {
+  "reason": "Swap dialog, slider reset on Cancel, table-full message and menu item need a display; compiled in CI only.",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "A04-T03": {
+  "tests": [
+   "tests/core/MidiNoteAssignTests.cpp::A04-03 swap",
+   "tests/core/MidiNoteAssignTests.cpp::A04-03 swap result has no conflict"
+  ]
+ },
+ "A04-T04": {
+  "tests": [
+   "tests/PluginProcessorTests.cpp::A04-08 one undo reverts both notes",
+   "tests/PluginProcessorTests.cpp::A04-08 map swapped in the bank"
+  ]
+ },
+ "A04-T05": {
+  "reason": "As built there is no resolveDuplicates(): legacy duplicate maps are left alone (first match) and fixed by assigning again; see the rewritten spec.",
+  "tests": [
+   "tests/core/MidiNoteAssignTests.cpp::A04-04 legacy dispatch is first-match",
+   "tests/core/MidiNoteAssignTests.cpp::A04-04 swap takes first owner only"
+  ]
+ },
+ "A04-T06": {
+  "tests": [
+   "tests/core/MidiNoteAssignTests.cpp::A04-03 same note is not a change",
+   "tests/core/MidiNoteAssignTests.cpp::A04-02 unchanged"
+  ]
+ },
+ "A04-T07": {
+  "reason": "Not built: linking CC 20/21/22 is still allowed while macros are on (the link and the macro both drive their targets). Open as TODO B-05.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "A04-T08": {
+  "reason": "Not built (same as A04-T07). Open as TODO B-05.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "A04-T09": {
+  "reason": "Not built: the right-click menu does not list other targets that share a CC. Open as TODO B-05.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "A04-T10": {
+  "reason": "The Swap/Cancel dialog replaced the planned Fix button; UI code is compiled in CI only and has not been clicked (W10-MIDI-ASSIGN A04-10).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "A06-T03": {
+  "reason": "As built the parameters are op<N>Enable/Depth/Slice (3 per operation), not the 15 fx<X> ids first drafted.",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::A06-06 a trim exists for every operation and kind",
+   "tests/PluginProcessorTests.cpp::A06-06 every earlier parameter id still exists",
+   "tests/PluginProcessorTests.cpp::A06-08 trims absent from an old state return to default",
+   "tests/core/OperationTrimsTests.cpp::A06-01 ids unique over 16 operations"
+  ]
+ },
+ "A06-T04": {
+  "tests": [
+   "tests/core/OperationTrimsTests.cpp::A06-02 bit identical",
+   "tests/PluginProcessorTests.cpp::A06-07 returning the trim to default restores the reference output"
+  ]
+ },
+ "A06-T05": {
+  "tests": [
+   "tests/core/OperationTrimsTests.cpp::A06-03 force on",
+   "tests/core/OperationTrimsTests.cpp::A06-03 depth multiplies",
+   "tests/core/OperationTrimsTests.cpp::A06-03 slice multiplies",
+   "tests/PluginProcessorTests.cpp::A06-07 a moved trim changes the sound",
+   "tests/PluginProcessorTests.cpp::A06-07 stored scenes and undo history are untouched"
+  ]
+ },
+ "A06-T06": {
+  "reason": "Engine-level: a settings switch while playing stays within the signal's own step with the 3 ms ramps and with up to 250 ms smoothing. A processor render of duplicate/reset on the sounding scene is not asserted (TODO B-02).",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/DspRhythmEngineTests.cpp::variation switch bounded",
+   "tests/core/TransitionSmoothingTests.cpp::W3-C04S-T03 3 ms and 50 ms fades stay within the signal's own step"
+  ]
+ },
+ "A06-T07": {
+  "reason": "Order is by construction in effectiveSettings (morph, then trims, then the placement mask from the trimmed settings, docs/specs/W10-OP-TRIMS.md) but no test asserts it. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "A06-T08": {
+  "reason": "pluginval strictness 5 runs headless on Linux and Windows in CI; no run for the 3N trim parameters has been read by this audit.",
+  "status": "CHECKED",
+  "tests": [
+   ".github/workflows/pluginval.yml::strictness 5"
+  ]
+ },
+ "A06-T09": {
+  "reason": "Native host: automation lane for op2Depth in REAPER; open under issue #19 (B-01).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "A07-T02": {
+  "tests": [
+   "tests/core/PaletteTests.cpp::ink on panel >= 4.5",
+   "tests/core/PaletteTests.cpp::dim text on slate >= 4.5",
+   "tests/core/PaletteTests.cpp::warning text on slate >= 4.5"
+  ]
+ },
+ "A07-T03": {
+  "reason": "Keys 1-4, T and Esc are now implemented in PluginEditor::keyPressed (A1 audit); no editor-level test exists and nothing was typed in a real window (B-01).",
+  "status": "MANUAL",
+  "tests": [
+   "src/PluginEditor.cpp::A07 / F04 section 3.1"
+  ]
+ },
+ "A07-T04": {
+  "reason": "Lane keyboard (Left/Right/Up/Down/Enter/Insert/N/Delete/Esc) is implemented in LaneCanvas; interaction is unverified without a display (W10-UI-ISSUES UI-KB-1, B-01).",
+  "status": "MANUAL",
+  "tests": [
+   "src/ui/InspectorPanel.cpp::Keyboard cursor"
+  ]
+ },
+ "A07-T05": {
+  "reason": "Names are asserted by constructing the editor in the processor test binary (CI only). Sibling-title uniqueness is not asserted.",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::UI-AX-1 every control has an accessible name",
+   "tests/PluginProcessorTests.cpp::every control has a tooltip"
+  ]
+ },
+ "A07-T06": {
+  "reason": "Focus order is JUCE's default; no traversal test and no keyboard-only pass on a real desktop (B-01).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "A07-T07": {
+  "reason": "No user UI-scale setting exists (only the automatic fit scale in PluginEditor.cpp). Open as TODO B-04.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "A07-T08": {
+  "reason": "Reduce motion exists for the Visual window only; nothing else animates. Preference tested at the processor level.",
+  "status": "MANUAL",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::reduce motion can be turned on"
+  ]
+ },
+ "A07-T09": {
+  "reason": "Screen reader pass (NVDA/Narrator/VoiceOver) has not been done (B-01).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "A07-T10": {
+  "reason": "Capped-slice indicator is not built; the limit is only in tooltips. Open as TODO B-04.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "C01-T01": {
+  "tests": [
+   "tests/core/SceneControlTests.cpp::before last bar inactive",
+   "tests/core/SceneControlTests.cpp::last bar start active",
+   "tests/core/SceneControlTests.cpp::wrap head active",
+   "tests/core/SceneControlTests.cpp::wrap tail active"
+  ]
+ },
+ "C01-T02": {
+  "reason": "Meter and preroll math is tested in the clock/resolver tests; triplet-grid placement is not separately asserted.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/PhraseClockTests.cpp::3/8 bar boundary",
+   "tests/core/TransportResolverTests.cpp::signed host preroll retained",
+   "tests/core/SchedulerTests.cpp::fractional PPQ boundary excluded from previous block"
+  ]
+ },
+ "C01-T03": {
+  "tests": [
+   "tests/core/SceneControlTests.cpp::cadence",
+   "tests/core/SceneControlTests.cpp::anchor follows phrase repeat"
+  ]
+ },
+ "C01-T04": {
+  "tests": [
+   "tests/core/AudioQualityMatrixTests.cpp::dry output is bit exact across rates and blocks",
+   "tests/core/SceneControlTests.cpp::inert not gated",
+   "tests/core/DspRhythmEngineTests.cpp::null test exact",
+   "tests/PluginProcessorTests.cpp::output is exactly dry before the placement window"
+  ]
+ },
+ "C01-T05": {
+  "tests": [
+   "tests/core/W3ControlTests.cpp::W3-CAP-T01 257th is Capacity",
+   "tests/core/SceneControlTests.cpp::overlap rejected",
+   "tests/core/SceneControlTests.cpp::wrapped overlap rejected",
+   "tests/core/SceneControlTests.cpp::invalid rejected"
+  ]
+ },
+ "C01-T06": {
+  "reason": "Core phrase-fit counting and the scale command are tested; the badge drawing and the explicit-scale UI are not run (B-01).",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/PhraseFitTests.cpp::F4 overhangs its ring",
+   "tests/core/SceneControlTests.cpp::scale doubles unlocked events",
+   "tests/core/SceneControlTests.cpp::halving shrinks durations"
+  ]
+ },
+ "C01-T07": {
+  "reason": "MIDI splits, PPQ vs sample timing and state round trip are processor-tested; tempo-change and placement-automation cases and the inspector keyboard/narrow/wide workflows are not.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::PPQ rendering independent of irrelevant MIDI splits",
+   "tests/PluginProcessorTests.cpp::MIDI sub-block PPQ switch at actual bar",
+   "tests/PluginProcessorTests.cpp::placement/lane/limits survive host state",
+   "tests/PluginProcessorTests.cpp::effect engages inside the placement window"
+  ]
+ },
+ "C01-T08": {
+  "reason": "256-event evaluator equals a brute-force evaluator; callback deadlines and allocations have not been instrumented (B-01).",
+  "status": "MANUAL",
+  "tests": [
+   "tests/core/W3ControlTests.cpp::W3-CAP-T04 evaluator matches brute force with 256 events"
+  ]
+ },
+ "C02-T01": {
+  "tests": [
+   "tests/core/CandidateBuilderTests.cpp::distance 0 = source",
+   "tests/core/SceneControlTests.cpp::distance 0 identity"
+  ]
+ },
+ "C02-T02": {
+  "tests": [
+   "tests/core/CompletenessTests.cpp::F01-T08 golden operation settings",
+   "tests/core/CompletenessTests.cpp::F01-T08 golden event list"
+  ]
+ },
+ "C02-T03": {
+  "tests": [
+   "tests/core/VariationPlannerTests.cpp::protection keeps independent random draws",
+   "tests/core/VariationPlannerTests.cpp::protected fields preserved",
+   "tests/core/CandidateBuilderTests.cpp::locked event retained exactly"
+  ]
+ },
+ "C02-T04": {
+  "reason": "Only the depth budget is asserted (smaller distance moves depth less); the shipped distance has no separate range/amount budgets (docs/specs/C01-C06-DEVIATIONS.md).",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/CandidateBuilderTests.cpp::smaller distance moves depth less",
+   "tests/core/SceneControlTests.cpp::half depth",
+   "tests/core/SceneControlTests.cpp::half slice geometric"
+  ]
+ },
+ "C02-T05": {
+  "reason": "Generation attempts are bounded (64 per event) and capacity is never exceeded; explicit NoChange/Conflict/Stale statuses are not part of the shipped API.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/CompletenessTests.cpp::F01-T09 count never exceeds capacity",
+   "tests/core/CandidateBuilderTests.cpp::event-only candidate is reported as changed"
+  ]
+ },
+ "C02-T06": {
+  "reason": "Generation is synchronous, so there is no stale worker completion to ignore.",
+  "tests": [
+   "tests/core/SceneUndoAuditionTests.cpp::bank untouched by audition",
+   "tests/core/SceneUndoAuditionTests.cpp::commit undoable",
+   "tests/core/SceneUndoAuditionTests.cpp::revert leaves bank"
+  ]
+ },
+ "C02-T07": {
+  "reason": "Not applicable by design: generator knobs (seed, style, distance) are editor settings, not host parameters, so host automation cannot change them (DECISIONS).",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "C02-T08": {
+  "tests": [
+   "tests/core/SceneSerializerTests.cpp::seed default",
+   "tests/core/SceneSerializerTests.cpp::default round trip",
+   "tests/core/GeneratorHistoryTests.cpp::F08-T04 recall regenerates the same candidate"
+  ]
+ },
+ "C03-T01": {
+  "reason": "Enable, Depth, Slice and Events locks are tested through generation, chaos and manual-edit paths; every one of the 16 field masks is not enumerated.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/SceneControlTests.cpp::permissions restore locked",
+   "tests/core/ChaosMapperTests.cpp::depth lock keeps depth",
+   "tests/core/ChaosMapperTests.cpp::slice lock keeps slice",
+   "tests/core/CandidateBuilderTests.cpp::fully locked scene unchanged"
+  ]
+ },
+ "C03-T02": {
+  "tests": [
+   "tests/core/PhaseResolverTests.cpp::a per-event lock restores the event",
+   "tests/core/SceneControlTests.cpp::locked event position unchanged",
+   "tests/core/PhaseResolverTests.cpp::region boundary limits the span"
+  ]
+ },
+ "C03-T03": {
+  "reason": "Superseded by the documented deviation: ticks are 1/960 of a METER beat, so a one-beat region is 960 ticks in every meter (docs/specs/C01-C06-DEVIATIONS.md). The protect-span cap per bar is tested as F03-T10.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "C03-T04": {
+  "tests": [
+   "tests/core/W3ControlTests.cpp::W3-CAP-T07 eight regions",
+   "tests/core/SceneSerializerTests.cpp::garbage valid"
+  ]
+ },
+ "C03-T05": {
+  "tests": [
+   "tests/core/VariationPlannerTests.cpp::protection keeps independent random draws",
+   "tests/core/VariationPlannerTests.cpp::protected operation excluded from mutation mask"
+  ]
+ },
+ "C03-T06": {
+  "tests": [
+   "tests/core/SceneControlTests.cpp::locked conflict reported, lane untouched",
+   "tests/core/W3ControlTests.cpp::W3-RED-T03 locked: ConflictLocked, lane untouched"
+  ]
+ },
+ "C03-T07": {
+  "tests": [
+   "tests/core/SceneControlTests.cpp::manual edit restores the locked field only",
+   "tests/core/SceneControlTests.cpp::generation path restores the stored permissions",
+   "tests/PluginProcessorTests.cpp::duplicate keeps the destination's locked depth",
+   "tests/PluginProcessorTests.cpp::reset keeps locked fields"
+  ]
+ },
+ "C03-T08": {
+  "reason": "Preview/revert/undo and state round trip are tested; the focus/keyboard matrix at both widths is not.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/SceneUndoAuditionTests.cpp::commit undoable",
+   "tests/core/SceneControlTests.cpp::permissions restore locked",
+   "tests/PluginProcessorTests.cpp::editor revert preserves stored bank"
+  ]
+ },
+ "C04-T03": {
+  "tests": [
+   "tests/core/SchedulerTests.cpp::PPQ switch inside block",
+   "tests/PluginProcessorTests.cpp::PPQ rendering independent of irrelevant MIDI splits",
+   "tests/core/SchedulerTests.cpp::fractional PPQ boundary fires on its rounded sample"
+  ]
+ },
+ "C04-T04": {
+  "tests": [
+   "tests/core/SchedulerTests.cpp::tempo change recomputes PPQ offset",
+   "tests/core/SchedulerTests.cpp::forward seek",
+   "tests/core/SchedulerTests.cpp::backward seek",
+   "tests/PluginProcessorTests.cpp::a seek cancels the phase shift"
+  ]
+ },
+ "C04-T05": {
+  "reason": "Ramp lengths and click bounds are tested at 3, 50 and 250 ms (the shipped maximum is 250 ms, not 500) and at several sample rates in the matrix tests; no drum-fixture click measurement threshold was agreed.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/TransitionSmoothingTests.cpp::W3-C04S-T02 fade length ",
+   "tests/core/TransitionSmoothingTests.cpp::W3-C04S-T03 3 ms and 50 ms fades stay within the signal's own step"
+  ]
+ },
+ "C04-T06": {
+  "tests": [
+   "tests/core/TransitionSmoothingTests.cpp::W3-C04S-T05 250 ms request on fast cycles stays within 1.5x of the default",
+   "tests/core/DspRhythmEngineTests.cpp::variation switch bounded"
+  ]
+ },
+ "C04-T07": {
+  "tests": [
+   "tests/W3ProcessorTests.cpp::W3-PC phase uses the config captured at request time",
+   "tests/W3ProcessorTests.cpp::W3-PC a later request uses the edited phase"
+  ]
+ },
+ "C04-T08": {
+  "reason": "The phase marker/preview is not drawn (no phase preview diagram, B-04); the Perform tab and Scenes tab texts are unverified without a display.",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "C05-T01": {
+  "tests": [
+   "tests/PluginProcessorTests.cpp::return is sample-accurate at the bar line",
+   "tests/PluginProcessorTests.cpp::phrase-unit return lands on the phrase boundary",
+   "tests/core/SceneControlTests.cpp::request during bar 6",
+   "tests/core/SceneControlTests.cpp::no request exactly on the bar line"
+  ]
+ },
+ "C05-T02": {
+  "reason": "The return schedule is held in meter beats (tempo independent by construction); no test changes tempo between arming and expiry.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/SceneControlTests.cpp::armed",
+   "tests/core/SceneControlTests.cpp::request during bar 6"
+  ]
+ },
+ "C05-T03": {
+  "reason": "External launch in the same sample as an auto return, and note-off return cancelling the token, are not asserted. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "C05-T04": {
+  "reason": "Return to Previous after a launch is tested; the stale requested-parameter case is not.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::returned to previous",
+   "tests/PluginProcessorTests.cpp::return armed"
+  ]
+ },
+ "C05-T05": {
+  "reason": "Seek back disarms; stop/hold/preview freeze and sample-rate reset are not separately asserted.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/SceneControlTests.cpp::seek back disarms"
+  ]
+ },
+ "C05-T06": {
+  "tests": [
+   "tests/core/W3ControlTests.cpp::W3-DR-T01 armed dry",
+   "tests/core/W3ControlTests.cpp::W3-DR-T01 offset at 5.0 is 0",
+   "tests/W3ProcessorTests.cpp::W3-DR output equals the input once the ramp is done",
+   "tests/W3ProcessorTests.cpp::W3-DR a scene request ends the Dry state"
+  ]
+ },
+ "C05-T07": {
+  "reason": "Not applicable by design: the return target is read when the return is armed and the future policy automation the spec mentions does not exist.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "C05-T08": {
+  "reason": "Countdown/footer, scene badge and preview status are UI; no display run (B-01).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "C06-T01": {
+  "tests": [
+   "tests/core/SceneControlTests.cpp::limit keeps 1 and 3",
+   "tests/core/SceneControlTests.cpp::apply keeps priority winners",
+   "tests/core/W3ControlTests.cpp::W3-RED-T05 loop alignment gives peak 2"
+  ]
+ },
+ "C06-T02": {
+  "tests": [
+   "tests/core/SceneControlTests.cpp::coverage uses the wrapped phrase",
+   "tests/core/W3ControlTests.cpp::W3-RED-T06 wrapped looping event covers half the phrase"
+  ]
+ },
+ "C06-T03": {
+  "tests": [
+   "tests/core/SceneControlTests.cpp::coverage bound respected",
+   "tests/core/W3ControlTests.cpp::W3-RED-T04 cap 40 % drops it"
+  ]
+ },
+ "C06-T04": {
+  "tests": [
+   "tests/core/SceneControlTests.cpp::locked conflict reported, lane untouched",
+   "tests/core/W3ControlTests.cpp::W3-RED-T03 locked: ConflictLocked, lane untouched"
+  ]
+ },
+ "C06-T05": {
+  "reason": "Coverage caps and locked conflicts are tested; a cap of exactly 0 on empty and locked input is not.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/W3ControlTests.cpp::W3-RED-T04 cap 40 % drops it"
+  ]
+ },
+ "C06-T06": {
+  "tests": [
+   "tests/core/W3ControlTests.cpp::W3-RED-T07 256 events with loops: deterministic",
+   "tests/core/SceneControlTests.cpp::deterministic"
+  ]
+ },
+ "C06-T07": {
+  "reason": "Not applicable by design: the live concurrency limit is evaluated per sample from the sounding scene; there is no compiled mask revision to go stale.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "C06-T08": {
+  "reason": "Reduce is an explicit action that returns a conflict and leaves locked lanes alone; Apply-as-one-undo is the generic scene edit path.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/SceneControlTests.cpp::apply keeps priority winners",
+   "tests/core/SceneControlTests.cpp::locked conflict reported, lane untouched"
+  ]
+ },
+ "C06-T09": {
+  "reason": "UI scope labels and callback deadlines at 256 events are unmeasured (B-01); the 256-event evaluator equivalence is tested.",
+  "status": "MANUAL",
+  "tests": [
+   "tests/core/W3ControlTests.cpp::W3-CAP-T04 evaluator matches brute force with 256 events"
+  ]
+ },
+ "F01-T11": {
+  "reason": "Generate/Apply/Revert buttons and tooltips are UI built in CI only; the processor path is tested (audition commit/revert).",
+  "status": "MANUAL",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::audition commit",
+   "tests/PluginProcessorTests.cpp::editor revert preserves stored bank"
+  ]
+ },
+ "F02-T04": {
+  "reason": "Parameter existence and defaults are asserted; a morphTarget/morphAmount restore round trip is not separately asserted (generic APVTS restore is: state restores intensity/tempo/meter).",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::new parameters exist",
+   "tests/PluginProcessorTests.cpp::state restores intensity"
+  ]
+ },
+ "F02-T06": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. The pure morph() is covered; the 'target equals sounding scene' guard in effectiveSettings is not.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F02-T07": {
+  "reason": "morph() takes const inputs and the processor evaluates it on the audio-thread snapshot copy; a dedicated processor assertion on the undo stack is not present.",
+  "tests": [
+   "tests/core/MorphControlTests.cpp::F02-T08h inputs unchanged",
+   "tests/PluginProcessorTests.cpp::stored scene is untouched",
+   "tests/PluginProcessorTests.cpp::evolution does not modify the saved scene bank"
+  ]
+ },
+ "F02-T08": {
+  "tests": [
+   "tests/core/MorphControlTests.cpp::F02-T08a weight 0 is a",
+   "tests/core/MorphControlTests.cpp::F02-T08b placement from b",
+   "tests/core/MorphControlTests.cpp::F02-T08g capacity bound"
+  ]
+ },
+ "F02-T09": {
+  "tests": [
+   "tests/W3ProcessorTests.cpp::W3-MORPH is deterministic across block sizes",
+   "tests/W3ProcessorTests.cpp::W3-MORPH baseline (no morph) is block-size independent"
+  ]
+ },
+ "F03-T06": {
+  "reason": "The Classic 12 dB/oct split lives in PluginProcessor.cpp (JUCE) and was measured offline once (DECISIONS); no portable test exists. Open as TODO B-09.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F03-T07": {
+  "tests": [
+   "tests/core/CrossoverTests.cpp::F10-T03 flat sum ",
+   "tests/core/CrossoverTests.cpp::F10-T03 low -6 dB at fc ",
+   "tests/core/CrossoverTests.cpp::W3-LR-T03 identical input gives identical channels"
+  ]
+ },
+ "F03-T09": {
+  "tests": [
+   "tests/core/CrossoverTests.cpp::F10-T06 sweep step bounded",
+   "tests/core/CrossoverTests.cpp::W3-LR-T08 no onset click"
+  ]
+ },
+ "F04-T06": {
+  "tests": [
+   "tests/core/MidiLinksTests.cpp::link",
+   "tests/core/MidiLinksTests.cpp::relink replaces, not duplicates",
+   "tests/core/MidiLinksTests.cpp::capacity respected",
+   "tests/core/MidiLinksTests.cpp::bad target rejected",
+   "tests/PluginProcessorTests.cpp::learning"
+  ]
+ },
+ "F04-T07": {
+  "reason": "Keys 1-4, T and Esc implemented in PluginEditor::keyPressed by the A1 audit; compiled in CI only and not typed in a real window (B-01).",
+  "status": "MANUAL",
+  "tests": [
+   "src/PluginEditor.cpp::audioProcessor.triggerManualSwitch();"
+  ]
+ },
+ "F04-T08": {
+  "reason": "Layout at the 1230x700 minimum needs a native UI run (B-01).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "F04-T09": {
+  "reason": "The macro path writes parameters from the message-thread timer, not from the audio thread, by design (DECISIONS: plugin-originated writes are bracketed with begin/endChangeGesture); no thread-assert test. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F05-T06": {
+  "reason": "Locks are asserted at builder level (CandidateBuilderTests F01-T04); evolution reuses buildCandidate. No evolution-level assertion. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F05-T07": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F05-T08": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F05-T09": {
+  "reason": "Preview of upcoming steps is not built. Open as TODO B-06.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F05-T10": {
+  "reason": "Seek-back across a boundary is implemented by the W3 timer/plan design but not asserted. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F06-T07": {
+  "reason": "Sample-accurate edges at four block sizes are asserted for a single placement window and for events at core level (SceneControlTests, PlanBuilderTests segments identical for all block sizes in EuclidChanceTests); the two-lane 3 and 4 beat render is a processor test. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F06-T08": {
+  "reason": "The canvas does not draw the loop ring tiles. Open as TODO B-04.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F06-T09": {
+  "tests": [
+   "tests/core/W3ControlTests.cpp::W3-RED-T01 no loops: decisions identical to the old greedy (500 cases)",
+   "tests/core/W3ControlTests.cpp::W3-RED-T05 loop alignment gives peak 2",
+   "tests/core/W3ControlTests.cpp::W3-RED-T02 gcd spacing drops the lower priority event"
+  ]
+ },
+ "F07-T05": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F07-T08": {
+  "reason": "Parameter existence is asserted; restore from a project relies on the generic APVTS restore.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::new parameters exist"
+  ]
+ },
+ "F07-T09": {
+  "reason": "No rendered drum-loop / bass-heavy / dense-sustained fixtures with a measured retrigger rate. Open as TODO B-07.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F07-T10": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F08-T08": {
+  "reason": "Project-embedded history was a draft requirement; the history is a local file by decision (DECISIONS, F08 spec). Open as TODO B-08 if the product owner wants it.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F09-T04": {
+  "tests": [
+   "tests/core/LoopImportTests.cpp::explicit bpm plays at original speed at 140",
+   "tests/core/LoopImportTests.cpp::3/4 meter",
+   "tests/core/LoopImportTests.cpp::bad meter",
+   "tests/core/LoopImportTests.cpp::nan length"
+  ]
+ },
+ "F09-T07": {
+  "tests": [
+   "tests/core/TimeStretcherTests.cpp::ST-2 pitch within 10 cents",
+   "tests/core/TimeStretcherTests.cpp::ST-1 length"
+  ]
+ },
+ "F09-T08": {
+  "reason": "Stretch determinism is implicit (no randomness) and the worker publishes the newest job; a bit-for-bit repeat comparison and a click measurement at publish are not asserted.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/TimeStretcherTests.cpp::ST-7 worker delivers newest",
+   "tests/core/TimeStretcherTests.cpp::ST-6 seam step bounded r="
+  ]
+ },
+ "F09-T09": {
+  "reason": "Saved audio is 16-bit coded, so equality holds within one 16-bit step, not bit-exact float.",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::W4 loop restored",
+   "tests/PluginProcessorTests.cpp::W4 restored loop plays the saved audio (16-bit quantised)",
+   "tests/PluginProcessorTests.cpp::W4 saved blob present",
+   "tests/core/LoopBlobTests.cpp::PB-1 stereo"
+  ]
+ },
+ "F09-T10": {
+  "tests": [
+   "tests/PluginProcessorTests.cpp::W4 corrupted blob rejected",
+   "tests/PluginProcessorTests.cpp::W4 state without LoopAudio leaves the loop alone",
+   "tests/PluginProcessorTests.cpp::W4 unknown version rejected with warning",
+   "tests/core/LoopBlobTests.cpp::state limit rejects oversized state"
+  ]
+ },
+ "F09-T11": {
+  "tests": [
+   "tests/core/LoopBlobTests.cpp::WF-1 exact min/max",
+   "tests/core/LoopBlobTests.cpp::WF-1 nan counted as 0",
+   "tests/core/LoopBlobTests.cpp::WF-1 invalid"
+  ]
+ },
+ "F09-T12": {
+  "tests": [
+   "tests/PluginProcessorTests.cpp::the loop survives a sample rate change"
+  ]
+ },
+ "F10-T05": {
+  "reason": "These checks loop over 44.1, 48, 96 and 192 kHz.",
+  "tests": [
+   "tests/core/CrossoverTests.cpp::F10-T03 high -6 dB at fc ",
+   "tests/core/CrossoverTests.cpp::F10-T03 flat sum ",
+   "tests/core/CrossoverTests.cpp::W3-LR-T02 low rolloff "
+  ]
+ },
+ "F10-T08": {
+  "reason": "More than two bands are a non-goal for the beta. Open as TODO B-06.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F11-T04": {
+  "reason": "Target restore is asserted; a dedicated legacy-project-without-Gesture fixture is not.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::gesture target restored"
+  ]
+ },
+ "F11-T05": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F11-T06": {
+  "reason": "The 1/512 threshold is a tested pure function (GestureLane::worthWriting) and PluginProcessor::updateGesture calls it; no processor test drives a host-parameter listener (B-02).",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/CompletenessTests.cpp::F11-T06 a change of 1/1000 is not written",
+   "tests/core/CompletenessTests.cpp::F11-T06 a change of 1/100 is written"
+  ]
+ },
+ "F11-T07": {
+  "reason": "Wrap continuity of the lane is tested at core level; seek continuity through the processor is not (B-02).",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/CompletenessTests.cpp::F11-T07 the lane is continuous across the phrase wrap",
+   "tests/PluginProcessorTests.cpp::gesture plays back the recorded value"
+  ]
+ },
+ "F11-T08": {
+  "reason": "Higher resolution than the 20 Hz timer and multiple lanes are not built. Open as TODO B-06.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F12-T02": {
+  "tests": [
+   "tests/core/MidiLinksTests.cpp::one CC may drive two targets",
+   "tests/core/MidiLinksTests.cpp::round trip",
+   "tests/core/MidiLinksTests.cpp::huge text is bounded",
+   "tests/core/MidiLinksTests.cpp::capacity respected"
+  ]
+ },
+ "F12-T07": {
+  "reason": "A state saved by VST3 loading in Standalone and CLAP needs a CLAP host (B-01, B-11).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "F12-T08": {
+  "reason": "CLAP target and clap-validator step are defined in CMake and the beta workflow; no CI run has been read by this audit (B-11).",
+  "status": "CHECKED",
+  "tests": [
+   "CMakeLists.txt::GrooveMorphPlugin_CLAP",
+   "tools/package/run-clap-validator.sh::clap-validator"
+  ]
+ },
+ "F12-T09": {
+  "tests": [
+   "tests/PluginProcessorTests.cpp::A06-06 a trim exists for every operation and kind",
+   "tests/core/OperationTrimsTests.cpp::A06-01 ids unique over 16 operations"
+  ]
+ },
+ "F12-T10": {
+  "reason": "Note swap/cancel and learn conflicts are tested; CC 20/21/22 versus links and shared-CC description are not built (A04-T07..T09, B-05).",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/MidiNoteAssignTests.cpp::A04-03 swap",
+   "tests/core/MidiLinksTests.cpp::A04-07 full"
+  ]
+ },
+ "F12-T11": {
+  "reason": "Soft pickup for CC links is not built. Open as TODO B-05.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "F12-T12": {
+  "reason": "pluginval at strictness 5 runs in CI for Linux and Windows VST3; no run was read by this audit.",
+  "status": "CHECKED",
+  "tests": [
+   ".github/workflows/pluginval.yml::strictness 5"
+  ]
+ },
+ "F12-T13": {
+  "reason": "Native host automation write/read in REAPER on Windows, Linux and macOS (issue #19, B-01).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "N01-T02": {
+  "tests": [
+   "tests/core/EffectsSweepCrushTests.cpp::sweep bounded (peak < 8) at rate ",
+   "tests/core/EffectsSweepCrushTests.cpp::near-overflow input stays finite"
+  ]
+ },
+ "N01-T09": {
+  "tests": [
+   "tests/core/SceneSerializerTests.cpp::legacy file loads with both new ops disabled",
+   "tests/core/SceneSerializerTests.cpp::new ops round trip",
+   "tests/core/SceneSerializerTests.cpp::legacy scene re-saves without writing the new op keys"
+  ]
+ },
+ "N01-T10": {
+  "tests": [
+   "tests/core/VariationPlannerTests.cpp::planner mutates BitCrush",
+   "tests/core/VariationPlannerTests.cpp::planner mutates FilterSweep",
+   "tests/core/VariationPlannerTests.cpp::protected new ops are untouched"
+  ]
+ },
+ "N01-T11": {
+  "tests": [
+   "tests/core/PaletteTests.cpp:: >= 3:1 on panel"
+  ]
+ },
+ "N02-T03": {
+  "tests": [
+   "tests/core/PresetTests.cpp::T03 valid ",
+   "tests/core/PresetTests.cpp::T03 reserializes identically ",
+   "tests/core/PresetTests.cpp::T03 param allowed "
+  ]
+ },
+ "N04-C01": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C01 "
+  ]
+ },
+ "N04-C02": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C02 "
+  ]
+ },
+ "N04-C03": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C03 "
+  ]
+ },
+ "N04-C04": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C04 "
+  ]
+ },
+ "N04-C05": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C05 "
+  ]
+ },
+ "N04-C06": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C06 "
+  ]
+ },
+ "N04-C07": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C07 "
+  ]
+ },
+ "N04-C08": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C08 "
+  ]
+ },
+ "N04-C09": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C09 "
+  ]
+ },
+ "N04-C10": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C10 "
+  ]
+ },
+ "N04-C11": {
+  "tests": [
+   "tests/core/OutputCaptureTests.cpp::C11 "
+  ]
+ },
+ "N04-N01": {
+  "tests": [
+   "tests/core/PrintNamingTests.cpp::separators dropped",
+   "tests/core/PrintNamingTests.cpp::reserved COM1",
+   "tests/core/PrintNamingTests.cpp::unicode dropped"
+  ]
+ },
+ "N04-N02": {
+  "tests": [
+   "tests/core/PrintNamingTests.cpp::parse valid",
+   "tests/core/PrintNamingTests.cpp::collision n1",
+   "tests/core/PrintNamingTests.cpp::isPrint yes"
+  ]
+ },
+ "N04-R01": {
+  "reason": "Code review by the A1 audit: OutputCapture::process uses preallocated buffers and atomics; allocation happens only in arm()/release() on the message thread; the thread stress test is C11.",
+  "status": "CHECKED",
+  "tests": [
+   "src/core/dsp/OutputCapture.cpp::release",
+   "tests/core/OutputCaptureTests.cpp::C11 stress armed repeatedly"
+  ]
+ },
+ "N04-U01": {
+  "reason": "WAV writing is processor-tested; the Print tab UI and drag-out are not run.",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::print wav written",
+   "tests/PluginProcessorTests.cpp::print wav reads back as 24-bit stereo",
+   "tests/PluginProcessorTests.cpp::print wav content survives 24-bit"
+  ]
+ },
+ "N04-U02": {
+  "reason": "Drag into a DAW track needs a real host (B-01).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "N06-A1": {
+  "reason": "Core-only configure, build and ctest were run by the A1 audit; the count is in the audit report.",
+  "status": "CHECKED",
+  "tests": [
+   "CMakeLists.txt::GROOVEMORPH_CORE_ONLY_BUILD"
+  ]
+ },
+ "N06-A10": {
+  "reason": "bash -n passes for all four tools/package/*.sh scripts (A1 audit); shellcheck and a PowerShell parser are not installed on the authoring machine.",
+  "status": "CHECKED",
+  "tests": [
+   "tools/package/package.sh::set -"
+  ]
+ },
+ "N06-A11": {
+  "reason": "CLAP in a real host (REAPER or Bitwig) has not been done (B-01, B-11).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "N06-A3": {
+  "reason": "The CLAP target is gated by GROOVEMORPH_ENABLE_CLAP in CMakeLists.txt; a configure with the option ON/OFF was not run here (needs the JUCE fetch).",
+  "status": "CHECKED",
+  "tests": [
+   "CMakeLists.txt::GROOVEMORPH_ENABLE_CLAP"
+  ]
+ },
+ "N06-A4": {
+  "reason": "Four-leg build and ctest are the first run of .github/workflows/beta-release.yml, which has not happened (B-11).",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "N06-A5": {
+  "reason": "Per-leg .clap and clap-validator outcome: first workflow run (B-11).",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "N06-A6": {
+  "reason": "lipo -archs per macOS leg: first workflow run (B-11).",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "N06-A7": {
+  "reason": "tools/package/check-version.sh was run by the A1 audit with a matching tag (accepted), a wrong tag and a wrong dispatch input (both exit 1).",
+  "status": "CHECKED",
+  "tests": [
+   "tools/package/check-version.sh::does not match VERSION"
+  ]
+ },
+ "N06-A8": {
+  "reason": "Release assets (4 zips, checksums, notes) are produced by the first workflow run (B-11).",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "N06-A9": {
+  "reason": "Reviewed by the A1 audit: workflow-level permissions are contents: read; contents: write appears only in the release job, which runs only when prepare.outputs.publish is true; no commit-message trigger.",
+  "status": "CHECKED",
+  "tests": [
+   ".github/workflows/beta-release.yml::contents: write"
+  ]
+ },
+ "R01-T01": {
+  "reason": "Owner decision pending (GM-DEC-10): no product licence has been chosen; THIRD-PARTY-NOTICES.md says so. Open as TODO B-03.",
+  "status": "DEFERRED",
+  "tests": [
+   "THIRD-PARTY-NOTICES.md::not declared"
+  ]
+ },
+ "R01-T02": {
+  "reason": "No LICENSE file until the owner decides (B-03).",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "R01-T03": {
+  "reason": "Notices are a hand-written file; there is no generator that fails on unknown components (B-03).",
+  "status": "DEFERRED",
+  "tests": [
+   "THIRD-PARTY-NOTICES.md::JUCE"
+  ]
+ },
+ "R01-T04": {
+  "reason": "Whether each release archive carries the notices is checked in packaging (tools/package/package.sh) but not asserted by a test (B-03, B-11).",
+  "status": "DEFERRED",
+  "tests": [
+   "tools/package/package.sh::THIRD-PARTY-NOTICES"
+  ]
+ },
+ "R01-T05": {
+  "reason": "No notices file is embedded in the binary (B-03).",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "R01-T06": {
+  "reason": "No About view exists (B-03, B-04).",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "R01-T07": {
+  "reason": "No SBOM/dependency list is attached to the release (B-03).",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "R01-T08": {
+  "reason": "GM-QR-012 amended by the A1 audit.",
+  "status": "CHECKED",
+  "tests": [
+   "docs/SPECIFICATION.md::Print to WAV"
+  ]
+ },
+ "UI-KB-1": {
+  "reason": "UI behavior compiled in CI but unverified without a display (W10-UI-ISSUES); the core logic behind it is tested (PhraseFitTests, EditCoalescingTests, TextThrottleTests).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "UI-NH-1": {
+  "reason": "UI behavior compiled in CI but unverified without a display (W10-UI-ISSUES); the core logic behind it is tested (PhraseFitTests, EditCoalescingTests, TextThrottleTests).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "UI-PF-1": {
+  "tests": [
+   "tests/core/PhraseFitTests.cpp::F1 uniform",
+   "tests/core/PhraseFitTests.cpp::F2 event ending exactly at the end fits",
+   "tests/core/PhraseFitTests.cpp::F3 locked counted",
+   "tests/core/PhraseFitTests.cpp::F4 fits its ring"
+  ]
+ },
+ "UI-PF-5": {
+  "reason": "UI behavior compiled in CI but unverified without a display (W10-UI-ISSUES); the core logic behind it is tested (PhraseFitTests, EditCoalescingTests, TextThrottleTests).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "UI-SC-1": {
+  "reason": "UI behavior compiled in CI but unverified without a display (W10-UI-ISSUES); the core logic behind it is tested (PhraseFitTests, EditCoalescingTests, TextThrottleTests).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "UI-UC-1": {
+  "tests": [
+   "tests/core/EditCoalescingTests.cpp::U1 depth detected",
+   "tests/core/EditCoalescingTests.cpp::U2 one entry for 20 steps",
+   "tests/core/EditCoalescingTests.cpp::U3 sliding window",
+   "tests/core/EditCoalescingTests.cpp::U6 bounded history"
+  ]
+ },
+ "UI-VR-1": {
+  "reason": "UI behavior compiled in CI but unverified without a display (W10-UI-ISSUES); the core logic behind it is tested (PhraseFitTests, EditCoalescingTests, TextThrottleTests).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "VF-01": {
+  "tests": [
+   "tests/core/TraceEngineTests.cpp::active sink leaves output bit-identical",
+   "tests/core/TraceEngineTests.cpp::inactive sink leaves output bit-identical",
+   "tests/PluginProcessorTests.cpp::trace ring does not change processed audio"
+  ]
+ },
+ "VF-02": {
+  "reason": "Trace frames are fixed-size ring writes; no allocation or callback-cost measurement was made (B-01).",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/core/TraceRingTests.cpp::reader actually ran"
+  ]
+ },
+ "VF-03": {
+  "reason": "Generated by spec_matrix.py: no file under src/core includes a JUCE header (see the portability line above).",
+  "status": "CHECKED",
+  "tests": [
+   "shared/scripts/spec_matrix.py::juce_in_core"
+  ]
+ },
+ "VF-04": {
+  "reason": "Checked by the A1 audit: no visual/trace key exists in SceneSerializer.cpp or the project-state code in PluginProcessor.cpp (text search); the serializer tests are unchanged.",
+  "status": "CHECKED",
+  "tests": [
+   "tests/core/SceneSerializerTests.cpp::header"
+  ]
+ },
+ "VF-05": {
+  "tests": [
+   "tests/PluginProcessorTests.cpp::no frames while the window is closed",
+   "tests/PluginProcessorTests.cpp::deactivating stops tracing",
+   "tests/PluginProcessorTests.cpp::visual content starts with tracing off"
+  ]
+ },
+ "VF-07": {
+  "reason": "No Gross Beat likeness is a human design review (PLAN section 4b); not done (B-10).",
+  "status": "MANUAL",
+  "tests": []
+ },
+ "VF-08": {
+  "tests": [
+   "tests/core/PlanBuilderTests.cpp::planner matches the engine under placement gating",
+   "tests/core/PlannedPathTests.cpp::planned threads are flagged and dimmed",
+   "tests/core/StageGeometryTests.cpp::repeat lag"
+  ]
+ },
+ "VF-09": {
+  "tests": [
+   "tests/core/LedgerTests.cpp::stopped banner",
+   "tests/core/LedgerTests.cpp::invalid banner",
+   "tests/core/LedgerTests.cpp::preview banner",
+   "tests/core/LedgerTests.cpp::no data banner"
+  ]
+ },
+ "VF-T01": {
+  "tests": [
+   "tests/core/TraceRingTests.cpp::no torn frames under concurrent writes",
+   "tests/core/TraceRingTests.cpp::wrapped frames ascending, contiguous, intact",
+   "tests/core/TraceRingTests.cpp::epoch start"
+  ]
+ },
+ "W3-C04S-T07": {
+  "reason": "The processor test that compares the step at a 40 ms-smoothed switch with the 0 ms switch was not written; the engine-level equivalent is TransitionSmoothingTests W3-C04S-T03. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "W3-DR-T03": {
+  "tests": [
+   "tests/W3ProcessorTests.cpp::W3-DR armed after the switch",
+   "tests/W3ProcessorTests.cpp::W3-DR active after the boundary",
+   "tests/W3ProcessorTests.cpp::W3-DR the effect was audible before the boundary",
+   "tests/W3ProcessorTests.cpp::W3-DR output equals the input once the ramp is done"
+  ]
+ },
+ "W3-DR-T04": {
+  "tests": [
+   "tests/W3ProcessorTests.cpp::W3-DR the active scene is unchanged",
+   "tests/W3ProcessorTests.cpp::W3-DR a Dry arming does not claim a scene target"
+  ]
+ },
+ "W3-DR-T05": {
+  "reason": "A scene request ends the Dry state; Cancel, seek, prepare and a request for the active scene are not separately asserted at processor level (core: W3-DR-T01 disarm cases).",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/W3ProcessorTests.cpp::W3-DR a scene request ends the Dry state",
+   "tests/core/W3ControlTests.cpp::W3-DR-T01 NaN position disarms"
+  ]
+ },
+ "W3-DR-T06": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "W3-DR-T07": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "W3-LR-T04": {
+  "reason": "Loops over 44.1, 48, 96 and 192 kHz.",
+  "tests": [
+   "tests/core/CrossoverTests.cpp::F10-T03 high -6 dB at fc ",
+   "tests/core/CrossoverTests.cpp::W3-LR-T02 low rolloff "
+  ]
+ },
+ "W3-LR-T10": {
+  "reason": "bandTopology default 0 and legacy restore are not asserted in the processor tests. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "W3-MO-T01": {
+  "reason": "The explicit gate-event case is asserted at core level (merged lane evaluated); the processor test checks a half morph differs from both ends.",
+  "tests": [
+   "tests/W3ProcessorTests.cpp::W3-MORPH a half morph differs from both ends",
+   "tests/core/MorphControlTests.cpp::F02-T08b b-only event present",
+   "tests/core/MorphControlTests.cpp::F02-T08f evaluator sees the merged events"
+  ]
+ },
+ "W3-NF-T03": {
+  "reason": "Bypass and wet-0 band split with NaN/Inf are processor-tested; each band mode and topology combination is not enumerated.",
+  "status": "PARTIAL",
+  "tests": [
+   "tests/PluginProcessorTests.cpp::band split at wet 0 preserves finite samples and sanitizes NaN/Inf immediately",
+   "tests/PluginProcessorTests.cpp::host bypass sanitizes NaN and infinity in the current block",
+   "tests/W3ProcessorTests.cpp::W3-NF bypassed block: NaN becomes 0"
+  ]
+ },
+ "W3-NF-T04": {
+  "reason": "Asserted at engine level; the processor-level equivalence to a never-poisoned run is not.",
+  "tests": [
+   "tests/core/W3ControlTests.cpp::W3-NF-T02 engine output stays finite after garbage",
+   "tests/core/EnginePhaseTests.cpp::NaN/Inf input leaves no residue in later replays"
+  ]
+ },
+ "W3-NF-T05": {
+  "tests": [
+   "tests/W3ProcessorTests.cpp::W3-NF output stays finite (",
+   "tests/W3ProcessorTests.cpp::W3-NF counted the replaced samples ("
+  ]
+ },
+ "W3-PC-T04": {
+  "tests": [
+   "tests/W3ProcessorTests.cpp::W3-PC phase uses the config captured at request time"
+  ]
+ },
+ "W3-PC-T05": {
+  "tests": [
+   "tests/W3ProcessorTests.cpp::W3-PC a later request uses the edited phase"
+  ]
+ },
+ "W3-TM-T04": {
+  "tests": [
+   "tests/PluginProcessorTests.cpp::evolves at the phrase boundary",
+   "tests/PluginProcessorTests.cpp::no evolution step within the first phrase",
+   "tests/PluginProcessorTests.cpp::and again next phrase",
+   "tests/PluginProcessorTests.cpp::evolution does not modify the saved scene bank"
+  ]
+ },
+ "W3-TM-T06": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "W3-TM-T07": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "W3-TM-T08": {
+  "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
+  "status": "DEFERRED",
+  "tests": []
+ },
+ "_spec:docs/control-specs/features/C01-PHRASE-PLACEMENT.md": {
+  "impl": [
+   "src/core/control/PlacementEvaluator.cpp::evaluate",
+   "src/core/control/SceneControl.cpp::addEvent"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class PlacementTab",
+   "src/ui/InspectorPanel.cpp::class LaneCanvas"
+  ]
+ },
+ "_spec:docs/control-specs/features/C02-VARIATION-DISTANCE.md": {
+  "impl": [
+   "src/core/control/VariationBlend.cpp::blendDistance",
+   "src/core/variation/CandidateBuilder.cpp::buildCandidate"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class GeneratorTab"
+  ]
+ },
+ "_spec:docs/control-specs/features/C03-CHANGE-PERMISSIONS.md": {
+  "impl": [
+   "src/core/control/VariationBlend.cpp::enforcePermissions"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class GeneratorTab",
+   "src/ui/InspectorPanel.cpp::class LimitsTab"
+  ]
+ },
+ "_spec:docs/control-specs/features/C04-TRANSITION-PHASE.md": {
+  "impl": [
+   "src/core/control/PhaseResolver.cpp::Phase",
+   "src/core/Scheduler.cpp::Scheduler"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class PlacementTab",
+   "src/ui/InspectorPanel.cpp::class ScenesTab"
+  ]
+ },
+ "_spec:docs/control-specs/features/C05-AUTOMATIC-RETURN.md": {
+  "impl": [
+   "src/core/control/AutoReturn.h::armDry",
+   "src/core/control/AutoReturn.h::AutoReturn"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::returnBars"
+  ]
+ },
+ "_spec:docs/control-specs/features/C06-EFFECT-ACTIVITY-LIMITS.md": {
+  "impl": [
+   "src/core/control/SceneControl.cpp::reduceEvents",
+   "src/core/control/PlacementEvaluator.cpp::maxConcurrent"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class LimitsTab"
+  ]
+ },
+ "_spec:docs/specs/A04-MIDI-CONFLICT-POLICY.md": {
+  "impl": [
+   "src/core/scene/MidiNoteMap.cpp::planAssign",
+   "src/core/scene/MidiNoteMap.cpp::assign",
+   "src/core/MidiLinks.cpp::linkChecked"
+  ],
+  "ui": [
+   "src/PluginEditor.cpp::editMidiMap",
+   "src/PluginEditor.cpp::Swap"
+  ]
+ },
+ "_spec:docs/specs/A06-AUTOMATION-IDS-AND-FADE.md": {
+  "impl": [
+   "src/core/control/OperationTrims.cpp::applyTrims",
+   "src/PluginProcessor.cpp::effectiveSettings",
+   "src/PluginProcessor.cpp::operationTrimId"
+  ],
+  "ui": [],
+  "ui_note": "Automation only by design: the trims have no inspector control; they are reachable from the host parameter list and MIDI learn (`p:op<N>Depth`)."
+ },
+ "_spec:docs/specs/A07-ACCESSIBILITY-INPUT.md": {
+  "impl": [
+   "src/ui/InspectorPanel.cpp::bool keyPressed",
+   "src/PluginEditor.cpp::keyPressed"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::setTitle",
+   "src/PluginEditor.cpp::A07 / F04 section 3.1"
+  ],
+  "ui_note": "UI scale, F1 help and the capped-slice indicator have no UI (B-04)."
+ },
+ "_spec:docs/specs/F01-CONTROLLED-GENERATION.md": {
+  "impl": [
+   "src/core/variation/CandidateBuilder.cpp::buildCandidate",
+   "src/core/variation/VariationPlanner.cpp::generate",
+   "src/core/variation/CandidateBuilder.cpp::generateEventPatterns"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class GeneratorTab"
+  ]
+ },
+ "_spec:docs/specs/F02-SCENE-MORPHING.md": {
+  "impl": [
+   "src/core/control/VariationBlend.cpp::morph",
+   "src/PluginProcessor.cpp::effectiveSettings"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class MorphTab",
+   "src/ui/InspectorPanel.cpp::morphTargetId",
+   "src/ui/InspectorPanel.cpp::morphAmountId"
+  ]
+ },
+ "_spec:docs/specs/F03-GROOVE-PROTECTION.md": {
+  "impl": [
+   "src/core/dsp/Crossover.cpp::BandSplit::split",
+   "src/core/control/PlacementEvaluator.cpp::downbeatProtectBeats",
+   "src/PluginProcessor.cpp::bandTopology"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::bandTopologyId",
+   "src/ui/InspectorPanel.cpp::bandCrossoverId",
+   "src/ui/InspectorPanel.cpp::class PlacementTab"
+  ]
+ },
+ "_spec:docs/specs/F04-PERFORMANCE-MODE.md": {
+  "impl": [
+   "src/PluginProcessor.cpp::handleMidi",
+   "src/PluginProcessor.cpp::requestVariation",
+   "src/PluginProcessor.h::triggerManualSwitch"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class PerformTab",
+   "src/PluginEditor.cpp::triggerButton.onClick",
+   "src/PluginEditor.cpp::A07 / F04 section 3.1"
+  ]
+ },
+ "_spec:docs/specs/F05-PHRASE-EVOLUTION.md": {
+  "impl": [
+   "src/PluginProcessor.cpp::setEvolution",
+   "src/PluginProcessor.cpp::syncEvolutionFromAudioLocked",
+   "src/ServiceTimer.h::class ServiceTimer"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::evolveOn",
+   "src/ui/InspectorPanel.cpp::evolveStyle"
+  ]
+ },
+ "_spec:docs/specs/F06-POLYRHYTHMIC-LANES.md": {
+  "impl": [
+   "src/core/control/PlacementEvaluator.cpp::loopBeats",
+   "src/core/control/SceneControl.cpp::reduceEvents",
+   "src/core/scene/SceneSerializer.cpp::lane.loop."
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::loopBeats"
+  ],
+  "ui_note": "The loop length is edited in the Place tab; the loop ring is not drawn on the canvas (B-04)."
+ },
+ "_spec:docs/specs/F07-AUDIO-TRIGGERS.md": {
+  "impl": [
+   "src/core/dsp/OnsetDetector.cpp::OnsetDetector::process",
+   "src/PluginProcessor.cpp::audioTrigger"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::audioTriggerId",
+   "src/ui/InspectorPanel.cpp::audioTriggerSensId"
+  ]
+ },
+ "_spec:docs/specs/F08-VARIATION-HISTORY.md": {
+  "impl": [
+   "src/core/variation/GeneratorHistory.cpp::parseHistory",
+   "src/core/variation/GeneratorHistory.cpp::serializeHistory"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::gvar::parseHistory",
+   "src/ui/InspectorPanel.cpp::history.onChange"
+  ]
+ },
+ "_spec:docs/specs/F09-AUDIO-IMPORT-CAPTURE.md": {
+  "impl": [
+   "src/core/dsp/LoopSource.cpp::LoopSource",
+   "src/core/dsp/TimeStretcher.cpp::stretch",
+   "src/core/dsp/LoopBlob.h::LoopBlob",
+   "src/core/dsp/WaveformPeaks.h::Peaks",
+   "src/PluginProcessor.cpp::importLoopFile"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class InputTab",
+   "src/ui/InspectorPanel.cpp::loopStretchId",
+   "src/ui/WaveformView.cpp::WaveformView"
+  ]
+ },
+ "_spec:docs/specs/F10-MULTIBAND.md": {
+  "impl": [
+   "src/core/dsp/Crossover.cpp::BandSplit::merge",
+   "src/core/dsp/Crossover.cpp::LrChannel::setCutoff"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::bandModeId",
+   "src/ui/InspectorPanel.cpp::bandSlopeId",
+   "src/ui/InspectorPanel.cpp::bandTopologyId"
+  ]
+ },
+ "_spec:docs/specs/F11-GESTURE-RECORDER.md": {
+  "impl": [
+   "src/core/control/GestureLane.cpp::GestureLane::sample",
+   "src/PluginProcessor.cpp::updateGesture"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class PerformTab"
+  ]
+ },
+ "_spec:docs/specs/F12-MIDI-CLAP-PLATFORMS.md": {
+  "impl": [
+   "src/core/MidiLinks.cpp::MidiLinkTable",
+   "src/core/scene/MidiNoteMap.cpp::planAssign",
+   "src/PluginProcessor.cpp::handleMidi",
+   "CMakeLists.txt::GROOVEMORPH_ENABLE_CLAP"
+  ],
+  "ui": [
+   "src/ui/ControlMenu.cpp::MenuSupport"
+  ]
+ },
+ "_spec:docs/specs/N01-EFFECTS-SWEEP-CRUSH.md": {
+  "impl": [
+   "src/core/dsp/SweepCrush.h::struct",
+   "src/core/dsp/RhythmEngine.cpp::Sweep"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class LimitsTab"
+  ]
+ },
+ "_spec:docs/specs/N02-PRESETS.md": {
+  "impl": [
+   "src/core/preset/PresetLibrary.cpp::PresetLibrary",
+   "src/core/preset/FactoryPresets.h::factory",
+   "src/PresetManager.cpp::PresetManager"
+  ],
+  "ui": [
+   "src/ui/PresetBar.cpp::class BrowserPanel",
+   "src/PluginEditor.h::PresetBar"
+  ]
+ },
+ "_spec:docs/specs/N03-EUCLID-CHANCE.md": {
+  "impl": [
+   "src/core/control/EuclidPattern.cpp::euclidSteps",
+   "src/core/control/Chance.h::eventFires"
+  ],
+  "ui": [
+   "src/ui/EuclidPanel.cpp::EuclidPanel",
+   "src/ui/InspectorPanel.cpp::euclid"
+  ]
+ },
+ "_spec:docs/specs/N04-PRINT-TO-WAV.md": {
+  "impl": [
+   "src/core/dsp/OutputCapture.cpp::OutputCapture::process",
+   "src/core/dsp/PrintNaming.cpp::buildPrintFileName",
+   "src/PluginProcessor.cpp::outputCapture.arm"
+  ],
+  "ui": [
+   "src/ui/PrintPanel.cpp::PrintPanel",
+   "src/ui/InspectorPanel.cpp::PrintPanel"
+  ]
+ },
+ "_spec:docs/specs/N05-EASY-MODE.md": {
+  "impl": [
+   "src/core/control/ChaosMapper.h::Chaos",
+   "src/core/variation/Surprise.h::Surprise",
+   "src/core/easy/EasyLayout.h::Easy",
+   "src/PluginProcessorEasy.cpp::requestSurprise"
+  ],
+  "ui": [
+   "src/ui/EasyView.cpp::EasyView",
+   "src/ui/FirstRunGuide.cpp::FirstRunGuide",
+   "src/PluginEditor.cpp::easyView"
+  ]
+ },
+ "_spec:docs/specs/N06-CLAP-AND-RELEASE.md": {
+  "impl": [
+   "CMakeLists.txt::GROOVEMORPH_ENABLE_CLAP",
+   ".github/workflows/beta-release.yml::prerelease",
+   "tools/package/package.sh::set -",
+   "tools/package/check-version.sh::VERSION"
+  ],
+  "ui": []
+ },
+ "_spec:docs/specs/R01-LICENSING-NOTICES.md": {
+  "impl": [
+   "THIRD-PARTY-NOTICES.md::JUCE"
+  ],
+  "ui": []
+ },
+ "_spec:docs/specs/W10-MIDI-ASSIGN.md": {
+  "impl": [
+   "src/core/scene/MidiNoteMap.cpp::planAssign",
+   "src/core/MidiLinks.cpp::linkChecked"
+  ],
+  "ui": [
+   "src/PluginEditor.cpp::editMidiMap"
+  ]
+ },
+ "_spec:docs/specs/W10-MIDI-PANIC-RATES.md": {
+  "impl": [
+   "src/core/scene/MidiNoteMap.h::releaseAll"
+  ],
+  "ui": []
+ },
+ "_spec:docs/specs/W10-OP-TRIMS.md": {
+  "impl": [
+   "src/core/control/OperationTrims.cpp::applyTrims",
+   "src/PluginProcessor.cpp::operationTrimId"
+  ],
+  "ui": [],
+  "ui_note": "Automation only by design; no inspector control."
+ },
+ "_spec:docs/specs/W10-UI-ISSUES.md": {
+  "impl": [
+   "src/core/control/PhraseFit.cpp::checkPhraseFit",
+   "src/core/scene/EditCoalescing.h::coalesceKey",
+   "src/core/viz/TextThrottle.h::TextThrottle"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class LaneCanvas",
+   "src/ui/InspectorPanel.cpp::class ScenesTab"
+  ]
+ },
+ "_spec:docs/specs/W3-C04-SMOOTHING.md": {
+  "impl": [
+   "src/core/control/SceneControl.h::smoothingMs"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class PlacementTab"
+  ]
+ },
+ "_spec:docs/specs/W3-CAPACITY.md": {
+  "impl": [
+   "src/core/control/SceneControl.h::maxLaneEvents = 256",
+   "src/core/control/SceneControl.h::maxProtectedRegions"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class PlacementTab"
+  ]
+ },
+ "_spec:docs/specs/W3-DRY-RETURN.md": {
+  "impl": [
+   "src/core/control/AutoReturn.h::armDry"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::returnTarget"
+  ]
+ },
+ "_spec:docs/specs/W3-INPUT-SANITIZE.md": {
+  "impl": [
+   "src/core/dsp/InputSanitizer.h::sanitize",
+   "src/PluginProcessor.cpp::sanitize"
+  ],
+  "ui": []
+ },
+ "_spec:docs/specs/W3-LOOP-REDUCE.md": {
+  "impl": [
+   "src/core/control/SceneControl.cpp::reduceEvents"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class LimitsTab"
+  ]
+ },
+ "_spec:docs/specs/W3-LR-CROSSOVER.md": {
+  "impl": [
+   "src/core/dsp/Crossover.cpp::LrChannel::process",
+   "src/PluginProcessor.cpp::bandTopology"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::bandTopologyId"
+  ]
+ },
+ "_spec:docs/specs/W3-MORPH.md": {
+  "impl": [
+   "src/core/control/VariationBlend.cpp::morph"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class MorphTab"
+  ]
+ },
+ "_spec:docs/specs/W3-PHASE-CAPTURE.md": {
+  "impl": [
+   "src/core/control/LaunchPhase.h::LaunchPhase"
+  ],
+  "ui": [
+   "src/ui/InspectorPanel.cpp::class ScenesTab"
+  ]
+ },
+ "_spec:docs/specs/W3-TIMER-EVOLUTION.md": {
+  "impl": [
+   "src/ServiceTimer.h::class ServiceTimer",
+   "src/PluginProcessor.cpp::syncEvolutionFromAudioLocked"
+  ],
+  "ui": []
+ },
+ "_spec:docs/specs/W4-LOOP-STRETCH-PERSIST.md": {
+  "impl": [
+   "src/core/dsp/TimeStretcher.cpp::stretch",
+   "src/core/dsp/LoopBlob.h::LoopBlob",
+   "src/core/dsp/WaveformPeaks.h::Peaks",
+   "src/PluginProcessor.cpp::importLoopFile"
+  ],
+  "ui": [
+   "src/ui/WaveformView.cpp::WaveformView",
+   "src/ui/InspectorPanel.cpp::loopStretchId"
+  ]
+ },
+ "_spec:docs/visual-feedback/INTEGRATION-PLAN.md": {
+  "impl": [
+   "src/core/trace/TraceRing.cpp::TraceRing"
+  ],
+  "ui": []
+ },
+ "_spec:docs/visual-feedback/SPEC.md": {
+  "impl": [
+   "src/core/trace/TraceRing.cpp::TraceRing",
+   "src/core/viz/PathResolver.h::resolveThread",
+   "src/core/viz/WeaveLayout.h::Weave",
+   "src/core/viz/Ledger.h::Ledger"
+  ],
+  "ui": [
+   "src/ui/visual/VisualWindow.cpp::VisualWindow",
+   "src/ui/visual/WeaveView.cpp::WeaveView",
+   "src/ui/visual/LedgerView.cpp::LedgerView",
+   "src/ui/visual/RingsView.cpp::RingsView",
+   "src/ui/visual/StationsView.cpp::StationsView"
+  ]
+ }
+}

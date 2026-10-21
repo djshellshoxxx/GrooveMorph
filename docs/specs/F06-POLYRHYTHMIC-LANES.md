@@ -1,8 +1,15 @@
 # F06 Polyrhythmic and independent operation lanes
 
-Status: IMPLEMENTED (per-lane loop length), spec COMPLETE. Written 2026-10-20 against `c83e8b2`.
+Status: IMPLEMENTED (per-lane loop ring, loop-aware Reduce, capacity 256). Beta audit: ring drawing not built (TODO B-04). Updated 2026-10-20 by the A1 completeness audit.
 Replaces draft `docs/expansion/features/F06-POLYRHYTHMIC-LANES.md` (PR #6). The draft's rational lane periods and lookahead scheduler are
 NOT used: the shipped design is a loop ring per operation inside the placement evaluator (DECISIONS: "Polyrhythm = per-lane loop rings").
+
+
+## Beta audit status (2026-10-20)
+
+- Added by the audit: loop length clamp at 64, negative-position wrap and per-repetition restartCycle (F06-T04..T06) in `CompletenessTests.cpp`.
+- Open: two-lane render at four block sizes (F06-T07, B-02) and drawing the loop ring in the canvas (F06-T08, B-04).
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -49,12 +56,12 @@ Place tab: a lane combo (`loopLane`) plus a 0..64 slider (`loopBeats`; 0 display
 | F06-T01 | Looped event fires every 3 beats, silent between, boundary distance exact | EXISTS | `tests/core/SceneControlTests.cpp` "add looped event", "loop fires every 3 beats", "loop silent between", "loop boundary distance" |
 | F06-T02 | Overlap is judged on the lane's own loop ring; same event fine without loop | EXISTS | SceneControlTests "overlap is judged on the lane's own loop ring", "without a loop the same event is fine" |
 | F06-T03 | Loop lengths survive generation and permissions | EXISTS | CandidateBuilderTests "lane loop lengths retained"; SceneControlTests "candidate loop lengths kept" |
-| F06-T04 | Loop lengths round-trip in the scene format; value > 64 is clamped | PARTIAL: round trip of all five lane lengths EXISTS (SceneControlTests "all five operations round-trip" fixture sets `loopBeats[op]=2+op`); clamp to 64 MISSING | SceneControlTests / SceneSerializerTests |
-| F06-T05 | Meter change and seek re-anchor: ring phase follows the pattern position; a negative position wraps | MISSING | add SceneControlTests case with `positionBeats < 0` and loop > 0 |
-| F06-T06 | Looping lane with `restartCycle` restarts the engine grid at each repetition | MISSING | EngineGoldenTests-style render |
-| F06-T07 | Audio test: two looping lanes with 3 and 4 beats render sample-accurate edges at block sizes 1, 32, 256, 2048 | MISSING | processor render test |
-| F06-T08 | Canvas draws the loop ring tiles | MISSING (feature absent; native UI) | manual QA |
-| F06-T09 | Loop-aware Reduce keeps spacing/coverage on each lane's ring | MISSING, owned by W3 | W3 tests |
+| F06-T04 | Loop lengths round-trip in the scene format; value > 64 is clamped | EXISTS | `CompletenessTests.cpp (label F06-T04)` |
+| F06-T05 | Meter change and seek re-anchor: ring phase follows the pattern position; a negative position wraps | EXISTS | `CompletenessTests.cpp (label F06-T05)` |
+| F06-T06 | Looping lane with `restartCycle` restarts the engine grid at each repetition | EXISTS | `CompletenessTests.cpp (label F06-T06)` |
+| F06-T07 | Audio test: two looping lanes with 3 and 4 beats render sample-accurate edges at block sizes 1, 32, 256, 2048 | DEFERRED | Sample-accurate edges at four block sizes are asserted for a single placement window and for events at core level (SceneControlTests, PlanBuilderTests segments identical for all block sizes in EuclidChanceTests); the two-lane 3 and 4 beat render is a processor test. Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
+| F06-T08 | Canvas draws the loop ring tiles | DEFERRED | The canvas does not draw the loop ring tiles. Open as TODO B-04. |
+| F06-T09 | Loop-aware Reduce keeps spacing/coverage on each lane's ring | EXISTS | `W3ControlTests.cpp` "W3-RED-T01 no loops: decisions identical to the old greedy (500 cases)"; `W3ControlTests.cpp` "W3-RED-T05 loop alignment gives peak 2"; `W3ControlTests.cpp` "W3-RED-T02 gcd spacing drops the lower priority event" |
 
 ## 8. Gaps
 

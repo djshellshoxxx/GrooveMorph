@@ -1,8 +1,15 @@
 # R01 Release licensing and third-party notices
 
-Status: SPEC COMPLETE; the license DECISION is the product owner's and is NOT made here. Written 2026-10-20 against `c83e8b2`.
+Status: SPEC COMPLETE; the licence decision is the product owner's and is still NOT made. GM-QR-012 amended (Print to WAV). Remaining rows are open (TODO B-03). Updated 2026-10-20 by the A1 completeness audit.
 Source items: `docs/TODO.md` "Distribution / P0 beta gate" ("product/third-party license review"), `docs/SPECIFICATION.md` GM-DEC-10, GM-RSK-07, GM-QR-012, "Licensing gate".
 Related: [N06](N06-CLAP-AND-RELEASE.md) (packaging), [F12](F12-MIDI-CLAP-PLATFORMS.md).
+
+
+## Beta audit status (2026-10-20)
+
+- Present: `THIRD-PARTY-NOTICES.md` at the repository root (hand-written by W9; states that no GrooveMorph licence is declared) and packaging that copies it.
+- Absent: `LICENSE`, the decision record `GM-DEC-10 resolved`, a notice generator, an About view, an SBOM.
+- Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
 
@@ -56,13 +63,13 @@ Info tab gains an "About and licenses" button that opens a read-only scrolling t
 
 | ID | Check | Status | Location |
 |---|---|---|---|
-| R01-T01 | Decision record `GM-DEC-10 resolved` exists with every field of section 3 filled | MISSING (owner decision pending) | `docs/coordination/DECISIONS.md` |
-| R01-T02 | `LICENSE` exists at the repo root and equals the license named in the decision | MISSING | CI script step |
-| R01-T03 | Notice generator lists every component of section 4.2 with a non-empty license text, and fails on an unknown component in the dependency list | MISSING | `shared/scripts` test run in CI |
-| R01-T04 | Every release archive (Windows, macOS arm64/Intel, Linux; VST3, CLAP, Standalone) contains `LICENSE` and `THIRD_PARTY_NOTICES.txt` | MISSING | release workflow assertion (W9) |
-| R01-T05 | Notices in the archive are byte-identical to the file embedded in the binary | MISSING | CI script |
-| R01-T06 | About view renders the notices and is reachable by keyboard | MISSING (native UI) | editor test |
-| R01-T07 | The SBOM/dependency list (name, version, hash) is attached to the release | MISSING | release workflow |
+| R01-T01 | Decision record `GM-DEC-10 resolved` exists with every field of section 3 filled | DEFERRED | `THIRD-PARTY-NOTICES.md` "not declared" Owner decision pending (GM-DEC-10): no product licence has been chosen; THIRD-PARTY-NOTICES.md says so. Open as TODO B-03. |
+| R01-T02 | `LICENSE` exists at the repo root and equals the license named in the decision | DEFERRED | No LICENSE file until the owner decides (B-03). |
+| R01-T03 | Notice generator lists every component of section 4.2 with a non-empty license text, and fails on an unknown component in the dependency list | DEFERRED | `THIRD-PARTY-NOTICES.md` "JUCE" Notices are a hand-written file; there is no generator that fails on unknown components (B-03). |
+| R01-T04 | Every release archive (Windows, macOS arm64/Intel, Linux; VST3, CLAP, Standalone) contains `LICENSE` and `THIRD_PARTY_NOTICES.txt` | DEFERRED | `package.sh` "THIRD-PARTY-NOTICES" Whether each release archive carries the notices is checked in packaging (tools/package/package.sh) but not asserted by a test (B-03, B-11). |
+| R01-T05 | Notices in the archive are byte-identical to the file embedded in the binary | DEFERRED | No notices file is embedded in the binary (B-03). |
+| R01-T06 | About view renders the notices and is reachable by keyboard | DEFERRED | No About view exists (B-03, B-04). |
+| R01-T07 | The SBOM/dependency list (name, version, hash) is attached to the release | DEFERRED | No SBOM/dependency list is attached to the release (B-03). |
 | R01-T08 | GM-QR-012 wording amended to match shipped features (Print to WAV) | MISSING, integrator | `docs/SPECIFICATION.md` |
 
 ## 8. Non-goals
