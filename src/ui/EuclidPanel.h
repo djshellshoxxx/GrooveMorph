@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 
+#include <functional>
+
 #include "core/OperationParams.h"
 #include "core/control/EuclidPattern.h"
 #include "ui/InspectorPanel.h"
@@ -11,20 +13,32 @@ class GrooveMorphAudioProcessor;
 namespace groovemorph::ui
 {
 // N03: Euclidean pattern generator and per-event / per-lane chance (docs/specs/N03-EUCLID-CHANCE.md).
-// Embedded in the Place tab. All scene changes go through SceneEditAccess, so locks, preview/audition and
-// undo behave exactly like every other Place edit. Message thread only.
+// Shown as a 280 px drawer in the Pattern tab (over the lanes in a narrow window). All scene changes go through
+// SceneEditAccess, so locks, preview/audition and undo behave exactly like every other Pattern edit. The body
+// scrolls when the drawer is shorter than its content. Message thread only.
 class EuclidPanel final : public juce::Component
 {
 public:
     EuclidPanel(GrooveMorphAudioProcessor& processor, SceneEditAccess access);
 
-    // Re-read the scene (editor timer). selectedEvent = Place canvas selection, or -1.
+    // Re-read the scene (editor timer). selectedEvent = Pattern canvas selection, or -1.
     void refresh(const groovemorph::core::VariationSettings& settings, int selectedEvent);
 
     void paint(juce::Graphics& g) override;
     void resized() override;
 
 private:
+    // Scrolling content: the ring preview is painted here.
+    struct Body final : public juce::Component
+    {
+        std::function<void(juce::Graphics&)> onPaint;
+        void paint(juce::Graphics& g) override
+        {
+            if (onPaint)
+                onPaint(g);
+        }
+    };
+
     struct Row
     {
         juce::Label label;
@@ -32,6 +46,8 @@ private:
         bool dragging = false;
     };
 
+    int layoutBody(int width);
+    void paintBody(juce::Graphics& g);
     void setupRow(Row& row, const juce::String& text, const juce::String& tip, double lo, double hi, double step,
                   int decimals, const juce::String& suffix = {});
     [[nodiscard]] groovemorph::core::control::EuclidParams params() const;
@@ -46,6 +62,8 @@ private:
 
     GrooveMorphAudioProcessor& processor;
     SceneEditAccess access;
+    Body body;
+    juce::Viewport viewport;
     bool refreshing = false;
     int selected = -1;
     bool selectedLocked = false;
