@@ -5,21 +5,23 @@
 #include "core/viz/Palette.h"
 #include "core/viz/TextThrottle.h"
 #include "core/viz/WeaveLayout.h"
+#include "ui/theme/Theme.h"
 
 // Shared palette for the Visual window (docs/visual-feedback/SPEC.md section 11). Effect colours are
 // Okabe-Ito; every effect is also distinguished by shape/texture so colour is never the only cue.
 namespace groovemorph::ui::visual
 {
+namespace theme = groovemorph::ui::theme;
 namespace palette
 {
-namespace shared = groovemorph::core::viz::palette;
-inline const juce::Colour slate{shared::slate};
-inline const juce::Colour panel{shared::panel};
-inline const juce::Colour line{shared::line};
-inline const juce::Colour ink{shared::ink};
-inline const juce::Colour dim{shared::dim};
-inline const juce::Colour hatch{shared::hatch};
-inline const juce::Colour warning{shared::warning};
+// The Visual window shares the main UI palette (Theme.h); these names stay so the views read the same.
+inline const juce::Colour slate = theme::bg;
+inline const juce::Colour panel = theme::surface;
+inline const juce::Colour line = theme::stroke;
+inline const juce::Colour ink = theme::text;
+inline const juce::Colour dim = theme::textDim;
+inline const juce::Colour hatch = theme::strokeStrong;
+inline const juce::Colour warning = theme::warning;
 } // namespace palette
 
 // U7: the views are refreshed at 30 Hz, but screen readers only need a new description when the text
@@ -36,16 +38,16 @@ inline juce::Colour effectColour(groovemorph::core::viz::Effect e)
     using E = groovemorph::core::viz::Effect;
     switch (e)
     {
-        case E::Repeat: return juce::Colour(palette::shared::repeat);
-        case E::Reverse: return juce::Colour(palette::shared::reverse);
-        case E::Gate: return juce::Colour(palette::shared::gate);
-        case E::HalfTime: return juce::Colour(palette::shared::halfTime);
-        case E::TapeStop: return juce::Colour(palette::shared::tapeStop);
-        case E::FilterSweep: return juce::Colour(palette::shared::filterSweep);
-        case E::BitCrush: return juce::Colour(palette::shared::bitCrush);
+        case E::Repeat: return theme::effectColour(0);
+        case E::Reverse: return theme::effectColour(1);
+        case E::Gate: return theme::effectColour(2);
+        case E::HalfTime: return theme::effectColour(3);
+        case E::TapeStop: return theme::effectColour(4);
+        case E::FilterSweep: return theme::effectColour(5);
+        case E::BitCrush: return theme::effectColour(6);
         case E::Live: break;
     }
-    return juce::Colour(palette::shared::live);
+    return juce::Colour(groovemorph::core::viz::palette::live);
 }
 
 inline const char* effectName(groovemorph::core::viz::Effect e)

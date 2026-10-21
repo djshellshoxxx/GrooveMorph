@@ -13,39 +13,31 @@ juce::Rectangle<int> toJuce(const groovemorph::core::easy::IntRect& r)
     return {r.x, r.y, r.w, r.h};
 }
 
-const juce::Colour backgroundColour{0xff151b24};
-const juce::Colour soundingColour{0xff2e7d32};
-const juce::Colour queuedColour{0xff8d6e00};
-const juce::Colour idleColour{0xff3a4658};
+const juce::Colour backgroundColour = theme::bg;
+const juce::Colour soundingColour = theme::sounding;
+const juce::Colour queuedColour = theme::queued;
+const juce::Colour idleColour = theme::surfaceRaised;
 constexpr juce::uint32 messageMillis = 9000;
 } // namespace
 
-// Larger button text than the default so the scene and action buttons read from a distance.
-struct EasyView::EasyLookAndFeel final : juce::LookAndFeel_V4
+// Large buttons (scene pads, Surprise me) get bigger bold text from GrooveLookAndFeel::getTextButtonFont.
+EasyView::EasyView(GrooveMorphAudioProcessor& p) : processor(p)
 {
-    juce::Font getTextButtonFont(juce::TextButton&, int buttonHeight) override
-    {
-        return juce::Font(juce::FontOptions(juce::jlimit(14.0f, 30.0f, static_cast<float>(buttonHeight) * 0.26f),
-                                            juce::Font::bold));
-    }
-};
-
-EasyView::EasyView(GrooveMorphAudioProcessor& p) : processor(p), lookAndFeel(std::make_unique<EasyLookAndFeel>())
-{
+    setLookAndFeel(&lookAndFeel);
     setOpaque(true);
     setTitle("GrooveMorph Easy mode");
     setDescription("Compact view with the four scenes, the main macros and Surprise me");
 
     titleLabel.setText("GrooveMorph Easy", juce::dontSendNotification);
-    titleLabel.setFont(juce::FontOptions(26.0f, juce::Font::bold));
-    titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    titleLabel.setFont(theme::font(theme::fontWordmark, true));
+    titleLabel.setColour(juce::Label::textColourId, theme::text);
     titleLabel.setTitle("GrooveMorph Easy");
-    timingLabel.setFont(juce::FontOptions(17.0f));
-    timingLabel.setColour(juce::Label::textColourId, juce::Colour(0xff8fb3d9));
+    timingLabel.setFont(theme::font(theme::fontTitle));
+    timingLabel.setColour(juce::Label::textColourId, theme::textDim);
     timingLabel.setTitle("Timing status");
     timingLabel.setTooltip("What GrooveMorph is following for its timing, in plain words.");
-    messageLabel.setFont(juce::FontOptions(16.0f));
-    messageLabel.setColour(juce::Label::textColourId, juce::Colour(0xffe3eaf2));
+    messageLabel.setFont(theme::font(theme::fontTitle));
+    messageLabel.setColour(juce::Label::textColourId, theme::text);
     messageLabel.setTitle("Message");
     for (auto* label : {&titleLabel, &timingLabel, &messageLabel})
         addAndMakeVisible(*label);
@@ -63,8 +55,7 @@ EasyView::EasyView(GrooveMorphAudioProcessor& p) : processor(p), lookAndFeel(std
     for (std::size_t i = 0; i < sceneButtons.size(); ++i)
     {
         auto& button = sceneButtons[i];
-        button.setLookAndFeel(lookAndFeel.get());
-        button.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        button.setColour(juce::TextButton::textColourOffId, theme::text);
         button.setTooltip("Switch to this scene. It takes over according to the Transition setting (the next bar by default).");
         button.onClick = [this, i] { onSceneClicked(i); };
         addAndMakeVisible(button);
@@ -73,8 +64,8 @@ EasyView::EasyView(GrooveMorphAudioProcessor& p) : processor(p), lookAndFeel(std
     surpriseButton.setTooltip("Tries a new variation of the sounding scene and plays it now. It is kept at the next phrase. Press again for another one.");
     surpriseButton.setTitle("Surprise me");
     surpriseButton.setDescription("Preview a new variation of the sounding scene and keep it at the next phrase");
-    surpriseButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff6a3fb5));
-    surpriseButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    surpriseButton.setColour(juce::TextButton::buttonColourId, theme::accent);
+    surpriseButton.setColour(juce::TextButton::textColourOffId, theme::textOnAccent);
     surpriseButton.onClick = [this] { onSurprise(); };
     undoButton.setTooltip("Takes back the pending Surprise, or otherwise the last scene change.");
     undoButton.setTitle("Undo last change");
@@ -94,8 +85,6 @@ EasyView::EasyView(GrooveMorphAudioProcessor& p) : processor(p), lookAndFeel(std
     fullViewButton.onClick = [this] { if (onOpenFullView) onOpenFullView(); };
     for (auto* button : {&surpriseButton, &undoButton, &panicButton, &guideButton, &fullViewButton})
         addAndMakeVisible(*button);
-    for (auto* button : {&surpriseButton, &undoButton, &panicButton})
-        button->setLookAndFeel(lookAndFeel.get());
 
     guide = std::make_unique<FirstRunGuide>();
     guide->onFinished = [this] { setMessage("Guide closed. Show guide brings it back."); };
@@ -108,10 +97,7 @@ EasyView::EasyView(GrooveMorphAudioProcessor& p) : processor(p), lookAndFeel(std
 
 EasyView::~EasyView()
 {
-    for (auto& button : sceneButtons)
-        button.setLookAndFeel(nullptr);
-    for (auto* button : {&surpriseButton, &undoButton, &panicButton})
-        button->setLookAndFeel(nullptr);
+    setLookAndFeel(nullptr);
 }
 
 void EasyView::addMacro(std::size_t index, const char* parameter, const juce::String& label, const juce::String& help)
@@ -131,8 +117,12 @@ void EasyView::addMacro(std::size_t index, const char* parameter, const juce::St
 
     auto& text = macroLabels[index];
     text.setText(label, juce::dontSendNotification);
-    text.setFont(juce::FontOptions(18.0f, juce::Font::bold));
-    text.setColour(juce::Label::textColourId, juce::Colours::white);
+    // Chaos is the hero macro: larger label in the accent colour (see also the outline drawn in paint()).
+    const bool hero = index == 3;
+    text.setFont(theme::font(hero ? theme::fontWordmark : theme::fontTitle, true));
+    text.setColour(juce::Label::textColourId, hero ? theme::accent : theme::text);
+    if (hero)
+        slider.getProperties().set(theme::GrooveLookAndFeel::heroProperty, true);
     text.setTitle(label + " label");
     text.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(text);
@@ -267,7 +257,9 @@ void EasyView::refresh()
             button.setTitle("Scene " + letter + ", " + name);
             button.setDescription(state);
         }
+        // Text colour follows the pad colour so contrast stays AA (dark text on the green and amber pads).
         button.setColour(juce::TextButton::buttonColourId, sounding ? soundingColour : isQueued ? queuedColour : idleColour);
+        button.setColour(juce::TextButton::textColourOffId, sounding || isQueued ? theme::textOnAccent : theme::text);
     }
 
     const bool pending = processor.isSurprisePending();
@@ -291,6 +283,12 @@ void EasyView::refresh()
 void EasyView::paint(juce::Graphics& g)
 {
     g.fillAll(backgroundColour);
+
+    // Hero outline around the Chaos row (label and slider).
+    const auto layout = groovemorph::core::easy::computeEasyLayout(getWidth(), getHeight());
+    const auto chaos = toJuce(layout.macroLabels[3]).getUnion(toJuce(layout.macroSliders[3])).expanded(theme::space1, theme::space1);
+    g.setColour(theme::accentDim);
+    g.drawRoundedRectangle(chaos.toFloat(), theme::radius, 2.0f);
 }
 
 void EasyView::resized()

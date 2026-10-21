@@ -28,10 +28,10 @@ void LedgerView::paint(juce::Graphics& g)
     g.drawRoundedRectangle(bounds.reduced(0.5f), 10.0f, 1.0f);
 
     g.setColour(palette::ink);
-    g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+    g.setFont(theme::font(theme::fontValue, true));
     g.drawText("CHANGE LEDGER", 16, 10, getWidth() - 32, 20, juce::Justification::centredLeft);
     g.setColour(palette::dim);
-    g.setFont(juce::FontOptions(11.0f));
+    g.setFont(theme::font(theme::fontCaption));
     g.drawText("numbers behind the picture", 16, 30, getWidth() - 32, 16, juce::Justification::centredLeft);
 
     float y = 56.0f;
@@ -44,7 +44,7 @@ void LedgerView::paint(juce::Graphics& g)
                             || ledger.banner == groovemorph::core::viz::BannerKind::Invalid
                         ? palette::warning
                         : palette::ink);
-        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.setFont(theme::font(theme::fontLabel, true));
         g.drawFittedText(juce::String(ledger.bannerText), box.reduced(8.0f, 2.0f).toNearestInt(), juce::Justification::centredLeft, 2);
         y += 42.0f;
     }
@@ -52,15 +52,15 @@ void LedgerView::paint(juce::Graphics& g)
     for (const auto& row : ledger.rows)
     {
         g.setColour(palette::dim);
-        g.setFont(juce::FontOptions(11.0f));
+        g.setFont(theme::font(theme::fontCaption));
         g.drawText(juce::String(row.label), 16, static_cast<int>(y), getWidth() - 32, 14, juce::Justification::centredLeft);
         g.setColour(palette::ink);
-        g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+        g.setFont(theme::font(theme::fontValue, true));
         g.drawText(juce::String(row.value), 16, static_cast<int>(y) + 13, getWidth() - 32, 20, juce::Justification::centredLeft);
         if (!row.note.empty())
         {
             g.setColour(palette::dim);
-            g.setFont(juce::FontOptions(10.0f));
+            g.setFont(theme::font(theme::fontCaption));
             g.drawText(juce::String(row.note), 16, static_cast<int>(y) + 13, getWidth() - 32, 20, juce::Justification::centredRight);
         }
         y += rowHeight;

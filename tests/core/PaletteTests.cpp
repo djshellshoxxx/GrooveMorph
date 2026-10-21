@@ -54,6 +54,19 @@ double deltaE(const Lab& p, const Lab& q) {
     return std::sqrt((p.l - q.l) * (p.l - q.l) + (p.a - q.a) * (p.a - q.a) + (p.b - q.b) * (p.b - q.b));
 }
 
+// UI theme values introduced by the GUI redesign. These replicate src/ui/theme/Theme.h (which needs JUCE and so
+// cannot be included in a core test); keep both in sync. The shared colours come from core/viz/Palette.h.
+namespace theme {
+constexpr std::uint32_t surfaceRaised = 0xff252a35;
+constexpr std::uint32_t surfaceHover = 0xff2f3542;
+constexpr std::uint32_t textOnAccent = 0xff10131a;
+constexpr std::uint32_t accent = 0xff4fd1c5;
+constexpr std::uint32_t sounding = 0xff2e9e6a;
+constexpr std::uint32_t queued = 0xffe6a700;
+constexpr std::uint32_t danger = 0xffe5604f;
+constexpr std::uint32_t focusRing = 0xff8fd8ff;
+} // namespace theme
+
 constexpr const char* effectNames[] = {"live", "repeat", "reverse", "gate", "half-time", "tape-stop", "filter-sweep", "bit-crush"};
 } // namespace
 
@@ -65,6 +78,26 @@ int main() {
     expect("dim text on slate >= 4.5", contrast(palette::dim, palette::slate) >= 4.5);
     expect("warning text on slate >= 4.5", contrast(palette::warning, palette::slate) >= 4.5);
     std::cout << "contrast ink/panel " << contrast(palette::ink, palette::panel) << ", dim/panel " << contrast(palette::dim, palette::panel) << "\n";
+
+    // UI theme (docs/specs/UI-REDESIGN.md): text on every surface, accent states, and non-text colours.
+    expect("text on bg >= 4.5", contrast(palette::ink, palette::slate) >= 4.5);
+    expect("text on surface >= 4.5", contrast(palette::ink, palette::panel) >= 4.5);
+    expect("text on surfaceRaised >= 4.5", contrast(palette::ink, theme::surfaceRaised) >= 4.5);
+    expect("text on surfaceHover >= 4.5", contrast(palette::ink, theme::surfaceHover) >= 4.5);
+    expect("textDim on surface >= 4.5", contrast(palette::dim, palette::panel) >= 4.5);
+    expect("textDim on surfaceRaised >= 4.5", contrast(palette::dim, theme::surfaceRaised) >= 4.5);
+    expect("accent on surface >= 3", contrast(theme::accent, palette::panel) >= 3.0);
+    expect("accent on bg >= 3", contrast(theme::accent, palette::slate) >= 3.0);
+    expect("textOnAccent on accent >= 4.5", contrast(theme::textOnAccent, theme::accent) >= 4.5);
+    expect("textOnAccent on sounding >= 4.5", contrast(theme::textOnAccent, theme::sounding) >= 4.5);
+    expect("textOnAccent on queued >= 4.5", contrast(theme::textOnAccent, theme::queued) >= 4.5);
+    expect("sounding on surface >= 3", contrast(theme::sounding, palette::panel) >= 3.0);
+    expect("queued on surface >= 3", contrast(theme::queued, palette::panel) >= 3.0);
+    expect("danger on surface >= 3", contrast(theme::danger, palette::panel) >= 3.0);
+    expect("focus ring on surface >= 3", contrast(theme::focusRing, palette::panel) >= 3.0);
+    expect("focus ring on surfaceRaised >= 3", contrast(theme::focusRing, theme::surfaceRaised) >= 3.0);
+    std::cout << "contrast dim/raised " << contrast(palette::dim, theme::surfaceRaised) << ", onAccent/sounding "
+              << contrast(theme::textOnAccent, theme::sounding) << ", onAccent/queued " << contrast(theme::textOnAccent, theme::queued) << "\n";
 
     // Graphics: every effect colour against the panel (WCAG non-text 3:1).
     for (std::size_t i = 0; i < palette::effects.size(); ++i) {

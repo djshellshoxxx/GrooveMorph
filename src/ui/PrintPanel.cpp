@@ -1,4 +1,5 @@
 #include "ui/PrintPanel.h"
+#include "ui/theme/Theme.h"
 
 #include "PluginProcessor.h"
 #include "core/dsp/OutputCapture.h"
@@ -15,7 +16,7 @@ namespace groovemorph::ui
 {
 namespace
 {
-constexpr int rowHeight = 26;
+constexpr int rowHeight = theme::minTarget;
 
 juce::String formatSeconds(double seconds)
 {
@@ -26,7 +27,7 @@ void setupLabel(juce::Label& label, const juce::String& text, const juce::String
 {
     label.setText(text, juce::dontSendNotification);
     label.setJustificationType(juce::Justification::centredLeft);
-    label.setColour(juce::Label::textColourId, juce::Colours::white);
+    label.setColour(juce::Label::textColourId, theme::text);
     if (tip.isNotEmpty())
         label.setTooltip(tip);
 }
@@ -51,9 +52,14 @@ public:
             return;
         const auto& e = owner.entries[static_cast<std::size_t>(row)];
         const bool selected = owner.list.isRowSelected(row);
-        g.fillAll(selected ? juce::Colour(0xff2f4f6f) : (row % 2 == 0 ? juce::Colour(0xff1b232e) : juce::Colour(0xff202a37)));
-        g.setColour(juce::Colours::white);
-        g.setFont(13.0f);
+        g.fillAll(selected ? theme::surfaceHover : (row % 2 == 0 ? theme::surface : theme::surfaceRaised));
+        if (selected)
+        {
+            g.setColour(theme::accent);
+            g.fillRect(0, 0, 3, getHeight());
+        }
+        g.setColour(theme::text);
+        g.setFont(theme::font(theme::fontBody));
         auto area = getLocalBounds().reduced(6, 0);
         g.drawText(formatSeconds(e.seconds), area.removeFromRight(60), juce::Justification::centredRight);
         g.drawText(e.file.getFileName(), area, juce::Justification::centredLeft, true);
@@ -92,10 +98,12 @@ private:
 PrintPanel::PrintPanel(GrooveMorphAudioProcessor& p) : processor(p)
 {
     setupLabel(title, "Print the processed output to a WAV file");
+    title.setFont(theme::font(theme::fontTitle, true));
     setupLabel(statusLabel, "");
     setupLabel(messageLabel, "");
     setupLabel(hint, "Drag a row into your DAW to use the file. Files live in Documents/GrooveMorph Prints.");
-    hint.setFont(juce::FontOptions(12.0f));
+    hint.setFont(theme::font(theme::fontLabel));
+    hint.setColour(juce::Label::textColourId, theme::textDim);
 
     for (int i = 1; i <= 16; ++i)
         bars.addItem(juce::String(i) + (i == 1 ? " bar" : " bars"), i);
@@ -122,7 +130,7 @@ PrintPanel::PrintPanel(GrooveMorphAudioProcessor& p) : processor(p)
 
     list.setModel(this);
     list.setRowHeight(rowHeight);
-    list.setColour(juce::ListBox::backgroundColourId, juce::Colour(0xff141a22));
+    list.setColour(juce::ListBox::backgroundColourId, theme::bg);
     list.setMultipleSelectionEnabled(false);
 
     for (auto* c : std::initializer_list<juce::Component*>{&title, &statusLabel, &messageLabel, &hint, &bars, &wetOnly,
@@ -172,13 +180,13 @@ bool PrintPanel::writeWav24(const juce::File& file, const juce::AudioBuffer<floa
 
 void PrintPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1b232e));
+    g.fillAll(theme::surface);
 }
 
 void PrintPanel::resized()
 {
     auto area = getLocalBounds().reduced(8);
-    auto next = [&area](int h = 26) {
+    auto next = [&area](int h = theme::minTarget) {
         auto r = area.removeFromTop(h);
         area.removeFromTop(4);
         return r;
@@ -191,9 +199,9 @@ void PrintPanel::resized()
     printButton.setBounds(r.removeFromLeft(110).reduced(4, 0));
     statusLabel.setBounds(next());
     messageLabel.setBounds(next());
-    auto bottom = area.removeFromBottom(26);
+    auto bottom = area.removeFromBottom(theme::minTarget);
     area.removeFromBottom(4);
-    hint.setBounds(area.removeFromBottom(22));
+    hint.setBounds(area.removeFromBottom(theme::space5));
     list.setBounds(area);
     revealButton.setBounds(bottom.removeFromLeft(90).reduced(2, 0));
     deleteButton.setBounds(bottom.removeFromLeft(90).reduced(2, 0));

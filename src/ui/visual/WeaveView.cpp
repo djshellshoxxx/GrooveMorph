@@ -74,10 +74,10 @@ void WeaveView::paint(juce::Graphics& g)
     g.drawRoundedRectangle(bounds.reduced(0.5f), 10.0f, 1.0f);
 
     g.setColour(palette::ink);
-    g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+    g.setFont(theme::font(theme::fontValue, true));
     g.drawText("WARP WEAVE", 16, 10, 220, 20, juce::Justification::centredLeft);
     g.setColour(palette::dim);
-    g.setFont(juce::FontOptions(11.0f));
+    g.setFont(theme::font(theme::fontCaption));
     g.drawText("each thread ties what you hear (top) to the moment it was played (bottom)", 16, 30, getWidth() - 32, 16,
                juce::Justification::centredLeft);
 
@@ -89,7 +89,7 @@ void WeaveView::paint(juce::Graphics& g)
 
     // Row captions and beat rulers (the same scale on both rows).
     g.setColour(palette::dim);
-    g.setFont(juce::FontOptions(11.0f));
+    g.setFont(theme::font(theme::fontCaption));
     g.drawText("HEARD NOW", 12, static_cast<int>(plot.getY()) - 8, 64, 16, juce::Justification::centredLeft);
     g.drawText("PLAYED", 12, static_cast<int>(plot.getBottom()) - 8, 64, 16, juce::Justification::centredLeft);
     const int bpb = juce::jmax(1, data.beatsPerBar);
@@ -104,7 +104,7 @@ void WeaveView::paint(juce::Graphics& g)
         if (barLine)
         {
             const long bar = (b / bpb) % juce::jmax(1, data.phraseBars) + 1;
-            g.setFont(juce::FontOptions(10.0f));
+            g.setFont(theme::font(theme::fontCaption));
             g.drawText(juce::String(bar), static_cast<int>(x) + 3, static_cast<int>(plot.getY()) - 26, 24, 12,
                        juce::Justification::centredLeft);
         }
@@ -127,7 +127,7 @@ void WeaveView::paint(juce::Graphics& g)
         g.setColour(palette::ink);
         g.fillPath(tri);
         g.setColour(palette::dim);
-        g.setFont(juce::FontOptions(10.0f));
+        g.setFont(theme::font(theme::fontCaption));
         g.drawText("planned", static_cast<int>(front) + 10, static_cast<int>(plot.getBottom()) - 18, 70, 12, juce::Justification::centredLeft);
         g.drawText("heard", static_cast<int>(front) - 80, static_cast<int>(plot.getBottom()) - 18, 70, 12, juce::Justification::centredRight);
     }
@@ -138,7 +138,7 @@ void WeaveView::paint(juce::Graphics& g)
         const Item items[] = {{viz::Effect::Live, "straight = live"}, {viz::Effect::Repeat, "fan-in = repeat"},
                               {viz::Effect::Reverse, "twist = reverse"}, {viz::Effect::HalfTime, "spread = slower"},
                               {viz::Effect::TapeStop, "slows to a stop"}, {viz::Effect::Gate, "dotted = gate closed"}};
-        g.setFont(juce::FontOptions(11.0f));
+        g.setFont(theme::font(theme::fontCaption));
         float widths[std::size(items)];
         float total = 0.0f;
         for (std::size_t i = 0; i < std::size(items); ++i)
@@ -174,7 +174,7 @@ void WeaveView::paint(juce::Graphics& g)
         g.setColour(palette::slate.withAlpha(0.85f));
         g.fillRoundedRectangle(box, 6.0f);
         g.setColour(data.banner == viz::BannerKind::Preview || data.banner == viz::BannerKind::Invalid ? palette::warning : palette::ink);
-        g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+        g.setFont(theme::font(theme::fontBody, true));
         g.drawText(data.bannerText, box, juce::Justification::centred);
     }
 }

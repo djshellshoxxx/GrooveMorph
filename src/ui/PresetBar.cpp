@@ -1,4 +1,5 @@
 #include "ui/PresetBar.h"
+#include "ui/theme/Theme.h"
 
 #include "PluginProcessor.h"
 
@@ -8,10 +9,10 @@ namespace groovemorph::ui
 {
 namespace
 {
-const juce::Colour barBackground{0xff1c2431};
-const juce::Colour buttonColour{0xff3a4658};
-const juce::Colour accentColour{0xff4fc3f7};
-const juce::Colour modifiedColour{0xffffb74d};
+const juce::Colour barBackground = theme::surface;
+const juce::Colour buttonColour = theme::surfaceRaised;
+const juce::Colour accentColour = theme::accent;
+const juce::Colour modifiedColour = theme::queued; // paired with the "*" after the name
 
 juce::StringArray splitTags(const juce::String& text)
 {
@@ -29,7 +30,7 @@ public:
     BrowserPanel(PresetManager& managerToUse, juce::String currentName, std::function<void(int)> chooseCallback)
         : manager(managerToUse), current(std::move(currentName)), onChoose(std::move(chooseCallback))
     {
-        search.setTextToShowWhenEmpty("Search presets...", juce::Colours::grey);
+        search.setTextToShowWhenEmpty("Search presets...", theme::textDim);
         search.onTextChange = [this] { rebuild(); };
         addAndMakeVisible(search);
 
@@ -107,22 +108,26 @@ private:
         const auto& r = rows[static_cast<std::size_t>(row)];
         if (r.header)
         {
-            g.fillAll(juce::Colour(0xff263041));
+            g.fillAll(theme::surfaceRaised);
             g.setColour(accentColour);
-            g.setFont(juce::Font(juce::FontOptions(13.0f)).boldened());
+            g.setFont(theme::font(theme::fontLabel, true));
             g.drawText(r.text.toUpperCase(), 8, 0, width - 16, height, juce::Justification::centredLeft);
             return;
         }
         if (selected)
-            g.fillAll(juce::Colour(0xff34506b));
+        {
+            g.fillAll(theme::surfaceHover);
+            g.setColour(accentColour);
+            g.fillRect(0, 0, 3, height);
+        }
         const bool isCurrent = r.text.equalsIgnoreCase(current);
-        g.setColour(isCurrent ? accentColour : juce::Colours::white);
-        g.setFont(14.0f);
+        g.setColour(isCurrent ? accentColour : theme::text);
+        g.setFont(theme::font(theme::fontValue));
         g.drawText(r.text, 18, 0, width - 80, height, juce::Justification::centredLeft);
         if (!manager.isFactory(r.index))
         {
-            g.setColour(juce::Colours::grey);
-            g.setFont(12.0f);
+            g.setColour(theme::textDim);
+            g.setFont(theme::font(theme::fontLabel));
             g.drawText("user", width - 58, 0, 50, height, juce::Justification::centredRight);
         }
     }
@@ -159,7 +164,7 @@ PresetBar::PresetBar(GrooveMorphAudioProcessor& processorToUse) : processor(proc
                          &deleteButton, &importButton, &exportButton})
     {
         button->setColour(juce::TextButton::buttonColourId, buttonColour);
-        button->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        button->setColour(juce::TextButton::textColourOffId, theme::text);
         addAndMakeVisible(*button);
     }
     previousButton.setTooltip("Load the previous preset in the list. Loading is one Undo step.");
@@ -189,7 +194,7 @@ PresetBar::~PresetBar() = default;
 void PresetBar::paint(juce::Graphics& g)
 {
     g.setColour(barBackground);
-    g.fillRoundedRectangle(getLocalBounds().toFloat(), 4.0f);
+    g.fillRoundedRectangle(getLocalBounds().toFloat(), theme::radius);
 }
 
 void PresetBar::resized()
@@ -220,7 +225,7 @@ void PresetBar::refresh()
         text << " *";
     nameButton.setButtonText(text);
     nameButton.setColour(juce::TextButton::textColourOffId,
-                         name.isNotEmpty() && modified ? modifiedColour : juce::Colours::white);
+                         name.isNotEmpty() && modified ? modifiedColour : theme::text);
     const auto& manager = processor.getPresetManager();
     const int index = name.isEmpty() ? -1 : manager.indexOf(name);
     const bool user = index >= 0 && !manager.isFactory(index);
