@@ -203,5 +203,11 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
             $<TARGET_PROPERTY:GrooveMorphPlugin,COMPILE_DEFINITIONS>
         )
         target_link_libraries(GrooveMorphEditorSnapshot PRIVATE GrooveMorphPlugin)
+        # The processor lives by value in main(); give the tool a 64 MiB main-thread stack like the tests.
+        if(APPLE)
+            target_link_options(GrooveMorphEditorSnapshot PRIVATE -Wl,-stack_size,0x4000000)
+        elseif(MSVC)
+            target_link_options(GrooveMorphEditorSnapshot PRIVATE /STACK:67108864)
+        endif()
     endif()
 endif()

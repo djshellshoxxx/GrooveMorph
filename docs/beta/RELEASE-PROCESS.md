@@ -8,13 +8,29 @@ Spec: [N06-CLAP-AND-RELEASE](../specs/N06-CLAP-AND-RELEASE.md). Workflow: `.gith
 2. Either push the matching tag (publishes automatically):
    `git tag v0.2.0-beta.2 && git push origin v0.2.0-beta.2`
    or run the workflow by hand (Actions, Beta release, Run workflow) on that commit and tick `publish`.
+   The `platforms` input (default `all`) accepts `all` or `windows`. With `windows` only the Windows x64
+   package is built and published (the macOS and Linux legs are not created); use it while those legs are not
+   ready. Tag pushes always use `all`.
    Leaving `publish` unticked builds and uploads artifacts only. The `version` input may be left empty; if set
    it must equal `VERSION`, otherwise the run fails in its first job.
-3. The `release` job runs only if all four platform builds succeeded. It creates (or updates) the GitHub
-   PRERELEASE `v<VERSION>` titled `GrooveMorph <VERSION> (Beta)` with four zips, their `.sha256` files,
-   `SHA256SUMS` and the generated `RELEASE-NOTES.md`.
-4. Read the generated notes before telling anyone about the release. They state that no DAW or listening
+3. The `release` job runs only if every selected platform build succeeded. It creates (or updates) the GitHub
+   PRERELEASE `v<VERSION>` titled `GrooveMorph <VERSION> (Beta)` with the zips of the selected platforms (four, or the Windows one), their `.sha256` files,
+   `SHA256SUMS` (made from the zips that exist) and the generated `RELEASE-NOTES.md`. A `windows` release's notes
+   list the platforms included and say the macOS and Linux builds will follow. Running again with `all` on the same
+   commit adds the other platforms to the same prerelease and replaces the notes and `SHA256SUMS`.
+4. Release notes template: the generated notes always list the included platforms and keep the "no DAW or listening
+   validation" statements. For beta.2 also mention the redesigned interface (see `help/INTERFACE-TOUR.md`) and that it
+   was reviewed from CI screenshots only (TODO B-13).
+5. Read the generated notes before telling anyone about the release. They state that no DAW or listening
    validation was done; that stays true until a person does it and the notes script is changed to say so.
+
+## UI snapshots
+
+`build.yml` has a `ui-snapshots` job (every push and PR) that builds `GrooveMorphEditorSnapshot` on Linux, renders the
+Studio view at four sizes, every inspector tab, Easy mode, the preset browser and the Visual window under xvfb, and
+uploads the PNGs as the `ui-snapshots` artifact (14 days). The tool exits non-zero if a PNG is empty or one flat
+colour. Locally: `GrooveMorphEditorSnapshot [outdir]` (default `docs/beta/screenshots`). It is not part of the
+Windows beta job.
 
 A commit message never triggers a release, and branch pushes never build packages.
 

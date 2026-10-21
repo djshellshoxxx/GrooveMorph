@@ -63,3 +63,4 @@ is 16-bit. No production or release claim is made.
 Close a task only with a current test or a recorded manual result, and update this file.
 
 - B-12: On the headless macOS CI runner the W3 test harness's console message loop does not deliver async messages, so W3-TM-T03 (service start) and W3-TM-T02 (timer ticks) are reported SKIPPED there. They pass on Linux and Windows. Not verified in a real macOS host; check in a DAW during native QA (issue #19).
+- B-13: The beta.2 interface redesign has not been hand-verified in a real window or DAW; the only check is review of the CI snapshot PNGs (`ui-snapshots` artifact). Real mouse and keyboard feel, host scaling and the new shortcuts (Ctrl/Cmd+Z, F1) are unchecked. Close with a manual record under `docs/qa/` (see B-01).
