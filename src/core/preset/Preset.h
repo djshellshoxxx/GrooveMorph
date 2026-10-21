@@ -21,7 +21,7 @@ inline constexpr std::size_t maxAuthorLength = 48;
 inline constexpr std::size_t maxTagLength = 24;
 inline constexpr std::size_t maxTags = 8;
 inline constexpr std::size_t maxParams = 8;
-inline constexpr std::size_t maxFileBytes = 128 * 1024;
+inline constexpr std::size_t maxFileBytes = 512 * 1024; // a bank at lane capacity serializes to about 350 KB (WiringAuditTests S2)
 inline constexpr std::size_t maxStemLength = 48;
 
 // Normalised (0..1) host parameter value stored with a preset.
