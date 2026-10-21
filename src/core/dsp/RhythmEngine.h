@@ -21,6 +21,10 @@ struct RhythmTiming
     // Optional per-operation beat-grid origin (meter beats). The operation's slice grid is
     // measured from this value instead of the shared grid; all zeros = legacy shared grid.
     std::array<double, operationCount> phaseOffsetBeats{};
+    // Cross-fade length of read-position jumps for this call, in seconds (W3 C04 per-scene smoothing).
+    // < 0 or non-finite = engine default (crossfadeSeconds, 3 ms, bit-identical legacy); clamped to 0..0.25.
+    // 0 = hard cut. A long fade never exceeds the time since the voice's previous jump (floor: the default).
+    double crossfadeSeconds = -1.0;
 };
 
 // Real-time-safe rhythmic transformation engine (GM-FR-003, GM-FR-005, GM-QR-001,
@@ -111,11 +115,13 @@ private:
             double r = 0.0;
             double rate = 0.0;
             int remaining = 0; // samples left of the fade out of this tap
+            float norm = 0.0f; // 1 / (length + 1): fade weight = remaining * norm
         };
         // Fading-out read positions, oldest first. A discontinuity during a running fade
         // stacks a second tap so overlapping fades stay continuous.
         std::array<Tap, 2> taps{};
         int tapCount = 0;
+        int sinceJump = 0; // samples since the previous read-position jump (saturating)
         bool valid = false;
     };
 

@@ -177,7 +177,9 @@ void RhythmEngine::process(float* const* channels,
 
     const bool tracing = traceSink != nullptr && traceSink->active();
     std::array<double, historyStageCount> newR{};
-    const float fadeNorm = 1.0f / static_cast<float>(fadeSamples + 1);
+    int requestedFade = fadeSamples; // per-scene smoothing (W3); the default keeps the legacy bits
+    if (std::isfinite(timing.crossfadeSeconds) && timing.crossfadeSeconds >= 0.0)
+        requestedFade = static_cast<int>(std::lround(std::clamp(timing.crossfadeSeconds, 0.0, 0.25) * sampleRateHz));
 
     for (int n = 0; n < numSamples; ++n)
     {
@@ -249,6 +251,7 @@ void RhythmEngine::process(float* const* channels,
             {
                 v.valid = false;
                 v.tapCount = 0;
+                v.sinceJump = 0;
                 continue;
             }
             const double len = sliceSamples[op];
@@ -262,13 +265,22 @@ void RhythmEngine::process(float* const* channels,
                 const double predicted = v.prevR + v.prevRate;
                 if (std::abs(r - predicted) > 0.5)
                 {
-                    if (v.tapCount == static_cast<int>(v.taps.size()))
+                    int len = requestedFade;
+                    if (len > fadeSamples)
+                        len = std::min(len, std::max(fadeSamples, v.sinceJump)); // never longer than the gap between jumps
+                    if (v.tapCount > 0)
+                        len = std::max(len, v.taps[static_cast<std::size_t>(v.tapCount - 1)].remaining); // taps expire in order
+                    if (len > 0)
                     {
-                        v.taps[0] = v.taps[1];
-                        v.tapCount = 1;
+                        if (v.tapCount == static_cast<int>(v.taps.size()))
+                        {
+                            v.taps[0] = v.taps[1];
+                            v.tapCount = 1;
+                        }
+                        v.taps[static_cast<std::size_t>(v.tapCount++)] =
+                            Voice::Tap{predicted, v.prevRate, len, 1.0f / static_cast<float>(len + 1)};
                     }
-                    v.taps[static_cast<std::size_t>(v.tapCount++)] =
-                        Voice::Tap{predicted, v.prevRate, fadeSamples};
+                    v.sinceJump = 0;
                 }
             }
             v.prevR = r;
@@ -307,10 +319,10 @@ void RhythmEngine::process(float* const* channels,
                             {
                                 const auto& prev = v.taps[static_cast<std::size_t>(k - 1)];
                                 const float next = readRing(ring, now, v.taps[static_cast<std::size_t>(k)].r);
-                                old = next + static_cast<float>(prev.remaining) * fadeNorm * (old - next);
+                                old = next + static_cast<float>(prev.remaining) * prev.norm * (old - next);
                             }
                             const auto& last = v.taps[static_cast<std::size_t>(v.tapCount - 1)];
-                            wet += static_cast<float>(last.remaining) * fadeNorm * (old - wet);
+                            wet += static_cast<float>(last.remaining) * last.norm * (old - wet);
                         }
                         x += amount * (wet - x);
                     }
@@ -352,6 +364,8 @@ void RhythmEngine::process(float* const* channels,
 
         for (auto& v : voices)
         {
+            if (v.sinceJump < (1 << 30))
+                ++v.sinceJump;
             for (int k = 0; k < v.tapCount; ++k)
             {
                 auto& tap = v.taps[static_cast<std::size_t>(k)];

@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
+#include <vector>
 
 namespace groovemorph::core::control
 {
@@ -72,7 +74,7 @@ bool sanitize(SceneControl& c, std::int32_t phraseTicksHint) noexcept
     changed = sanitize(c.phase) || changed;
 
     auto& lane = c.lane;
-    if (lane.count > maxLaneEvents) { lane.count = static_cast<std::uint8_t>(maxLaneEvents); changed = true; }
+    if (lane.count > maxLaneEvents) { lane.count = static_cast<std::uint16_t>(maxLaneEvents); changed = true; }
     for (std::size_t i = 0; i < lane.count; ++i)
     {
         auto& e = lane.events[i];
@@ -277,83 +279,122 @@ std::size_t convertLegacyToEvents(EventLane& lane, std::uint32_t enabledMask,
 }
 } // namespace groovemorph::core::control
 
+
+// ---------------------------------------------------------------------------------------------
+// C06 Analyze / Reduce, loop-aware (docs/specs/W3-LOOP-REDUCE.md). Message thread only: it uses
+// std::vector for the unrolled spans.
+// ---------------------------------------------------------------------------------------------
 namespace groovemorph::core::control
 {
 namespace
 {
-std::int64_t circularGap(std::int64_t a, std::int64_t b, std::int64_t ring) noexcept
+struct Span
 {
-    std::int64_t d = (a - b) % ring;
-    if (d < 0)
-        d += ring;
-    return std::min(d, ring - d);
+    std::int64_t a;
+    std::int64_t b;
+};
+
+struct Norm
+{
+    std::int64_t onset = 0;    // modulo the event's ring
+    std::int64_t duration = 1; // capped at the ring
+    std::int64_t ring = 1;
+    std::uint8_t op = 0;
+    bool enabled = true;
+    bool loops = false;        // the operation has its own loop length
+};
+
+std::int64_t modPos(std::int64_t a, std::int64_t m) noexcept
+{
+    const std::int64_t r = a % m;
+    return r < 0 ? r + m : r;
 }
 
-// Union length (ticks) of enabled events whose bit is set in `mask` (bit i = event index i).
-std::int64_t unionTicks(const EventLane& lane, std::uint32_t mask, std::int64_t ring) noexcept
+// Copies of the event on the first phrase [0, P): start = onset + k*ring (k >= -1), clipped.
+void unroll(const Norm& e, std::int64_t P, std::vector<Span>& out)
 {
-    struct Span { std::int64_t a, b; };
-    std::array<Span, maxLaneEvents * 2> spans{};
-    std::size_t n = 0;
-    for (std::size_t i = 0; i < lane.count; ++i)
+    for (std::int64_t s = e.onset - e.ring; s < P; s += e.ring)
     {
-        if ((mask & (1u << i)) == 0 || !lane.events[i].enabled)
-            continue;
-        const std::int64_t a = lane.events[i].onsetTicks;
-        const std::int64_t b = a + lane.events[i].durationTicks;
-        if (b <= ring)
-            spans[n++] = {a, b};
-        else
-        {
-            spans[n++] = {a, ring};
-            spans[n++] = {0, b - ring};
-        }
+        const std::int64_t a = std::max<std::int64_t>(s, 0);
+        const std::int64_t b = std::min<std::int64_t>(s + e.duration, P);
+        if (b > a)
+            out.push_back({a, b});
     }
-    std::sort(spans.begin(), spans.begin() + static_cast<std::ptrdiff_t>(n),
-              [](const Span& x, const Span& y) { return x.a < y.a; });
-    std::int64_t total = 0, curA = 0, curB = -1;
-    for (std::size_t i = 0; i < n; ++i)
+}
+
+// Union of two sorted, disjoint span lists plus an unsorted list; returns the merged sorted list.
+std::vector<Span> mergeSpans(const std::vector<Span>& base, std::vector<Span> extra)
+{
+    std::sort(extra.begin(), extra.end(), [](const Span& x, const Span& y) { return x.a < y.a; });
+    std::vector<Span> out;
+    out.reserve(base.size() + extra.size());
+    std::size_t i = 0, j = 0;
+    const auto push = [&out](const Span& s) {
+        if (!out.empty() && s.a <= out.back().b)
+            out.back().b = std::max(out.back().b, s.b);
+        else
+            out.push_back(s);
+    };
+    while (i < base.size() || j < extra.size())
     {
-        if (curB < spans[i].a)
-        {
-            if (curB >= 0)
-                total += curB - curA;
-            curA = spans[i].a;
-            curB = spans[i].b;
-        }
+        if (j >= extra.size() || (i < base.size() && base[i].a <= extra[j].a))
+            push(base[i++]);
         else
-            curB = std::max(curB, spans[i].b);
+            push(extra[j++]);
     }
-    if (curB >= 0)
-        total += curB - curA;
+    return out;
+}
+
+std::int64_t totalLength(const std::vector<Span>& spans) noexcept
+{
+    std::int64_t total = 0;
+    for (const auto& s : spans)
+        total += s.b - s.a;
     return total;
 }
 
-std::uint8_t peakConcurrent(const EventLane& lane, std::uint32_t mask, std::int64_t ring) noexcept
+// Closest distance between the starts of two periodic event copies (exact, integer).
+std::int64_t startGap(const Norm& x, const Norm& y) noexcept
 {
-    // Sample every event start: the maximum overlap of intervals occurs at some start.
-    std::uint8_t peak = 0;
-    for (std::size_t i = 0; i < lane.count; ++i)
+    const std::int64_t g = std::gcd(x.ring, y.ring);
+    const std::int64_t m = modPos(x.onset - y.onset, g);
+    return std::min(m, g - m);
+}
+
+std::uint8_t peakOperations(const std::vector<Span>* perEvent, const std::vector<Norm>& norm,
+                            const std::array<bool, maxLaneEvents>& kept)
+{
+    struct Edge
     {
-        if ((mask & (1u << i)) == 0 || !lane.events[i].enabled)
+        std::int64_t pos;
+        int delta;
+        std::uint8_t op;
+    };
+    std::vector<Edge> edges;
+    for (std::size_t i = 0; i < norm.size(); ++i)
+    {
+        if (!kept[i] || !norm[i].enabled)
             continue;
-        std::array<bool, laneCount> on{};
-        for (std::size_t j = 0; j < lane.count; ++j)
+        for (const auto& s : perEvent[i])
         {
-            if ((mask & (1u << j)) == 0 || !lane.events[j].enabled)
-                continue;
-            std::int64_t d = (lane.events[i].onsetTicks - lane.events[j].onsetTicks) % ring;
-            if (d < 0)
-                d += ring;
-            if (d < lane.events[j].durationTicks)
-                on[lane.events[j].operation % laneCount] = true;
+            edges.push_back({s.a, +1, norm[i].op});
+            edges.push_back({s.b, -1, norm[i].op});
         }
-        std::uint8_t c = 0;
-        for (bool b : on)
-            c = static_cast<std::uint8_t>(c + (b ? 1 : 0));
-        peak = std::max(peak, c);
     }
-    return peak;
+    std::sort(edges.begin(), edges.end(), [](const Edge& x, const Edge& y) {
+        return x.pos != y.pos ? x.pos < y.pos : x.delta < y.delta; // ends before starts
+    });
+    std::array<int, laneCount> active{};
+    int peak = 0;
+    for (const auto& e : edges)
+    {
+        active[e.op % laneCount] += e.delta;
+        int distinct = 0;
+        for (int v : active)
+            distinct += v > 0 ? 1 : 0;
+        peak = std::max(peak, distinct);
+    }
+    return static_cast<std::uint8_t>(std::min(peak, static_cast<int>(laneCount)));
 }
 } // namespace
 
@@ -364,37 +405,45 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
     ReduceReport report;
     if (phraseTicks <= 0 || lane.count == 0)
         return report;
-    // Events saved for a longer phrase may lie beyond this one; the evaluator wraps them, so the
-    // analysis works on wrapped, length-limited copies. Kept events are written back unmodified.
-    const EventLane original = lane;
-    for (std::size_t i = 0; i < lane.count && i < maxLaneEvents; ++i)
+    const std::size_t count = std::min<std::size_t>(lane.count, maxLaneEvents);
+    const std::int64_t P = phraseTicks;
+
+    std::vector<Norm> norm(count);
+    for (std::size_t i = 0; i < count; ++i)
     {
-        auto& e = lane.events[i];
-        std::int64_t onset = static_cast<std::int64_t>(e.onsetTicks) % phraseTicks;
-        if (onset < 0)
-            onset += phraseTicks;
-        e.onsetTicks = static_cast<std::int32_t>(onset);
-        e.durationTicks = static_cast<std::int32_t>(std::clamp<std::int64_t>(e.durationTicks, 1, phraseTicks));
+        const auto& e = lane.events[i];
+        auto& n = norm[i];
+        n.op = static_cast<std::uint8_t>(e.operation % laneCount);
+        n.loops = lane.loopBeats[n.op] > 0;
+        n.ring = n.loops ? static_cast<std::int64_t>(lane.loopBeats[n.op]) * ticksPerBeat : P;
+        n.onset = modPos(e.onsetTicks, n.ring);
+        n.duration = std::clamp<std::int64_t>(e.durationTicks, 1, n.ring);
+        n.enabled = e.enabled;
     }
     const std::int64_t spacing = static_cast<std::int64_t>(
         std::ceil(static_cast<double>(std::clamp(config.minSpacingBeats, 0.0f, 4.0f)) * ticksPerBeat));
     const std::int64_t coverageLimit = static_cast<std::int64_t>(
-        std::floor(static_cast<double>(std::clamp(config.maxCoverage, 0.0f, 1.0f)) * static_cast<double>(phraseTicks)));
+        std::floor(static_cast<double>(std::clamp(config.maxCoverage, 0.0f, 1.0f)) * static_cast<double>(P)));
+
+    std::vector<std::vector<Span>> spans(count);
+    for (std::size_t i = 0; i < count; ++i)
+        if (norm[i].enabled)
+            unroll(norm[i], P, spans[i]);
+
+    std::array<bool, maxLaneEvents> mandatory{};
+    std::array<bool, maxLaneEvents> kept{};
+    for (std::size_t i = 0; i < count; ++i)
+        mandatory[i] = lane.events[i].locked
+                       || (permissions.operationLocks[norm[i].op] & lock::events) != 0;
 
     std::array<std::size_t, maxLaneEvents> order{};
     std::size_t n = 0;
-    std::uint32_t kept = 0;
-    std::uint32_t mandatory = 0;
-    for (std::size_t i = 0; i < lane.count; ++i)
-        if (lane.events[i].locked
-            || (permissions.operationLocks[lane.events[i].operation % laneCount] & lock::events) != 0)
-            mandatory |= 1u << i;
-    for (std::size_t i = 0; i < lane.count; ++i)
-        if ((mandatory & (1u << i)) != 0)
+    for (std::size_t i = 0; i < count; ++i)
+        if (mandatory[i])
             order[n++] = i;
     const std::size_t firstFree = n;
-    for (std::size_t i = 0; i < lane.count; ++i)
-        if ((mandatory & (1u << i)) == 0)
+    for (std::size_t i = 0; i < count; ++i)
+        if (!mandatory[i])
             order[n++] = i;
     std::stable_sort(order.begin() + static_cast<std::ptrdiff_t>(firstFree),
                      order.begin() + static_cast<std::ptrdiff_t>(n),
@@ -402,44 +451,54 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
                          return lane.events[a].priority > lane.events[b].priority;
                      });
 
-    const auto violates = [&](std::uint32_t set, std::size_t candidate) {
+    std::vector<Span> keptUnion;
+    // Returns true when adding `candidate` breaks a limit; fills `merged` with the tentative union.
+    const auto violates = [&](std::size_t candidate, std::vector<Span>& merged) {
+        const auto& c = norm[candidate];
+        if (!c.enabled)
+        {
+            merged = keptUnion;
+            return false;
+        }
         if (spacing > 0)
-            for (std::size_t j = 0; j < lane.count; ++j)
-                if ((set & (1u << j)) != 0 && j != candidate && lane.events[j].enabled && lane.events[candidate].enabled
-                    && circularGap(lane.events[j].onsetTicks, lane.events[candidate].onsetTicks, phraseTicks) < spacing)
+        {
+            if (c.loops && c.ring < spacing)
+                return true; // the lane repeats the event closer than the minimum spacing
+            for (std::size_t j = 0; j < count; ++j)
+                if (kept[j] && j != candidate && norm[j].enabled && startGap(norm[j], c) < spacing)
                     return true;
-        return unionTicks(lane, set | (1u << candidate), phraseTicks) > coverageLimit;
+        }
+        merged = mergeSpans(keptUnion, spans[candidate]);
+        return totalLength(merged) > coverageLimit;
     };
 
+    std::vector<Span> merged;
     for (std::size_t k = 0; k < n; ++k)
     {
         const std::size_t i = order[k];
-        if ((mandatory & (1u << i)) != 0)
+        const bool bad = violates(i, merged);
+        if (!bad)
         {
-            if (violates(kept, i))
-            {
-                report.status = ReduceStatus::ConflictLocked; // locked events alone break a limit
-                lane = original;
-                return report;
-            }
-            kept |= 1u << i;
+            kept[i] = true;
+            keptUnion = merged;
         }
-        else if (!violates(kept, i))
-            kept |= 1u << i;
+        else if (mandatory[i])
+        {
+            report.status = ReduceStatus::ConflictLocked; // locked events alone break a limit
+            return report;
+        }
     }
-    for (std::size_t i = 0; i < lane.count; ++i)
-        ((kept & (1u << i)) != 0 ? report.kept : report.dropped)++;
-    report.coverage = static_cast<float>(static_cast<double>(unionTicks(lane, kept, phraseTicks))
-                                         / static_cast<double>(phraseTicks));
-    report.peakConcurrent = peakConcurrent(lane, kept, phraseTicks);
-    lane = original;
+    for (std::size_t i = 0; i < count; ++i)
+        (kept[i] ? report.kept : report.dropped)++;
+    report.coverage = static_cast<float>(static_cast<double>(totalLength(keptUnion)) / static_cast<double>(P));
+    report.peakConcurrent = peakOperations(spans.data(), norm, kept);
     if (apply && report.dropped > 0)
     {
-        EventLane reduced = original;
+        EventLane reduced = lane;
         reduced.count = 0;
-        for (std::size_t i = 0; i < original.count; ++i)
-            if ((kept & (1u << i)) != 0)
-                reduced.events[reduced.count++] = original.events[i];
+        for (std::size_t i = 0; i < count; ++i)
+            if (kept[i])
+                reduced.events[reduced.count++] = lane.events[i];
         for (std::size_t i = reduced.count; i < maxLaneEvents; ++i)
             reduced.events[i] = LaneEvent{};
         lane = reduced;
