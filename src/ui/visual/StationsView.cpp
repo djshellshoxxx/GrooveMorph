@@ -17,10 +17,10 @@ void drawPanel(juce::Graphics& g, juce::Rectangle<float> b, const juce::String& 
     g.setColour(palette::line);
     g.drawRoundedRectangle(b.reduced(0.5f), 10.0f, 1.0f);
     g.setColour(palette::ink);
-    g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+    g.setFont(theme::font(theme::fontValue, true));
     g.drawText(title, static_cast<int>(b.getX()) + 16, static_cast<int>(b.getY()) + 10, static_cast<int>(b.getWidth()) - 32, 20, juce::Justification::centredLeft);
     g.setColour(palette::dim);
-    g.setFont(juce::FontOptions(11.0f));
+    g.setFont(theme::font(theme::fontCaption));
     g.drawText(sub, static_cast<int>(b.getX()) + 16, static_cast<int>(b.getY()) + 30, static_cast<int>(b.getWidth()) - 32, 16, juce::Justification::centredLeft);
 }
 } // namespace
@@ -63,7 +63,7 @@ void StationsView::paint(juce::Graphics& g)
     if (!compact)
         g.drawLine(12.0f, (top + bottom) * 0.5f, b.getWidth() - 12.0f, (top + bottom) * 0.5f, 8.0f);
     g.setColour(palette::dim);
-    g.setFont(juce::FontOptions(10.0f));
+    g.setFont(theme::font(theme::fontCaption));
     if (!compact)
     {
         g.drawText("IN", 4, static_cast<int>(top) - 14, 24, 12, juce::Justification::centredLeft);
@@ -84,7 +84,7 @@ void StationsView::paint(juce::Graphics& g)
         g.drawRoundedRectangle(outline.reduced(0.5f), 10.0f, active ? 2.0f : 1.0f);
 
         g.setColour(active ? palette::ink : palette::dim);
-        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.setFont(theme::font(theme::fontLabel, true));
         g.drawFittedText(juce::String(st.name), box.removeFromTop(compact ? 18.0f : 22.0f).toNearestInt(), juce::Justification::centred, 1, 0.7f);
         if (compact)
         {
@@ -100,7 +100,7 @@ void StationsView::paint(juce::Graphics& g)
             const juce::String st2 = !st.timed && st.state != viz::StageState::Bypassed ? "stopped"
                                      : active ? "active" : st.state == viz::StageState::HeldOff ? "held off" : "bypassed";
             g.setColour(active ? palette::ink : palette::dim);
-            g.setFont(juce::FontOptions(10.0f));
+            g.setFont(theme::font(theme::fontCaption));
             g.drawFittedText(juce::String(st.text) + (st.text.empty() ? "" : " ") + st2 + (st.locked ? " (locked)" : ""),
                              box.removeFromTop(box.getHeight()).reduced(2.0f, 0.0f).toNearestInt(), juce::Justification::centredTop, 2, 0.8f);
             continue;
@@ -117,14 +117,14 @@ void StationsView::paint(juce::Graphics& g)
             g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * st.amount), 4.0f);
         }
         g.setColour(active ? palette::ink : palette::dim);
-        g.setFont(juce::FontOptions(11.0f));
+        g.setFont(theme::font(theme::fontCaption));
         const juce::String state = !st.timed && st.state != viz::StageState::Bypassed ? "stopped"
                                    : st.state == viz::StageState::Active  ? "active"
                                    : st.state == viz::StageState::HeldOff ? "held off"
                                                                           : "bypassed";
         g.drawFittedText(juce::String(st.text), box.removeFromTop(16.0f).toNearestInt(), juce::Justification::centred, 1, 0.8f);
         g.setColour(palette::dim);
-        g.setFont(juce::FontOptions(10.0f));
+        g.setFont(theme::font(theme::fontCaption));
         g.drawText(state, box.removeFromTop(14.0f).toNearestInt(), juce::Justification::centred);
         if (st.locked)
         {
@@ -133,7 +133,7 @@ void StationsView::paint(juce::Graphics& g)
         }
     }
     g.setColour(palette::dim);
-    g.setFont(juce::FontOptions(10.0f));
+    g.setFont(theme::font(theme::fontCaption));
     g.drawText(footer, 16, static_cast<int>(b.getHeight()) - 24, static_cast<int>(b.getWidth()) - 32, 16, juce::Justification::centredLeft);
 }
 
@@ -184,7 +184,7 @@ void SceneOrbitView::paint(juce::Graphics& g)
         g.fillEllipse(m.x - 6.0f, m.y - 6.0f, 12.0f, 12.0f);
         g.setColour(palette::ink);
         g.drawEllipse(m.x - 6.0f, m.y - 6.0f, 12.0f, 12.0f, 2.0f);
-        g.setFont(juce::FontOptions(10.0f));
+        g.setFont(theme::font(theme::fontCaption));
         g.drawText(juce::String(static_cast<int>(std::lround(orbit.morphAmount * 100.0f))) + " % morph", static_cast<int>(m.x) - 40, static_cast<int>(m.y) - 24, 80, 12, juce::Justification::centred);
     }
     // Dashed way back to the auto-return target.
@@ -211,25 +211,25 @@ void SceneOrbitView::paint(juce::Graphics& g)
         g.setColour(n.sounding || n.queued ? palette::ink : palette::line);
         g.drawEllipse(c.x - r, c.y - r, r * 2.0f, r * 2.0f, 2.0f);
         g.setColour(n.sounding ? palette::slate : palette::ink);
-        g.setFont(juce::FontOptions(r * 0.9f, juce::Font::bold));
+        g.setFont(theme::font(std::max(theme::fontCaption, r * 0.9f), true));
         g.drawText(juce::String::charToString(static_cast<juce::juce_wchar>('A' + i)), static_cast<int>(c.x - r), static_cast<int>(c.y - r), static_cast<int>(r * 2.0f), static_cast<int>(r * 2.0f), juce::Justification::centred);
         if (n.queued)
         {
             g.setColour(effectColour(viz::Effect::Reverse));
             g.drawEllipse(c.x - r - 6.0f, c.y - r - 6.0f, (r + 6.0f) * 2.0f, (r + 6.0f) * 2.0f, 3.0f);
-            g.setFont(juce::FontOptions(10.0f));
+            g.setFont(theme::font(theme::fontCaption));
             const juce::String t = orbit.countdownBeats >= 0.0 ? "queued, " + juce::String(orbit.countdownBeats, 1) + " beats" : "queued";
             g.drawText(t, static_cast<int>(c.x) - 60, static_cast<int>(c.y + r + 8.0f), 120, 12, juce::Justification::centred);
         }
         if (n.returnTarget && !n.sounding)
         {
             g.setColour(palette::dim);
-            g.setFont(juce::FontOptions(10.0f));
+            g.setFont(theme::font(theme::fontCaption));
             g.drawText("return", static_cast<int>(c.x) - 30, static_cast<int>(c.y - r - 18.0f), 60, 12, juce::Justification::centred);
         }
     }
     g.setColour(palette::dim);
-    g.setFont(juce::FontOptions(10.0f));
+    g.setFont(theme::font(theme::fontCaption));
     g.drawText(orbit.previewing ? "PREVIEW: sounding scene is not committed" : "filled = sounding, ring = queued, bead = morph",
                16, static_cast<int>(b.getHeight()) - 24, static_cast<int>(b.getWidth()) - 32, 16, juce::Justification::centredLeft);
 }

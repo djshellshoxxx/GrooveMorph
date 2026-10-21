@@ -4,6 +4,7 @@
 
 #include "ui/ControlMenu.h"
 #include "ui/FirstRunGuide.h"
+#include "ui/theme/GrooveLookAndFeel.h"
 
 #include <array>
 #include <functional>
@@ -37,7 +38,6 @@ public:
 
 private:
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
-    struct EasyLookAndFeel;
 
     void addMacro(std::size_t index, const char* parameter, const juce::String& label, const juce::String& help);
     void setMessage(const juce::String& text);
@@ -47,8 +47,9 @@ private:
     void onPanic();
     void retargetMorph();
 
+    // Declared before every child so it is destroyed after them (the children use it until then).
+    theme::GrooveLookAndFeel lookAndFeel;
     GrooveMorphAudioProcessor& processor;
-    std::unique_ptr<EasyLookAndFeel> lookAndFeel;
     juce::Label titleLabel, timingLabel, messageLabel;
     std::array<juce::Label, 4> macroLabels;
     std::array<MenuSlider, 4> sliders;

@@ -10,6 +10,9 @@ name: Beta release
 # Single version source: the VERSION file. A tag must equal "v" + VERSION; a dispatch "version" input,
 # if given, must equal VERSION. To release: edit VERSION, commit, then push the tag (publishes) or
 # dispatch with publish ticked. Dispatch with publish unticked only builds and uploads artifacts.
+# Dispatch input "platforms": 'all' (default, and always used for tag pushes) builds all four packages;
+# 'windows' builds and publishes only windows-x64 (the other legs are not created, and the release carries only
+# the Windows assets and notes saying the macOS and Linux builds will follow).
 #
 # Supersedes windows-alpha.yml and macos-alpha.yml for releases (they stay in place, unchanged).
 # See docs/specs/N06-CLAP-AND-RELEASE.md and docs/beta/RELEASE-PROCESS.md.
@@ -26,6 +29,11 @@ on:
         description: 'Create/update the GitHub PRERELEASE v<VERSION> with all assets'
         type: boolean
         default: false
+      platforms:
+        description: "Platforms to build and publish: 'all' or 'windows' (windows = windows-x64 only; macOS and Linux follow later)"
+        type: string
+        required: false
+        default: 'all'
   push:
     tags:
       - 'v*-beta*'
@@ -49,6 +57,8 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
       publish: ${{ steps.pub.outputs.publish }}
+      platforms: ${{ steps.plat.outputs.platforms }}
+      matrix: ${{ steps.plat.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,6 +70,25 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
         run: bash tools/package/check-version.sh "$EVENT_NAME" "$REF_NAME" "$INPUT_VERSION"
+      - name: Resolve platforms
+        id: plat
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          p="all"
+          if [ "$EVENT_NAME" = workflow_dispatch ] && [ -n "$INPUT_PLATFORMS" ]; then p="$INPUT_PLATFORMS"; fi
+          win='{"platform":"windows-x64","runner":"windows-2022","validator":"windows","cmake_args":"-G \"Visual Studio 17 2022\" -A x64"}'
+          maa='{"platform":"macos-arm64","runner":"macos-15","validator":"macos-arm64","cmake_args":"-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0"}'
+          mai='{"platform":"macos-x86_64","runner":"macos-15-intel","validator":"macos-x86_64","cmake_args":"-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0"}'
+          lin='{"platform":"linux-x86_64","runner":"ubuntu-22.04","validator":"linux","cmake_args":""}'
+          case "$p" in
+            all) list="[$win,$maa,$mai,$lin]" ;;
+            windows) list="[$win]" ;;
+            *) echo "::error::platforms must be 'all' or 'windows', got '$p'"; exit 1 ;;
+          esac
+          echo "platforms=$p" >> "$GITHUB_OUTPUT"
+          echo "matrix=$list" >> "$GITHUB_OUTPUT"
       - name: Decide whether to publish
         id: pub
         env:
@@ -80,27 +109,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: windows-x64
-            runner: windows-2022
-            validator: windows
-            cmake_args: '-G "Visual Studio 17 2022" -A x64'
-          - platform: macos-arm64
-            runner: macos-15
-            validator: macos-arm64
-            cmake_args: '-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
-          # macos-13 was retired in Dec 2025; macos-15-intel is the documented native Intel image
-          # (offered by GitHub until Aug 2027).
-          - platform: macos-x86_64
-            runner: macos-15-intel
-            validator: macos-x86_64
-            cmake_args: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
-          # Built on 22.04 for a glibc 2.35 floor. GitHub deprecates this image from 2026-09-17 and
-          # retires it 2027-04-17; then move this leg to `container: ubuntu:22.04` on ubuntu-24.04.
-          - platform: linux-x86_64
-            runner: ubuntu-22.04
-            validator: linux
-            cmake_args: ''
+        # The full matrix (one object per platform) comes from the prepare job, so legs that are not
+        # selected by the "platforms" input are never created.
+        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -240,15 +251,32 @@ jobs:
       - name: Checksums and release notes
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          PLATFORMS: ${{ needs.prepare.outputs.platforms }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          for p in windows-x64 macos-arm64 macos-x86_64 linux-x86_64; do
+          if [ "$PLATFORMS" = windows ]; then expected="windows-x64"; else expected="windows-x64 macos-arm64 macos-x86_64 linux-x86_64"; fi
+          included=""
+          for p in $expected; do
             test -f "dist/GrooveMorph-${VERSION}-${p}.zip" || { echo "::error::missing package for ${p}"; exit 1; }
           done
+          for p in windows-x64 macos-arm64 macos-x86_64 linux-x86_64; do
+            if [ -f "dist/GrooveMorph-${VERSION}-${p}.zip" ]; then included="${included:+$included, }${p}"; fi
+          done
+          test -n "$included" || { echo "::error::no packages found in dist"; exit 1; }
           (cd dist && sha256sum GrooveMorph-*.zip > SHA256SUMS && cat SHA256SUMS)
           bash tools/package/make-release-notes.sh --version "$VERSION" --commit "$GITHUB_SHA" \
             --run-url "$RUN_URL" --dist-dir dist --output RELEASE-NOTES.md
+          if [ "$PLATFORMS" = windows ]; then
+            {
+              echo "# GrooveMorph ${VERSION} (Beta): Windows only"
+              echo
+              echo "**Platforms included in this release: ${included}.** The macOS and Linux builds are not part of this release and will follow in a later update of this prerelease. Rows below marked missing are expected."
+              echo
+              tail -n +2 RELEASE-NOTES.md
+            } > RELEASE-NOTES.platforms.md
+            mv RELEASE-NOTES.platforms.md RELEASE-NOTES.md
+          fi
 
       - name: Create or update the prerelease
         env:

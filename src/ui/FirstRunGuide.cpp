@@ -1,4 +1,7 @@
 #include "ui/FirstRunGuide.h"
+#include "ui/theme/Theme.h"
+
+#include <algorithm>
 
 namespace groovemorph::ui
 {
@@ -35,6 +38,15 @@ void FirstRunGuide::markSeen()
     }
 }
 
+void FirstRunGuide::resetSeen()
+{
+    if (auto settings = openSettings())
+    {
+        settings->setValue(seenKey, false);
+        settings->saveIfNeeded();
+    }
+}
+
 FirstRunGuide::FirstRunGuide()
 {
     setTitle("First-run guide");
@@ -43,13 +55,14 @@ FirstRunGuide::FirstRunGuide()
     setFocusContainerType(juce::Component::FocusContainerType::focusContainer);
 
     stepLabel.setJustificationType(juce::Justification::centredLeft);
-    stepLabel.setColour(juce::Label::textColourId, juce::Colour(0xff8fb3d9));
+    stepLabel.setFont(theme::font(theme::fontBody));
+    stepLabel.setColour(juce::Label::textColourId, theme::textDim);
     stepLabel.setTitle("Guide progress");
-    titleLabel.setFont(juce::FontOptions(24.0f, juce::Font::bold));
-    titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+    titleLabel.setFont(theme::font(theme::fontWordmark, true));
+    titleLabel.setColour(juce::Label::textColourId, theme::text);
     titleLabel.setTitle("Guide step title");
-    bodyLabel.setFont(juce::FontOptions(17.0f));
-    bodyLabel.setColour(juce::Label::textColourId, juce::Colour(0xffe3eaf2));
+    bodyLabel.setFont(theme::font(theme::fontTitle));
+    bodyLabel.setColour(juce::Label::textColourId, theme::text);
     bodyLabel.setJustificationType(juce::Justification::topLeft);
     bodyLabel.setMinimumHorizontalScale(1.0f);
     bodyLabel.setTitle("Guide step text");
@@ -109,19 +122,19 @@ void FirstRunGuide::update()
 
 juce::Rectangle<int> FirstRunGuide::cardBounds() const
 {
-    const int w = juce::jmin(560, getWidth() - 40);
-    const int h = juce::jmin(300, getHeight() - 40);
+    const int w = std::min(560, getWidth() - 40);
+    const int h = std::min(300, getHeight() - 40);
     return juce::Rectangle<int>(w, h).withCentre(getLocalBounds().getCentre());
 }
 
 void FirstRunGuide::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colours::black.withAlpha(0.6f));
+    g.fillAll(theme::bg.withAlpha(0.8f));
     const auto card = cardBounds().toFloat();
-    g.setColour(juce::Colour(0xff1f2a3a));
-    g.fillRoundedRectangle(card, 10.0f);
-    g.setColour(juce::Colour(0xff8fb3d9));
-    g.drawRoundedRectangle(card.reduced(1.0f), 10.0f, 2.0f);
+    g.setColour(theme::surface);
+    g.fillRoundedRectangle(card, theme::radiusLarge);
+    g.setColour(theme::accent);
+    g.drawRoundedRectangle(card.reduced(1.0f), theme::radiusLarge, 2.0f);
 }
 
 void FirstRunGuide::resized()

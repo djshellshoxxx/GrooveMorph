@@ -2,7 +2,7 @@
 
 This is a beta for testers. **No DAW, audio-device or listening validation has been done**, and these install steps have not been run on a clean machine by a person. No installer exists: you copy files. Lower your monitor volume the first time you load it.
 
-Each zip is named `GrooveMorph-<version>-<platform>.zip` and holds `GrooveMorph` (Standalone), `GrooveMorph.vst3`, `GrooveMorph.clap`, this file, `THIRD-PARTY-NOTICES.md`, `KNOWN-ISSUES.md` and `BUILD-MANIFEST.md`. Pick the zip for your system:
+Each zip is named `GrooveMorph-<version>-<platform>.zip` and holds `GrooveMorph` (Standalone), `GrooveMorph.vst3`, `GrooveMorph.clap`, this file, `THIRD-PARTY-NOTICES.md`, `KNOWN-ISSUES.md` and `BUILD-MANIFEST.md`. Pick the zip for your system. A release may carry only some of these (for example Windows first, with macOS and Linux following); check the release notes for the platforms included:
 
 | Zip platform | System |
 |---|---|
@@ -12,6 +12,10 @@ Each zip is named `GrooveMorph-<version>-<platform>.zip` and holds `GrooveMorph`
 | `linux-x86_64` | 64-bit Linux, glibc 2.35 or newer (Ubuntu 22.04 or newer, comparable distros) |
 
 Verify the download first: compare the zip's SHA-256 with the `.sha256` file or `SHA256SUMS` on the release page.
+
+## What is new in beta.2
+
+The editor was redesigned: it is resizable (960x640 to 2200x1400, default 1180x760), has a UI scale setting in the gear menu, Ctrl/Cmd+Z undo, F1 help, and the timing controls moved into a Timing popover. See `help/INTERFACE-TOUR.md`. The new layout has only been reviewed from CI screenshots, not used in a real window or DAW, so expect rough edges and report them.
 
 ## Where plugins go
 

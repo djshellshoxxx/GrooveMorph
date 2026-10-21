@@ -1,17 +1,19 @@
 #include "ui/PresetBar.h"
+#include "ui/theme/Theme.h"
 
 #include "PluginProcessor.h"
 
+#include <algorithm>
 #include <vector>
 
 namespace groovemorph::ui
 {
 namespace
 {
-const juce::Colour barBackground{0xff1c2431};
-const juce::Colour buttonColour{0xff3a4658};
-const juce::Colour accentColour{0xff4fc3f7};
-const juce::Colour modifiedColour{0xffffb74d};
+const juce::Colour barBackground = theme::surface;
+const juce::Colour buttonColour = theme::surfaceRaised;
+const juce::Colour accentColour = theme::accent;
+const juce::Colour modifiedColour = theme::queued; // paired with the "*" after the name
 
 juce::StringArray splitTags(const juce::String& text)
 {
@@ -29,7 +31,7 @@ public:
     BrowserPanel(PresetManager& managerToUse, juce::String currentName, std::function<void(int)> chooseCallback)
         : manager(managerToUse), current(std::move(currentName)), onChoose(std::move(chooseCallback))
     {
-        search.setTextToShowWhenEmpty("Search presets...", juce::Colours::grey);
+        search.setTextToShowWhenEmpty("Search presets...", theme::textDim);
         search.onTextChange = [this] { rebuild(); };
         addAndMakeVisible(search);
 
@@ -107,22 +109,26 @@ private:
         const auto& r = rows[static_cast<std::size_t>(row)];
         if (r.header)
         {
-            g.fillAll(juce::Colour(0xff263041));
+            g.fillAll(theme::surfaceRaised);
             g.setColour(accentColour);
-            g.setFont(juce::Font(juce::FontOptions(13.0f)).boldened());
+            g.setFont(theme::font(theme::fontLabel, true));
             g.drawText(r.text.toUpperCase(), 8, 0, width - 16, height, juce::Justification::centredLeft);
             return;
         }
         if (selected)
-            g.fillAll(juce::Colour(0xff34506b));
+        {
+            g.fillAll(theme::surfaceHover);
+            g.setColour(accentColour);
+            g.fillRect(0, 0, 3, height);
+        }
         const bool isCurrent = r.text.equalsIgnoreCase(current);
-        g.setColour(isCurrent ? accentColour : juce::Colours::white);
-        g.setFont(14.0f);
+        g.setColour(isCurrent ? accentColour : theme::text);
+        g.setFont(theme::font(theme::fontValue));
         g.drawText(r.text, 18, 0, width - 80, height, juce::Justification::centredLeft);
         if (!manager.isFactory(r.index))
         {
-            g.setColour(juce::Colours::grey);
-            g.setFont(12.0f);
+            g.setColour(theme::textDim);
+            g.setFont(theme::font(theme::fontLabel));
             g.drawText("user", width - 58, 0, 50, height, juce::Justification::centredRight);
         }
     }
@@ -155,32 +161,29 @@ private:
 
 PresetBar::PresetBar(GrooveMorphAudioProcessor& processorToUse) : processor(processorToUse)
 {
-    for (auto* button : {&previousButton, &nextButton, &nameButton, &saveButton, &saveAsButton, &renameButton,
-                         &deleteButton, &importButton, &exportButton})
+    for (auto* button : {&previousButton, &nextButton, &nameButton, &saveButton, &moreButton})
     {
         button->setColour(juce::TextButton::buttonColourId, buttonColour);
-        button->setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+        button->setColour(juce::TextButton::textColourOffId, theme::text);
+        button->setWantsKeyboardFocus(true);
         addAndMakeVisible(*button);
     }
     previousButton.setTooltip("Load the previous preset in the list. Loading is one Undo step.");
+    previousButton.setTitle("Previous preset");
     nextButton.setTooltip("Load the next preset in the list. Loading is one Undo step.");
+    nextButton.setTitle("Next preset");
     nameButton.setTooltip("Open the preset browser: search, filter by tag, grouped by category. A * after the name means the scenes were changed after loading.");
+    nameButton.setTitle("Preset browser");
     saveButton.setTooltip("Save the four scenes over the loaded user preset. On a factory preset (or with none loaded) this works like Save As.");
-    saveAsButton.setTooltip("Save the four scenes as a new user preset with a name, category and tags.");
-    renameButton.setTooltip("Rename the loaded user preset. Factory presets cannot be renamed.");
-    deleteButton.setTooltip("Delete the loaded user preset file. Factory presets cannot be deleted.");
-    importButton.setTooltip("Import a .gmpreset file into your user presets.");
-    exportButton.setTooltip("Export the loaded preset to a .gmpreset file you can share.");
+    saveButton.setTitle("Save preset");
+    moreButton.setTooltip("More preset actions: Save As, Rename, Delete, Import and Export.");
+    moreButton.setTitle("More preset actions");
 
     previousButton.onClick = [this] { stepPreset(-1); };
     nextButton.onClick = [this] { stepPreset(1); };
     nameButton.onClick = [this] { showBrowser(); };
     saveButton.onClick = [this] { save(); };
-    saveAsButton.onClick = [this] { promptSaveAs(); };
-    renameButton.onClick = [this] { promptRename(); };
-    deleteButton.onClick = [this] { confirmDelete(); };
-    importButton.onClick = [this] { importPreset(); };
-    exportButton.onClick = [this] { exportPreset(); };
+    moreButton.onClick = [this] { showMoreMenu(); };
     refresh();
 }
 
@@ -189,7 +192,7 @@ PresetBar::~PresetBar() = default;
 void PresetBar::paint(juce::Graphics& g)
 {
     g.setColour(barBackground);
-    g.fillRoundedRectangle(getLocalBounds().toFloat(), 4.0f);
+    g.fillRoundedRectangle(getLocalBounds().toFloat(), theme::radius);
 }
 
 void PresetBar::resized()
@@ -200,15 +203,11 @@ void PresetBar::resized()
         area.removeFromLeft(4);
     };
     place(previousButton, 32);
-    const int fixedRight = 62 + 66 + 66 + 62 + 62 + 62 + 6 * 4 + 32 + 4;
-    place(nameButton, juce::jmax(120, area.getWidth() - fixedRight));
+    const int fixedRight = 62 + 40 + 32 + 3 * 4;
+    place(nameButton, std::max(120, area.getWidth() - fixedRight));
     place(nextButton, 32);
     place(saveButton, 62);
-    place(saveAsButton, 66);
-    place(renameButton, 66);
-    place(deleteButton, 62);
-    place(importButton, 62);
-    place(exportButton, 62);
+    place(moreButton, 40);
 }
 
 void PresetBar::refresh()
@@ -220,14 +219,43 @@ void PresetBar::refresh()
         text << " *";
     nameButton.setButtonText(text);
     nameButton.setColour(juce::TextButton::textColourOffId,
-                         name.isNotEmpty() && modified ? modifiedColour : juce::Colours::white);
+                         name.isNotEmpty() && modified ? modifiedColour : theme::text);
     const auto& manager = processor.getPresetManager();
     const int index = name.isEmpty() ? -1 : manager.indexOf(name);
     const bool user = index >= 0 && !manager.isFactory(index);
-    deleteButton.setEnabled(user);
-    renameButton.setEnabled(user);
-    exportButton.setEnabled(index >= 0);
     saveButton.setButtonText(user ? "Save" : "Save...");
+}
+
+// The "..." menu. Enable rules are evaluated when it opens (same rules the separate buttons had):
+// Rename and Delete need a loaded user preset, Export needs any loaded preset.
+void PresetBar::showMoreMenu()
+{
+    const auto name = processor.getCurrentPresetName();
+    const auto& manager = processor.getPresetManager();
+    const int index = name.isEmpty() ? -1 : manager.indexOf(name);
+    const bool user = index >= 0 && !manager.isFactory(index);
+
+    juce::PopupMenu menu;
+    menu.addItem(1, "Save As...");
+    menu.addItem(2, "Rename...", user);
+    menu.addItem(3, "Delete...", user);
+    menu.addSeparator();
+    menu.addItem(4, "Import...");
+    menu.addItem(5, "Export...", index >= 0);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&moreButton).withMinimumWidth(160),
+                       [safe = juce::Component::SafePointer<PresetBar>(this)](int result) {
+                           if (safe == nullptr)
+                               return;
+                           switch (result)
+                           {
+                               case 1: safe->promptSaveAs(); break;
+                               case 2: safe->promptRename(); break;
+                               case 3: safe->confirmDelete(); break;
+                               case 4: safe->importPreset(); break;
+                               case 5: safe->exportPreset(); break;
+                               default: break;
+                           }
+                       });
 }
 
 void PresetBar::changed()

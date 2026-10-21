@@ -27,7 +27,9 @@ struct SceneEditAccess
     std::function<bool()> previewing;
 };
 
-// Tabbed advanced-controls inspector: Placement, Generator, Scenes, Morph/Return, Limits, Status.
+// The central workspace (docs/specs/UI-REDESIGN.md section 4): a tabbed editor that fills the window width, laid out
+// proportionally from its bounds. Nine tabs, in public index order: Pattern, Generate, Scenes, Morph, Limits, Input,
+// Perform, Info, Print. Tab pages scroll vertically when the window is too short for their content.
 class InspectorPanel final : public juce::Component
 {
 public:

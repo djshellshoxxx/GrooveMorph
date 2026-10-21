@@ -1,4 +1,5 @@
 #include "ui/WaveformView.h"
+#include "ui/theme/Theme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -45,7 +46,7 @@ void WaveformView::setPlayhead(double fraction)
 void WaveformView::paint(juce::Graphics& g)
 {
     const auto bounds = getLocalBounds();
-    g.fillAll(juce::Colour(0xff10161d));
+    g.fillAll(theme::bg);
     const float w = static_cast<float>(bounds.getWidth());
     const float h = static_cast<float>(bounds.getHeight());
     if (w < 4.0f || h < 4.0f)
@@ -53,8 +54,8 @@ void WaveformView::paint(juce::Graphics& g)
 
     if (mins.empty())
     {
-        g.setColour(juce::Colours::grey);
-        g.setFont(13.0f);
+        g.setColour(theme::textDim);
+        g.setFont(theme::font(theme::fontBody));
         g.drawText("No loop loaded", bounds, juce::Justification::centred);
         return;
     }
@@ -63,14 +64,14 @@ void WaveformView::paint(juce::Graphics& g)
     for (const auto& line : grid)
     {
         const int x = static_cast<int>(std::round(static_cast<float>(line.fraction) * w));
-        g.setColour(line.bar ? juce::Colour(0xff5f7388) : juce::Colour(0xff2a3744));
+        g.setColour(line.bar ? theme::strokeStrong : theme::stroke);
         g.drawVerticalLine(juce::jlimit(0, bounds.getWidth() - 1, x), 0.0f, h);
     }
 
     const float mid = h * 0.5f;
     const float scale = mid - 2.0f;
     const auto columns = static_cast<std::int64_t>(mins.size());
-    g.setColour(juce::Colour(0xff4fc3f7));
+    g.setColour(theme::accent);
     for (int x = 0; x < bounds.getWidth(); ++x)
     {
         const auto column = static_cast<std::size_t>(std::clamp<std::int64_t>(
@@ -84,7 +85,7 @@ void WaveformView::paint(juce::Graphics& g)
 
     if (playhead >= 0.0)
     {
-        g.setColour(juce::Colours::white);
+        g.setColour(theme::playhead);
         g.drawVerticalLine(juce::jlimit(0, bounds.getWidth() - 1, static_cast<int>(playhead * w)), 0.0f, h);
     }
 }

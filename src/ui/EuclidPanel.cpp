@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 #include "core/control/Chance.h"
+#include "ui/theme/Theme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,18 +16,15 @@ namespace groovemorph::ui
 namespace
 {
 const juce::StringArray operationNames{"Repeat / stutter", "Reverse slice", "Gate", "Half-time", "Tape stop", "Filter sweep", "Bit crush"};
-const juce::Colour operationColours[] = {juce::Colour(0xff4fc3f7), juce::Colour(0xffba68c8),
-                                         juce::Colour(0xff81c784), juce::Colour(0xffffb74d),
-                                         juce::Colour(0xffe57373), juce::Colour(0xffdce775),
-                                         juce::Colour(0xfff48fb1)};
-static_assert(std::size(operationColours) == groovemorph::core::operationCount, "one lane colour per operation");
+static_assert(theme::effectCount == static_cast<int>(groovemorph::core::operationCount), "one theme colour per operation");
 constexpr std::uint8_t gridValues[] = {1, 2, 3, 4, 6, 8, 12, 16};
-constexpr int rowHeight = 22;
-constexpr int rowGap = 2;
+constexpr int rowHeight = theme::minTarget;
+constexpr int rowGap = theme::space1;
+constexpr int labelWidth = 92;
 
-juce::Rectangle<int> nextRow(juce::Rectangle<int>& area)
+juce::Rectangle<int> nextRow(juce::Rectangle<int>& area, int height = rowHeight)
 {
-    auto row = area.removeFromTop(rowHeight);
+    auto row = area.removeFromTop(height);
     area.removeFromTop(rowGap);
     return row;
 }
@@ -36,39 +34,51 @@ void EuclidPanel::setupRow(Row& row, const juce::String& text, const juce::Strin
                            double step, int decimals, const juce::String& suffix)
 {
     row.label.setText(text, juce::dontSendNotification);
+    row.label.setFont(theme::font(theme::fontLabel));
     row.label.setJustificationType(juce::Justification::centredLeft);
-    row.label.setColour(juce::Label::textColourId, juce::Colours::white);
+    row.label.setColour(juce::Label::textColourId, theme::text);
     row.label.setTooltip(tip);
     row.slider.setSliderStyle(juce::Slider::LinearHorizontal);
-    row.slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 54, 20);
+    row.slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 58, 26);
+    row.slider.setTitle(text);
     row.slider.setRange(lo, hi, step);
     row.slider.setNumDecimalPlacesToDisplay(decimals);
     row.slider.setTextValueSuffix(suffix);
     row.slider.setTooltip(tip);
-    addAndMakeVisible(row.label);
-    addAndMakeVisible(row.slider);
+    body.addAndMakeVisible(row.label);
+    body.addAndMakeVisible(row.slider);
 }
 
 EuclidPanel::EuclidPanel(GrooveMorphAudioProcessor& p, SceneEditAccess a) : processor(p), access(std::move(a))
 {
     setOpaque(true);
+    body.setOpaque(true);
+    body.onPaint = [this](juce::Graphics& g) { paintBody(g); };
+    viewport.setViewedComponent(&body, false);
+    viewport.setScrollBarsShown(true, false);
+    viewport.setScrollBarThickness(10);
+    viewport.setWantsKeyboardFocus(false);
+    addAndMakeVisible(viewport);
 
     operationBox.addItemList(operationNames, 1);
     operationBox.setSelectedId(3, juce::dontSendNotification); // Gate: the most natural rhythmic target
     operationBox.setTooltip("Effect lane that the pattern fills. Also the lane used by 'Lane chance' below.");
-    operationBox.onChange = [this] { repaint(); refresh(access.settings(), selected); };
+    operationBox.onChange = [this] { body.repaint(); refresh(access.settings(), selected); };
     gridBox.addItemList({"1 per beat", "2 per beat", "3 per beat", "4 per beat", "6 per beat", "8 per beat",
                          "12 per beat", "16 per beat"}, 1);
     gridBox.setSelectedId(4, juce::dontSendNotification);
     gridBox.setTooltip("Length of one pattern step, as divisions of a meter beat.");
-    gridBox.onChange = [this] { repaint(); };
+    gridBox.onChange = [this] { body.repaint(); };
     gateBox.addItemList({"Length 25%", "Length 50%", "Length 75%", "Length 100%"}, 1);
     gateBox.setSelectedId(2, juce::dontSendNotification);
     gateBox.setTooltip("Event length as a share of one pattern step.");
-    gateBox.onChange = [this] { repaint(); };
-    addAndMakeVisible(operationBox);
-    addAndMakeVisible(gridBox);
-    addAndMakeVisible(gateBox);
+    gateBox.onChange = [this] { body.repaint(); };
+    operationBox.setTitle("Euclid target effect");
+    gridBox.setTitle("Euclid step grid");
+    gateBox.setTitle("Euclid event length");
+    body.addAndMakeVisible(operationBox);
+    body.addAndMakeVisible(gridBox);
+    body.addAndMakeVisible(gateBox);
 
     setupRow(steps, "Steps", "Length of the pattern in grid steps (1-32). The pattern repeats across the phrase.", 1, 32, 1, 0);
     setupRow(pulses, "Pulses", "Number of hits spread as evenly as possible over the steps (Euclidean rhythm).", 0, 32, 1, 0);
@@ -81,7 +91,7 @@ EuclidPanel::EuclidPanel(GrooveMorphAudioProcessor& p, SceneEditAccess a) : proc
     accentEvery.slider.setValue(0, juce::dontSendNotification);
     density.slider.setValue(100, juce::dontSendNotification);
     for (auto* r : {&steps, &pulses, &rotation, &accentEvery, &density})
-        r->slider.onValueChange = [this] { syncPulseRange(); repaint(); };
+        r->slider.onValueChange = [this] { syncPulseRange(); body.repaint(); };
 
     // Chance rows commit once per drag (one undo step), like the other Place sliders.
     setupRow(eventChance, "Event chance", "Chance that the selected event plays in each phrase cycle. 100 = always. The decision is a repeatable hash, so playback is identical every time.", 0, 100, 1, 0, " %");
@@ -113,13 +123,14 @@ EuclidPanel::EuclidPanel(GrooveMorphAudioProcessor& p, SceneEditAccess a) : proc
     clearButton.setButtonText("Clear lane");
     clearButton.setTooltip("Removes the unlocked events of the chosen lane (one undo step).");
     clearButton.onClick = [this] { doClear(); };
-    addAndMakeVisible(previewButton);
-    addAndMakeVisible(applyButton);
-    addAndMakeVisible(clearButton);
+    body.addAndMakeVisible(previewButton);
+    body.addAndMakeVisible(applyButton);
+    body.addAndMakeVisible(clearButton);
 
-    status.setJustificationType(juce::Justification::centredLeft);
-    status.setColour(juce::Label::textColourId, juce::Colours::orange);
-    addAndMakeVisible(status);
+    status.setFont(theme::font(theme::fontLabel));
+    status.setJustificationType(juce::Justification::topLeft);
+    status.setColour(juce::Label::textColourId, theme::warning);
+    body.addAndMakeVisible(status);
 }
 
 std::uint8_t EuclidPanel::targetOperation() const
@@ -154,7 +165,7 @@ void EuclidPanel::showReport(const ctl::EuclidReport& r, const juce::String& ver
 {
     if (r.status == ctl::EuclidStatus::OperationLocked)
     {
-        status.setText("This lane's events are locked (Generator tab > Locks).", juce::dontSendNotification);
+        status.setText("This lane's events are locked (Generate tab > Locks).", juce::dontSendNotification);
         return;
     }
     if (r.status == ctl::EuclidStatus::Invalid)
@@ -263,58 +274,80 @@ void EuclidPanel::refresh(const gm::VariationSettings& s, int selectedEvent)
 
 void EuclidPanel::resized()
 {
-    auto area = getLocalBounds().reduced(6, 2);
+    viewport.setBounds(getLocalBounds().reduced(1));
+    int width = viewport.getWidth();
+    int height = layoutBody(width);
+    if (height > viewport.getHeight())
+    {
+        width -= viewport.getScrollBarThickness();
+        height = layoutBody(width);
+    }
+    body.setSize(width, std::max(height, viewport.getHeight()));
+}
+
+// Lays the controls out for a 280 px drawer (one column) and returns the content height.
+int EuclidPanel::layoutBody(int width)
+{
+    auto area = juce::Rectangle<int>(theme::space2, theme::space2, std::max(40, width - 2 * theme::space2), 100000);
+    area.removeFromTop(20); // heading painted in paintBody
+    operationBox.setBounds(nextRow(area));
     auto combos = nextRow(area);
-    operationBox.setBounds(combos.removeFromLeft(combos.getWidth() * 2 / 5));
-    gridBox.setBounds(combos.removeFromLeft(combos.getWidth() / 2).reduced(4, 0));
+    gridBox.setBounds(combos.removeFromLeft(combos.getWidth() / 2).reduced(0, 0).withTrimmedRight(theme::space1));
     gateBox.setBounds(combos);
 
-    // Controls on the left, ring preview on the right of the five pattern rows.
-    const int ringSize = rowHeight * 5 + rowGap * 4;
-    auto top = area.removeFromTop(ringSize);
-    area.removeFromTop(rowGap);
-    ringBounds = top.removeFromRight(ringSize).reduced(2);
-    top.removeFromRight(6);
-    const int labelWidth = 84;
+    // Ring preview on top, then the five pattern rows (label left of the slider).
+    const int ringSize = std::clamp(area.getWidth() - 2 * theme::space4, 96, 140);
+    ringBounds = area.removeFromTop(ringSize).withSizeKeepingCentre(ringSize, ringSize);
+    area.removeFromTop(theme::space2);
     for (auto* r : {&steps, &pulses, &rotation, &accentEvery, &density})
     {
-        auto row = top.removeFromTop(rowHeight);
-        top.removeFromTop(rowGap);
+        auto row = nextRow(area);
         r->label.setBounds(row.removeFromLeft(labelWidth));
         r->slider.setBounds(row);
     }
 
     auto buttons = nextRow(area);
-    const int w = buttons.getWidth() / 3;
-    previewButton.setBounds(buttons.removeFromLeft(w).reduced(2, 0));
-    applyButton.setBounds(buttons.removeFromLeft(w).reduced(2, 0));
-    clearButton.setBounds(buttons.reduced(2, 0));
+    previewButton.setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).withTrimmedRight(theme::space1));
+    applyButton.setBounds(buttons);
+    clearButton.setBounds(nextRow(area));
 
     for (auto* r : {&eventChance, &laneChance})
     {
         auto row = nextRow(area);
-        r->label.setBounds(row.removeFromLeft(labelWidth + 16));
+        r->label.setBounds(row.removeFromLeft(labelWidth));
         r->slider.setBounds(row);
     }
-    status.setBounds(nextRow(area));
+    status.setBounds(nextRow(area, 56));
+    return area.getY() + theme::space2;
 }
 
 void EuclidPanel::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xff1b232e));
+    g.fillAll(theme::surface);
+    g.setColour(theme::stroke);
+    g.drawRect(getLocalBounds(), 1);
+}
+
+void EuclidPanel::paintBody(juce::Graphics& g)
+{
+    g.fillAll(theme::surface);
+    g.setColour(theme::text);
+    g.setFont(theme::font(theme::fontLabel, true));
+    g.drawText("Euclid pattern and chance", theme::space2, theme::space2, std::max(40, body.getWidth() - 2 * theme::space2), 16,
+               juce::Justification::centredLeft, true);
     if (ringBounds.isEmpty())
         return;
 
     const auto p = params();
     const auto hits = ctl::euclidSteps(p);
-    const auto colour = operationColours[p.operation % groovemorph::core::operationCount];
+    const auto colour = theme::effectColour(p.operation);
     const auto bounds = ringBounds.toFloat();
     const auto centre = bounds.getCentre();
     const float radius = std::min(bounds.getWidth(), bounds.getHeight()) * 0.5f - 7.0f;
     if (radius < 8.0f)
         return;
 
-    g.setColour(juce::Colour(0xff3d4b5c));
+    g.setColour(theme::strokeStrong);
     g.drawEllipse(centre.x - radius, centre.y - radius, radius * 2.0f, radius * 2.0f, 1.0f);
 
     const auto pointAt = [&](int step) {
@@ -356,17 +389,17 @@ void EuclidPanel::paint(juce::Graphics& g)
         }
         else
         {
-            g.setColour(juce::Colour(0xff6b7b8e));
+            g.setColour(theme::textDim);
             g.drawEllipse(pt.x - r, pt.y - r, r * 2.0f, r * 2.0f, 1.0f);
         }
         if (i == 0)
         {
-            g.setColour(juce::Colours::white);
+            g.setColour(theme::playhead);
             g.drawEllipse(pt.x - r - 2.5f, pt.y - r - 2.5f, (r + 2.5f) * 2.0f, (r + 2.5f) * 2.0f, 1.0f); // step 0 marker
         }
     }
-    g.setColour(juce::Colours::lightgrey);
-    g.setFont(12.0f);
+    g.setColour(theme::text);
+    g.setFont(theme::font(theme::fontLabel));
     g.drawText(juce::String(p.pulses) + "/" + juce::String(p.steps), ringBounds.reduced(radius > 30.0f ? 20 : 0),
                juce::Justification::centred);
 }

@@ -1,4 +1,5 @@
 #include "ui/ControlMenu.h"
+#include "ui/theme/Theme.h"
 
 #include "PluginProcessor.h"
 
@@ -180,7 +181,7 @@ void MenuSupport::paintMidiOverlay(juce::Graphics& g)
     const int cc = menu.processor->getMidiLinkCc(menu.midiTarget);
     if (!learning && cc < 0)
         return;
-    const auto accent = juce::Colour(0xffe69f00);
+    const auto accent = theme::warning; // MIDI badge: amber, also spelled out as text ("CC n" / "move a MIDI controller...")
     const auto b = owner.getLocalBounds().toFloat();
     if (learning)
     {
@@ -188,10 +189,10 @@ void MenuSupport::paintMidiOverlay(juce::Graphics& g)
         g.drawRoundedRectangle(b.reduced(0.5f), 4.0f, 2.0f);
     }
     const juce::String text = learning ? "move a MIDI controller..." : "CC " + juce::String(cc);
-    g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
-    const int w = juce::jmin(owner.getWidth(), static_cast<int>(text.length()) * 6 + 8);
-    const auto tag = juce::Rectangle<int>(owner.getWidth() - w, 0, w, 12);
-    g.setColour(juce::Colours::black.withAlpha(0.7f));
+    g.setFont(theme::font(theme::fontCaption, true));
+    const int w = juce::jmin(owner.getWidth(), static_cast<int>(text.length()) * 7 + 8);
+    const auto tag = juce::Rectangle<int>(owner.getWidth() - w, 0, w, 14);
+    g.setColour(theme::bg.withAlpha(0.85f));
     g.fillRect(tag);
     g.setColour(accent);
     g.drawText(text, tag, juce::Justification::centred);
@@ -385,6 +386,8 @@ void askForValue(juce::Component& owner, const juce::String& title, const juce::
 
 MenuSlider::MenuSlider() : support(*this)
 {
+    setMouseDragSensitivity(200); // spec UI-REDESIGN section 5: 200 px of vertical drag covers the full range
+    setWantsKeyboardFocus(true);  // keyboard users reach every knob; GrooveLookAndFeel draws the focus ring
     support.copyText = [this] { return formatNumber(getValue()); };
     // Typed or pasted values on a host parameter are one automation gesture (touch/latch hosts record them).
     const auto applyText = [this](const juce::String& t) {

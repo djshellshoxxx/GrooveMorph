@@ -26,6 +26,7 @@ constexpr double inkFrontPosition = 0.62; // fraction of the heard row to the le
 
 VisualContent::VisualContent(GrooveMorphAudioProcessor& p, bool persistPreferences) : processor(p), frameBuffer(maxFrames)
 {
+    setLookAndFeel(&lookAndFeel);
     setTitle("GrooveMorph visual feedback");
     setWantsKeyboardFocus(true);
     if (persistPreferences)
@@ -50,6 +51,7 @@ VisualContent::VisualContent(GrooveMorphAudioProcessor& p, bool persistPreferenc
     addAndMakeVisible(reduceMotionButton);
     spanLabel.setText("Span", juce::dontSendNotification);
     spanLabel.setColour(juce::Label::textColourId, palette::dim);
+    spanLabel.setFont(theme::font(theme::fontLabel));
     spanLabel.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(spanLabel);
     spanBox.addItem("2 beats", 2);
@@ -69,6 +71,7 @@ VisualContent::VisualContent(GrooveMorphAudioProcessor& p, bool persistPreferenc
 VisualContent::~VisualContent()
 {
     setActive(false);
+    setLookAndFeel(nullptr);
 }
 
 void VisualContent::setActive(bool on)
@@ -378,6 +381,7 @@ VisualWindow::VisualWindow(GrooveMorphAudioProcessor& processor, std::function<v
     : juce::DocumentWindow("GrooveMorph Visual", palette::slate, juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
       onCloseRequested(std::move(onClose))
 {
+    setLookAndFeel(&lookAndFeel);
     // This is a separate top-level window, so the editor's tooltip window never sees its components.
     tooltipWindow = std::make_unique<juce::TooltipWindow>(this, 700);
     contentComponent = new VisualContent(processor, true);
@@ -392,6 +396,8 @@ VisualWindow::VisualWindow(GrooveMorphAudioProcessor& processor, std::function<v
 VisualWindow::~VisualWindow()
 {
     contentComponent->setActive(false);
+    tooltipWindow.reset();
+    setLookAndFeel(nullptr);
 }
 
 void VisualWindow::open()

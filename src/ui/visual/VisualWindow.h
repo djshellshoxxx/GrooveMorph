@@ -9,6 +9,7 @@
 #include "ui/visual/StationsView.h"
 #include "core/viz/LapRecorder.h"
 #include "ui/visual/WeaveView.h"
+#include "ui/theme/GrooveLookAndFeel.h"
 
 #include <functional>
 #include <memory>
@@ -48,6 +49,8 @@ private:
     void savePreferences();
     int refreshRate() const noexcept { return reduceMotionOn ? 10 : 30; }
 
+    // Declared first so it is destroyed after every child that uses it.
+    groovemorph::ui::theme::GrooveLookAndFeel lookAndFeel;
     GrooveMorphAudioProcessor& processor;
     WeaveView weaveView;
     LedgerView ledgerView;
@@ -84,6 +87,8 @@ public:
     [[nodiscard]] VisualContent& content() { return *contentComponent; }
 
 private:
+    // Declared first: outlives the tooltip window and the content. Gives the title bar, tooltips and menus the main look.
+    groovemorph::ui::theme::GrooveLookAndFeel lookAndFeel;
     std::unique_ptr<juce::TooltipWindow> tooltipWindow;
     VisualContent* contentComponent = nullptr; // owned by the window
     std::function<void()> onCloseRequested;

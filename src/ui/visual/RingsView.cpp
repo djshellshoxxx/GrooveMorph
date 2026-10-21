@@ -63,10 +63,10 @@ void RingsView::paint(juce::Graphics& g)
     g.setColour(palette::line);
     g.drawRoundedRectangle(b.reduced(0.5f), 10.0f, 1.0f);
     g.setColour(palette::ink);
-    g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+    g.setFont(theme::font(theme::fontValue, true));
     g.drawText("PHRASE RINGS", 16, 10, getWidth() - 32, 20, juce::Justification::centredLeft);
     g.setColour(palette::dim);
-    g.setFont(juce::FontOptions(11.0f));
+    g.setFont(theme::font(theme::fontCaption));
     g.drawText("one ring per lap, newest outermost", 16, 30, getWidth() - 32, 16, juce::Justification::centredLeft);
 
     const float cx = b.getCentreX();
@@ -169,9 +169,9 @@ void RingsView::paint(juce::Graphics& g)
         g.fillEllipse(cx + std::cos(a) * r - 4.5f, cy + std::sin(a) * r - 4.5f, 9.0f, 9.0f);
     }
     g.setColour(palette::dim);
-    g.setFont(juce::FontOptions(11.0f));
+    g.setFont(theme::font(theme::fontCaption));
     g.drawText(data.timed ? "lap " + juce::String(static_cast<long long>(data.lapIndex) + 1) : juce::String("stopped"), static_cast<int>(cx) - 40, static_cast<int>(cy) - 8, 80, 16, juce::Justification::centred);
-    g.setFont(juce::FontOptions(10.0f));
+    g.setFont(theme::font(theme::fontCaption));
     g.drawText("bar 1 at top, ticks = differs from previous lap", 16, getHeight() - 20, getWidth() - 32, 14, juce::Justification::centredLeft);
 }
 } // namespace groovemorph::ui::visual

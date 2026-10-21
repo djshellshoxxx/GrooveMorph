@@ -56,6 +56,44 @@ jobs:
       - name: Configure plugin targets
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.juce-fetch"
       - name: Build VST3 and Standalone
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --config Release --parallel 3
       - name: Run core tests
         run: ctest --test-dir build --build-config Release --output-on-failure --parallel 2
+
+  ui-snapshots:
+    name: UI snapshots (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux audio and GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libasound2-dev libjack-jackd2-dev libfreetype6-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxinerama-dev \
+            libxrandr-dev libxext-dev libxrender-dev libgtk-3-dev xvfb
+      - name: Restore JUCE FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.juce-fetch
+          key: juce-fetch-${{ runner.os }}-8.0.7-v1
+      - name: Configure plugin targets
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.juce-fetch"
+      - name: Build EditorSnapshot
+        run: cmake --build build --config Release --parallel 3 --target GrooveMorphEditorSnapshot
+      - name: Render UI snapshots
+        run: |
+          mkdir -p ui-snapshots
+          exe="$(find build -name GrooveMorphEditorSnapshot -type f -perm -u+x -print -quit)"
+          test -n "$exe" || { echo "::error::GrooveMorphEditorSnapshot was not built"; exit 1; }
+          xvfb-run -a --server-args="-screen 0 2560x1600x24" "$exe" ui-snapshots
+          ls -l ui-snapshots
+      - name: Upload UI snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-snapshots
+          path: ui-snapshots/*.png
+          if-no-files-found: error
+          retention-days: 14

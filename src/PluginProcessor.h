@@ -319,6 +319,14 @@ public:
     // saved before N05. Message thread; not a host parameter.
     bool isEasyMode() const noexcept { return easyMode.load(std::memory_order_relaxed); }
     void setEasyMode(bool on) noexcept { easyMode.store(on, std::memory_order_relaxed); }
+    // UI scale in percent (75, 100, 125, 150, 200), saved in the "Ui" child as `scale`. Absent = 100.
+    // Any other value is stored as 100. Message thread; not a host parameter.
+    int getUiScalePercent() const noexcept { return uiScalePercent.load(std::memory_order_relaxed); }
+    void setUiScalePercent(int percent) noexcept
+    {
+        const bool allowed = percent == 75 || percent == 100 || percent == 125 || percent == 150 || percent == 200;
+        uiScalePercent.store(allowed ? percent : 100, std::memory_order_relaxed);
+    }
     // "Surprise me": builds a constrained candidate for the sounding scene, previews it (audition) and keeps
     // it at the next phrase boundary as one undoable edit. Message thread.
     enum class SurpriseStatus { Armed, NothingToChange, Busy };
@@ -673,6 +681,7 @@ private:
     std::int64_t lastEvolutionPhrase = -1;
     // N05 Easy mode (guarded by modelMutex except the atomic).
     std::atomic<bool> easyMode{true};
+    std::atomic<int> uiScalePercent{100};
     bool surprisePending = false;
     std::int64_t surprisePhrase = 0;
     std::uint32_t surpriseAttempt = 0;

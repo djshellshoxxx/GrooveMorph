@@ -549,18 +549,24 @@ int main()
         juce::TextButton* preview = nullptr;
         juce::TextButton* revert = nullptr;
         juce::ToggleButton* gate = nullptr;
-        for (auto* child : editor->getChildren())
-        {
-            if (auto* box = dynamic_cast<juce::ComboBox*>(child); box && box->getName() == "Timing method")
-                clockChoice = box;
-            if (auto* button = dynamic_cast<juce::TextButton*>(child))
+        // The controls live in nested shell components (timing panel, effects rack), so search recursively.
+        std::function<void(juce::Component&)> findControls = [&](juce::Component& parent) {
+            for (auto* child : parent.getChildren())
             {
-                if (button->getButtonText() == "Preview") preview = button;
-                if (button->getButtonText() == "Revert preview") revert = button;
+                if (auto* box = dynamic_cast<juce::ComboBox*>(child); box && box->getName() == "Timing method" && clockChoice == nullptr)
+                    clockChoice = box;
+                if (auto* button = dynamic_cast<juce::TextButton*>(child))
+                {
+                    // First match wins: the effects rack comes before the inspector (whose Euclid panel has its own Preview).
+                    if (button->getButtonText() == "Preview" && preview == nullptr) preview = button;
+                    if (button->getButtonText() == "Revert preview" && revert == nullptr) revert = button;
+                }
+                if (auto* button = dynamic_cast<juce::ToggleButton*>(child); button && button->getButtonText() == "Gate" && gate == nullptr)
+                    gate = button;
+                findControls(*child);
             }
-            if (auto* button = dynamic_cast<juce::ToggleButton*>(child); button && button->getButtonText() == "Gate")
-                gate = button;
-        }
+        };
+        findControls(*editor);
         expect("editor timing selector and scene controls exist", clockChoice && preview && revert && gate);
         if (clockChoice && preview && revert && gate)
         {
@@ -1867,7 +1873,7 @@ int main()
         GrooveMorphAudioProcessor p;
         p.prepareToPlay(48000.0, 256);
         std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor());
-        editor->setSize(1290, 784);
+        editor->setSize(1180, 760); // UI-REDESIGN default size
         std::vector<juce::String> missing, unnamed;
         std::function<void(juce::Component&)> walk = [&](juce::Component& c) {
             for (auto* child : c.getChildren())
@@ -2263,6 +2269,51 @@ int main()
         else
         {
             expect("N05 legacy fixture could be built", false);
+        }
+    }
+
+    // ---- UI-REDESIGN: UI scale persisted in the Ui child (key `scale`, default 100) ----
+    {
+        GrooveMorphAudioProcessor a;
+        expect("UR-07 UI scale defaults to 100", a.getUiScalePercent() == 100);
+        a.setUiScalePercent(150);
+        expect("UR-07 UI scale accepts a menu value", a.getUiScalePercent() == 150);
+        a.setUiScalePercent(137);
+        expect("UR-07 UI scale ignores a value that is not in the menu", a.getUiScalePercent() == 100);
+        a.setUiScalePercent(125);
+        a.setEasyMode(false);
+        juce::MemoryBlock saved;
+        a.getStateInformation(saved);
+        GrooveMorphAudioProcessor b;
+        b.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+        expect("UR-07 UI scale round-trips", b.getUiScalePercent() == 125);
+        expect("UR-07 UI scale does not disturb Easy mode", !b.isEasyMode());
+        if (auto xml = juce::AudioProcessor::getXmlFromBinary(saved.getData(), static_cast<int>(saved.getSize())))
+        {
+            auto* ui = xml->getChildByName("Ui");
+            expect("UR-07 scale is stored as an attribute of the Ui child", ui != nullptr && ui->getIntAttribute("scale", -1) == 125);
+            // Legacy: a Ui child written before the scale key existed (N05 era) loads as 100.
+            if (ui != nullptr)
+                ui->removeAttribute("scale");
+            juce::MemoryBlock noScale;
+            juce::AudioProcessor::copyXmlToBinary(*xml, noScale);
+            GrooveMorphAudioProcessor c;
+            c.setUiScalePercent(200);
+            c.setStateInformation(noScale.getData(), static_cast<int>(noScale.getSize()));
+            expect("UR-07 Ui child without scale loads as 100", c.getUiScalePercent() == 100);
+            // Legacy: no Ui child at all.
+            if (ui != nullptr)
+                xml->removeChildElement(ui, true);
+            juce::MemoryBlock noUi;
+            juce::AudioProcessor::copyXmlToBinary(*xml, noUi);
+            GrooveMorphAudioProcessor d;
+            d.setUiScalePercent(75);
+            d.setStateInformation(noUi.getData(), static_cast<int>(noUi.getSize()));
+            expect("UR-07 state without a Ui child loads as 100", d.getUiScalePercent() == 100);
+        }
+        else
+        {
+            expect("UR-07 scale fixture could be built", false);
         }
     }
 
