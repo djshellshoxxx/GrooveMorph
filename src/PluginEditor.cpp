@@ -567,10 +567,10 @@ void GrooveMorphAudioProcessorEditor::resized()
 {
     // Proportional layout from the current bounds: fixed-height bands, the workspace takes the rest.
     auto area = getLocalBounds().reduced(theme::space2);
-    const int gap = theme::space2;
-    header.setBounds(area.removeFromTop(groovemorph::ui::shell::HeaderBar::height));
+    const int gap = theme::shellGap;
+    header.setBounds(area.removeFromTop(theme::headerHeight));
     area.removeFromTop(gap);
-    band.setBounds(area.removeFromTop(groovemorph::ui::shell::PerformanceBand::height));
+    band.setBounds(area.removeFromTop(theme::bandHeight));
     area.removeFromTop(gap);
     strip.setBounds(area.removeFromTop(groovemorph::ui::shell::TimingStrip::height));
     area.removeFromTop(gap);

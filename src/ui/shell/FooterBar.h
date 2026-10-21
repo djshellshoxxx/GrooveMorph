@@ -12,7 +12,7 @@ namespace groovemorph::ui::shell
 class FooterBar final : public juce::Component
 {
 public:
-    static constexpr int height = 28;
+    static constexpr int height = 24;
 
     explicit FooterBar(GrooveMorphAudioProcessor& processor);
     ~FooterBar() override;

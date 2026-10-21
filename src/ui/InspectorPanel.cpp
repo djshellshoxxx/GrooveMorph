@@ -866,7 +866,7 @@ public:
 private:
     enum class Mode { Move, ResizeStart, ResizeEnd };
     static constexpr int laneCount = static_cast<int>(gm::operationCount);
-    static constexpr int minLaneHeight = 40;   // lanes grow with the canvas, never below this
+    static constexpr int minLaneHeight = 36;   // lanes grow with the canvas, never below this
     static constexpr int laneTop = 22;         // ruler height
     static constexpr int labelWidth = 120;     // glyph + effect name column
     int laneHeight = minLaneHeight;
@@ -1216,7 +1216,7 @@ public:
             });
         };
         canvas.onSelectionChanged = [this] { refresh(access.settings()); };
-        canvas.onMessage = [this](const juce::String& m) { message.setText(m, juce::dontSendNotification); };
+        canvas.onMessage = [this](const juce::String& m) { message.setText(m, juce::dontSendNotification); relayout(); };
         setupLabel(message, "");
         message.setColour(juce::Label::textColourId, theme::warning);
         setupLabel(waveLabel, "Loop", "Overview of the loaded loop, aligned with the lanes below.");
@@ -1271,6 +1271,7 @@ public:
         {
             lastLocked = static_cast<int>(locked);
             message.setText(locked ? "Placement is locked (Generate tab > Locks)." : "", juce::dontSendNotification);
+            relayout();
         }
         convert.setEnabled(!s.control.lane.explicitEvents);
         canvas.setSettingsView(s);
@@ -1301,7 +1302,9 @@ public:
         canvas.setSettingsView(s);
         euclid.refresh(s, canvas.selected());
         // Loop waveform strip (same processor data as the Input tab); only present while a loop is loaded.
-        const bool loop = processor.hasLoop();
+        // With no loop (or no peaks yet) the strip collapses to zero height and shows no label.
+        std::vector<float> lo, hi;
+        const bool loop = processor.hasLoop() && processor.getLoopPeaks(waveform.preferredColumns(), lo, hi) > 0 && !lo.empty();
         if (loop != loopShown)
         {
             loopShown = loop;
@@ -1311,8 +1314,6 @@ public:
         }
         if (loop && isShowing())
         {
-            std::vector<float> lo, hi;
-            processor.getLoopPeaks(waveform.preferredColumns(), lo, hi);
             waveform.setPeaks(lo, hi);
             waveform.setGrid(processor.getLoopBeats(), processor.getLoopOriginBeats(), processor.getGridContext().beatsPerBar);
             waveform.setPlayhead(processor.getLoopPlayFraction());
@@ -1333,15 +1334,15 @@ protected:
         bar.justifyContent = juce::FlexBox::JustifyContent::flexStart;
         bar.alignContent = juce::FlexBox::AlignContent::flexStart;
         const auto addItem = [&bar](juce::Component& c, int w) {
-            bar.items.add(juce::FlexItem(c).withWidth(static_cast<float>(w)).withHeight(static_cast<float>(theme::minTarget))
-                              .withMargin(juce::FlexItem::Margin(0.0f, static_cast<float>(theme::space2), static_cast<float>(theme::space1), 0.0f)));
+            bar.items.add(juce::FlexItem(c).withWidth(static_cast<float>(w)).withHeight(static_cast<float>(toolbarHeight))
+                              .withMargin(juce::FlexItem::Margin(0.0f, static_cast<float>(theme::space1), 0.0f, 0.0f)));
         };
-        addItem(snapLabel, 76);
-        addItem(snap, 120);
-        addItem(modeButton, 150);
-        addItem(convert, 150);
-        addItem(removeSelected, 120);
-        addItem(euclidToggle, 150);
+        addItem(snapLabel, 70);
+        addItem(snap, 110);
+        addItem(modeButton, 140);
+        addItem(convert, 140);
+        addItem(removeSelected, 110);
+        addItem(euclidToggle, 130);
         bar.performLayout(juce::Rectangle<float>(static_cast<float>(pad), static_cast<float>(pad), static_cast<float>(mainW), 400.0f));
         float barBottom = static_cast<float>(pad), lastRight = static_cast<float>(pad), lastTop = static_cast<float>(pad);
         for (const auto& item : bar.items)
@@ -1352,12 +1353,16 @@ protected:
         }
         int y = static_cast<int>(std::ceil(barBottom)) + theme::space1;
         const int messageX = static_cast<int>(lastRight) + theme::space2;
-        if (pad + mainW - messageX >= 150)
-            message.setBounds(messageX, static_cast<int>(lastTop), pad + mainW - messageX, theme::minTarget);
+        if (pad + mainW - messageX >= 110)
+            message.setBounds(messageX, static_cast<int>(lastTop), pad + mainW - messageX, toolbarHeight);
         else
         {
-            message.setBounds(pad, y, mainW, 20);
-            y += 20 + theme::space1;
+            // No room beside the buttons: show the message only while there is one, so it never pushes the lanes
+            // down for nothing.
+            const int messageHeight = message.getText().isEmpty() ? 0 : 20;
+            message.setBounds(pad, y, mainW, messageHeight);
+            if (messageHeight > 0)
+                y += messageHeight + theme::space1;
         }
 
         // Loop waveform strip above the ruler, aligned with the lane timeline.
@@ -1370,7 +1375,7 @@ protected:
             y += waveformHeight + theme::space1;
         }
 
-        // Lanes fill the remaining height (never below 40 px per lane); a short window scrolls.
+        // Lanes fill the remaining height (never below 36 px per lane); a short window scrolls.
         const int canvasHeight = std::max(LaneCanvas::minimumHeight(), viewH - y - pad);
         const bool drawerBeside = wide && euclid.isVisible();
         const int canvasWidth = mainW - (drawerBeside ? drawerWidth + gap : 0);
@@ -1435,7 +1440,8 @@ private:
     static constexpr int wideBreakpoint = 1100;  // below this the event controls move under the lanes
     static constexpr int rightColumnWidth = 260;
     static constexpr int drawerWidth = 280;
-    static constexpr int waveformHeight = 56;
+    static constexpr int waveformHeight = 44;
+    static constexpr int toolbarHeight = 32;   // one toolbar row, never taller
 
     int lastLocked = -1;
     bool loopShown = false;
@@ -2822,7 +2828,7 @@ struct InspectorPanel::Impl
                               "Print: record the processed output for N bars to a WAV file, drag it into your DAW or reuse it as the loop source"};
         juce::Component* contents[] = {placement.get(), generator.get(), scenes.get(), morph.get(), limits.get(), input.get(),
                                        perform.get(), status.get(), print.get()};
-        tabs.setTabBarDepth(36);
+        tabs.setTabBarDepth(32);
         tabs.setOutline(0);
         tabs.setIndent(0);
         tabs.setColour(juce::TabbedComponent::backgroundColourId, theme::bg);

@@ -80,27 +80,35 @@ void EffectCard::paint(juce::Graphics& g)
     g.setColour(colour);
     g.fillRoundedRectangle(r.getX() + 1.0f, r.getY() + 1.0f, r.getWidth() - 2.0f, 3.0f, 1.5f);
     groovemorph::ui::visual::drawGlyph(g, static_cast<groovemorph::core::viz::Effect>(index + 1), glyphArea.toFloat(), colour, 1.8f);
-    paintCaption(g, "Depth", depthCaption);
-    paintCaption(g, "Slice", sliceCaption);
+    if (!depthCaption.isEmpty())
+    {
+        paintCaption(g, "Depth", depthCaption);
+        paintCaption(g, "Slice", sliceCaption);
+    }
 }
 
 void EffectCard::resized()
 {
-    auto area = getLocalBounds().reduced(theme::space1 + 1, 0);
+    // Compact card (about 48 px high): colour bar, then glyph + name + enable, then depth and slice side by side.
+    auto area = getLocalBounds().reduced(theme::space1, 0);
     area.removeFromTop(4);
     const int rowHeight = 18;
     auto top = area.removeFromTop(rowHeight);
     glyphArea = top.removeFromLeft(16).withSizeKeepingCentre(16, 16);
     top.removeFromLeft(2);
     enabled.setBounds(top);
-    area.removeFromTop(2);
-    const int captionWidth = 32;
-    auto depthRow = area.removeFromTop(rowHeight);
+    area.removeFromTop(3);
+    auto row = area.removeFromTop(rowHeight);
+    const int rowGap = theme::space1;
+    auto depthRow = row.removeFromLeft((row.getWidth() - rowGap) / 2);
+    row.removeFromLeft(rowGap);
+    // Captions only when the card is wide enough; the tooltips and accessibility titles always name the sliders.
+    const int captionWidth = depthRow.getWidth() >= 130 ? 36 : 0;
     depthCaption = depthRow.removeFromLeft(captionWidth);
+    sliceCaption = row.removeFromLeft(captionWidth);
+    depth.setTextBoxStyle(juce::Slider::TextBoxRight, false, 36, rowHeight);
+    slice.setTextBoxStyle(juce::Slider::TextBoxRight, false, 40, rowHeight);
     depth.setBounds(depthRow);
-    area.removeFromTop(2);
-    auto sliceRow = area.removeFromTop(rowHeight);
-    sliceCaption = sliceRow.removeFromLeft(captionWidth);
-    slice.setBounds(sliceRow);
+    slice.setBounds(row);
 }
 } // namespace groovemorph::ui::shell

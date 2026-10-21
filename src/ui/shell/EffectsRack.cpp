@@ -63,10 +63,10 @@ void EffectsRack::paint(juce::Graphics& g)
 
 void EffectsRack::resized()
 {
-    auto area = getLocalBounds().reduced(theme::space2);
+    auto area = getLocalBounds().reduced(theme::space2, 6);
     const int gap = 6;
-    auto top = area.removeFromTop(28);
-    area.removeFromTop(gap);
+    auto top = area.removeFromTop(26);
+    area.removeFromTop(4);
 
     editingCaption = top.removeFromLeft(46);
     editVariation.setBounds(top.removeFromLeft(100));
