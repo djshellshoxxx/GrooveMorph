@@ -85,17 +85,17 @@ bool allFinite(const juce::AudioBuffer<float>& b)
     return true;
 }
 
-// Runs the message loop for about `ms` milliseconds (the test's main thread is the message thread).
-// The tests run on the message thread; waiting dispatches queued messages and timers.
+// The tests run on a worker thread while the real message thread dispatches in main(), so "off the message
+// thread" is the normal case here; waiting just lets queued messages run.
 void pumpMessages(int ms)
 {
-    juce::MessageManager::getInstance()->runDispatchLoopUntil(ms);
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
 bool waitUntil(const std::function<bool()>& condition, int timeoutMs = 2000)
 {
     for (int waited = 0; waited < timeoutMs && !condition(); waited += 5)
-        pumpMessages(5);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     return condition();
 }
 
@@ -453,7 +453,26 @@ static void runTests()
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    // The tests run on the message thread (the main thread) and pump it with runDispatchLoopUntil.
-    runTests();
+    // Scene snapshots are large; secondary threads default to a 512 KB stack on macOS, so ask for 64 MB.
+    std::atomic<bool> testsDone{false};
+    struct TestThread final : juce::Thread
+    {
+        explicit TestThread(std::atomic<bool>& d) : juce::Thread("W3 tests", 64u * 1024u * 1024u), done(d) {}
+        void run() override
+        {
+            runTests();
+            done = true;
+            juce::MessageManager::callAsync([] { juce::MessageManager::getInstance()->stopDispatchLoop(); });
+        }
+        std::atomic<bool>& done;
+    } worker(testsDone);
+    worker.startThread();
+    // runDispatchLoop blocks until stopDispatchLoop; re-enter it if a platform returns early.
+    while (!testsDone.load())
+    {
+        juce::MessageManager::getInstance()->runDispatchLoop();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    worker.stopThread(10000);
     return failures == 0 ? 0 : 1;
 }
