@@ -11,7 +11,7 @@ namespace groovemorph::core::trace
 inline constexpr std::int64_t hopSamples = 128; // one frame per 128 samples of the absolute engine clock
 inline constexpr std::size_t ringCapacity = 8192; // power of two, about 21.8 s at 48 kHz
 inline constexpr std::size_t historyStages = 4;   // slots: Repeat, ReverseSlice, HalfTime, TapeStop
-inline constexpr std::size_t stageCount = 5;      // OperationType order
+inline constexpr std::size_t stageCount = 7;      // OperationType order (FilterSweep and BitCrush have no history slot)
 
 enum FrameFlags : std::uint32_t
 {
@@ -36,6 +36,6 @@ struct TraceFrame
 };
 
 static_assert(std::is_trivially_copyable_v<TraceFrame>);
-static_assert(sizeof(TraceFrame) == 96, "TraceFrame layout is part of the ring protocol");
+static_assert(sizeof(TraceFrame) == 104, "TraceFrame layout is part of the ring protocol");
 static_assert(sizeof(TraceFrame) % sizeof(std::uint64_t) == 0);
 } // namespace groovemorph::core::trace

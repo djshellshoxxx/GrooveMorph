@@ -31,6 +31,8 @@ inline juce::Colour effectColour(groovemorph::core::viz::Effect e)
         case E::Gate: return juce::Colour(palette::shared::gate);
         case E::HalfTime: return juce::Colour(palette::shared::halfTime);
         case E::TapeStop: return juce::Colour(palette::shared::tapeStop);
+        case E::FilterSweep: return juce::Colour(palette::shared::filterSweep);
+        case E::BitCrush: return juce::Colour(palette::shared::bitCrush);
         case E::Live: break;
     }
     return juce::Colour(palette::shared::live);
@@ -46,6 +48,8 @@ inline const char* effectName(groovemorph::core::viz::Effect e)
         case E::Gate: return "gate";
         case E::HalfTime: return "half-time";
         case E::TapeStop: return "tape-stop";
+        case E::FilterSweep: return "filter-sweep";
+        case E::BitCrush: return "bit-crush";
         case E::Live: break;
     }
     return "live";

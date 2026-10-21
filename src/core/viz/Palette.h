@@ -23,5 +23,9 @@ inline constexpr std::uint32_t gate = 0xffcc79a7;
 inline constexpr std::uint32_t halfTime = 0xff009e73;
 inline constexpr std::uint32_t tapeStop = 0xfff0e442;
 
-inline constexpr std::array<std::uint32_t, 6> effects = {live, repeat, reverse, gate, halfTime, tapeStop};
+// Okabe-Ito blue and vermillion (the two remaining palette entries), verified by PaletteTests.
+inline constexpr std::uint32_t filterSweep = 0xff0072b2;
+inline constexpr std::uint32_t bitCrush = 0xffd55e00;
+
+inline constexpr std::array<std::uint32_t, 8> effects = {live, repeat, reverse, gate, halfTime, tapeStop, filterSweep, bitCrush};
 } // namespace groovemorph::core::viz::palette

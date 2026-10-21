@@ -11,6 +11,7 @@
 #include <cmath>
 #include <deque>
 #include <iomanip>
+#include <iterator>
 #include <sstream>
 
 namespace gm = groovemorph::core;
@@ -21,11 +22,13 @@ namespace groovemorph::ui
 {
 namespace
 {
-const juce::StringArray operationNames{"Repeat / stutter", "Reverse slice", "Gate", "Half-time", "Tape stop"};
-const juce::StringArray operationShort{"Rpt", "Rev", "Gate", "Half", "Stop"};
+const juce::StringArray operationNames{"Repeat / stutter", "Reverse slice", "Gate", "Half-time", "Tape stop", "Filter sweep", "Bit crush"};
+const juce::StringArray operationShort{"Rpt", "Rev", "Gate", "Half", "Stop", "Sweep", "Crush"};
 const juce::Colour operationColours[] = {juce::Colour(0xff4fc3f7), juce::Colour(0xffba68c8),
                                          juce::Colour(0xff81c784), juce::Colour(0xffffb74d),
-                                         juce::Colour(0xffe57373)};
+                                         juce::Colour(0xffe57373), juce::Colour(0xffdce775),
+                                         juce::Colour(0xfff48fb1)};
+static_assert(std::size(operationColours) == groovemorph::core::operationCount, "one lane colour per operation");
 constexpr std::uint8_t snapValues[] = {1, 2, 3, 4, 6, 8, 12, 16};
 constexpr int rowHeight = 26;
 constexpr int rowGap = 4;
@@ -252,10 +255,10 @@ public:
                                                 static_cast<float>(laneTop + e.operation * laneHeight + 3),
                                                 static_cast<float>(std::max(2, r.second - r.first)),
                                                 static_cast<float>(laneHeight - 6));
-                    g.setColour(operationColours[e.operation % 5].withAlpha(e.enabled ? 0.35f + 0.55f * e.depth : 0.15f));
+                    g.setColour(operationColours[e.operation % gm::operationCount].withAlpha(e.enabled ? 0.35f + 0.55f * e.depth : 0.15f));
                     g.fillRoundedRectangle(rect, 3.0f);
                     g.setColour(static_cast<int>(i) == selectedIndex ? juce::Colours::white
-                                                                     : operationColours[e.operation % 5]);
+                                                                     : operationColours[e.operation % gm::operationCount]);
                     g.drawRoundedRectangle(rect, 3.0f, static_cast<int>(i) == selectedIndex ? 2.0f : 1.0f);
                     if (e.locked)
                     {
@@ -494,7 +497,7 @@ public:
 
 private:
     enum class Mode { Move, ResizeStart, ResizeEnd };
-    static constexpr int laneCount = 5;
+    static constexpr int laneCount = static_cast<int>(gm::operationCount);
     static constexpr int laneHeight = 24;
     static constexpr int laneTop = 18;
     static constexpr int labelWidth = 72;
@@ -809,7 +812,7 @@ public:
         modeButton.setBounds(buttons.removeFromLeft(130));
         convert.setBounds(buttons.removeFromLeft(130).reduced(2, 0));
         removeSelected.setBounds(buttons.removeFromLeft(100).reduced(2, 0));
-        canvas.setBounds(nextRow(area, 18 + 5 * 24 + 6));
+        canvas.setBounds(nextRow(area, 18 + static_cast<int>(gm::operationCount) * 24 + 6));
         eventDepth.layout(nextRow(area), 150);
         eventSlice.layout(nextRow(area), 150);
         eventPriority.layout(nextRow(area), 150);
@@ -971,7 +974,7 @@ public:
         r = nextRow(area);
         protectLabel.setBounds(r.removeFromLeft(80));
         for (auto& b : protectOp)
-            b.setBounds(r.removeFromLeft(r.getWidth() / (5 - static_cast<int>(&b - protectOp.data()))));
+            b.setBounds(r.removeFromLeft(r.getWidth() / (static_cast<int>(protectOp.size()) - static_cast<int>(&b - protectOp.data()))));
         r = nextRow(area, 30);
         generate.setBounds(r.removeFromLeft(150));
         previous.setBounds(r.removeFromLeft(36).reduced(2, 0));
@@ -1432,7 +1435,7 @@ public:
         enable.setButtonText("Limit scheduled effects at once");
         enable.setTooltip("Keeps only the highest-priority gated-on effects at any moment. Limits SCHEDULED effects, not CPU load or loudness.");
         enable.onClick = [this] { edit([this](auto& s) { s.control.activity.enabled = enable.getToggleState(); }); };
-        maxSlider.setup(*this, "Maximum at once", "1-5 effects may be active together. Only enabled effects count.", 1, 5, 1, 0);
+        maxSlider.setup(*this, "Maximum at once", "1-7 effects may be active together. Only enabled effects count.", 1, static_cast<double>(gm::operationCount), 1, 0);
         maxSlider.commit = [this] { edit([this](auto& s) { s.control.activity.maxConcurrent = static_cast<std::uint8_t>(maxSlider.slider.getValue()); }); };
         for (std::size_t i = 0; i < gm::operationCount; ++i)
         {

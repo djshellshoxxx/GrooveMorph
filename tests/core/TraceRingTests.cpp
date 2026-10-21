@@ -50,7 +50,7 @@ bool consistent(const TraceFrame& f) {
 } // namespace
 
 int main() {
-    static_assert(sizeof(TraceFrame) == 96);
+    static_assert(sizeof(TraceFrame) == 104);
     static_assert(hopSamples == 128);
 
     TraceRing ring;

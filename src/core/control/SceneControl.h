@@ -15,7 +15,7 @@ namespace groovemorph::core::control
 {
 inline constexpr std::int32_t ticksPerBeat = 960;
 inline constexpr std::size_t maxLaneEvents = 32;
-inline constexpr std::size_t laneCount = 5; // equals operationCount; kept independent of it
+inline constexpr std::size_t laneCount = 7; // equals operationCount (static_assert in OperationParams.h); kept independent of it
 inline constexpr std::uint8_t maxEvery = 64;
 
 enum class WindowMode : std::uint8_t { FullPhrase = 0, Custom = 1, LastBar = 2 };
@@ -86,8 +86,8 @@ struct PermissionConfig
 struct ActivityConfig
 {
     bool enabled = false;
-    std::uint8_t maxConcurrent = 5; // 1..5 operations scheduled at once
-    std::array<std::uint8_t, laneCount> priority{50, 50, 50, 50, 50}; // 0..100, higher wins
+    std::uint8_t maxConcurrent = laneCount; // 1..laneCount operations scheduled at once
+    std::array<std::uint8_t, laneCount> priority{50, 50, 50, 50, 50, 50, 50}; // 0..100, higher wins
     float minSpacingBeats = 0.0f; // 0..4: minimum distance between event starts (Reduce action)
     float maxCoverage = 1.0f;     // 0..1: maximum union of event durations as a phrase fraction
 };

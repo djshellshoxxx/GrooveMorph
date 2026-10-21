@@ -16,8 +16,9 @@ inline constexpr std::size_t maxLaps = 8;
 struct LapCell
 {
     std::uint16_t frames = 0;                 // timed frames that fell into this cell
-    std::array<std::uint16_t, 5> count{};     // per effect: frames in which it was doing something
-    // Effect "doing something": a history stage moving the sound (lag or rate), or the gate closed.
+    std::array<std::uint16_t, trace::stageCount> count{};     // per effect: frames in which it was doing something
+    // Effect "doing something": a history stage moving the sound (lag or rate), the gate closed, or a tonal stage
+    // (FilterSweep, BitCrush) applied at depth >= 0.5.
     [[nodiscard]] std::uint8_t coverage(std::size_t effect) const noexcept
     {
         return frames == 0 ? 0 : static_cast<std::uint8_t>((static_cast<unsigned>(count[effect]) * 255u) / frames);

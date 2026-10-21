@@ -80,6 +80,32 @@ void drawGlyph(juce::Graphics& g, viz::Effect effect, juce::Rectangle<float> a, 
             }
             break;
         }
+        case viz::Effect::FilterSweep: // a low-pass response curve: flat, a resonant peak, then a steep roll-off
+        {
+            juce::Path p;
+            const float x0 = cx - w * 0.38f, x1 = cx + w * 0.38f;
+            p.startNewSubPath(x0, cy - h * 0.12f);
+            p.lineTo(x0 + (x1 - x0) * 0.30f, cy - h * 0.12f);
+            p.quadraticTo(x0 + (x1 - x0) * 0.46f, cy - h * 0.42f, x0 + (x1 - x0) * 0.58f, cy - h * 0.12f);
+            p.quadraticTo(x0 + (x1 - x0) * 0.70f, cy + h * 0.22f, x1, cy + h * 0.34f);
+            g.strokePath(p, juce::PathStrokeType(lw, juce::PathStrokeType::curved, juce::PathStrokeType::butt));
+            break;
+        }
+        case viz::Effect::BitCrush: // a staircase: the smooth ramp quantised into coarse steps
+        {
+            juce::Path p;
+            const float x0 = cx - w * 0.36f, step = w * 0.18f, rise = h * 0.16f;
+            float y = cy + h * 0.32f;
+            p.startNewSubPath(x0, y);
+            for (int k = 0; k < 4; ++k)
+            {
+                p.lineTo(x0 + step * static_cast<float>(k + 1), y);
+                y -= rise;
+                p.lineTo(x0 + step * static_cast<float>(k + 1), y);
+            }
+            g.strokePath(p, juce::PathStrokeType(lw, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
+            break;
+        }
         case viz::Effect::Live:
             g.drawLine(cx - w * 0.3f, cy, cx + w * 0.3f, cy, lw);
             break;

@@ -1627,7 +1627,7 @@ int main()
         GrooveMorphAudioProcessor p;
         p.prepareToPlay(48000.0, 256);
         std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor());
-        editor->setSize(1290, 740);
+        editor->setSize(1290, 784);
         std::vector<juce::String> missing;
         std::function<void(juce::Component&)> walk = [&](juce::Component& c) {
             for (auto* child : c.getChildren())
