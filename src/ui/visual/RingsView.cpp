@@ -72,7 +72,7 @@ void RingsView::paint(juce::Graphics& g)
     const float cx = b.getCentreX();
     const float cy = b.getY() + 52.0f + (b.getHeight() - 52.0f - 22.0f) * 0.5f;
     const float outer = juce::jmin(b.getWidth() * 0.5f - 22.0f, (b.getHeight() - 52.0f - 22.0f) * 0.5f - 10.0f);
-    const std::size_t shown = juce::jlimit<std::size_t>(1, 4, data.lapCount == 0 ? 1 : data.lapCount);
+    const std::size_t shown = std::clamp<std::size_t>(data.lapCount == 0 ? 1 : data.lapCount, 1, 4);
     const float track = juce::jmin(18.0f, (outer - 14.0f) / static_cast<float>(shown + 1));
     const float gapPx = 3.0f;
 

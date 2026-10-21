@@ -220,7 +220,7 @@ void EasyView::retargetMorph()
         return;
     const double value = amount->convertFrom0to1(amount->getValue());
     const int current = static_cast<int>(std::lround(target->convertFrom0to1(target->getValue()))); // 0 = off, 1..4 = A..D
-    const int sounding = static_cast<int>(juce::jmin<std::size_t>(processor.getActiveVariation(), 3));
+    const int sounding = static_cast<int>(std::min<std::size_t>(processor.getActiveVariation(), 3));
     if (value > 0.001 && (current == 0 || current - 1 == sounding))
     {
         const int next = (sounding + 1) % 4 + 1;

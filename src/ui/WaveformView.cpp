@@ -73,8 +73,8 @@ void WaveformView::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xff4fc3f7));
     for (int x = 0; x < bounds.getWidth(); ++x)
     {
-        const auto column = static_cast<std::size_t>(juce::jlimit<std::int64_t>(
-            0, columns - 1, static_cast<std::int64_t>(x) * columns / bounds.getWidth()));
+        const auto column = static_cast<std::size_t>(std::clamp<std::int64_t>(
+            static_cast<std::int64_t>(x) * columns / bounds.getWidth(), 0, columns - 1));
         const float hi = juce::jlimit(-1.0f, 1.0f, maxs[column]);
         const float lo = juce::jlimit(-1.0f, 1.0f, mins[column]);
         const float top = mid - hi * scale;
