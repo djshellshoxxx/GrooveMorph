@@ -355,6 +355,14 @@ static void runTests()
 
     // ---- W3-TM: timer lifecycle ----
     {
+        // Probe: does this headless harness's message loop deliver async messages at all? (It does on Linux and
+        // Windows; the headless macOS runner's console loop does not.) Checks that need delivery are reported as
+        // SKIPPED, never silently passed, when it does not.
+        std::atomic<bool> probe{false};
+        juce::MessageManager::callAsync([&probe] { probe = true; });
+        const bool loopDelivers = waitUntil([&] { return probe.load(); }, 1000);
+        if (!loopDelivers)
+            std::cerr << "SKIPPED: message loop does not deliver async messages in this harness (W3-TM-T03 start, W3-TM-T02 ticks)\n";
         // Created, started and destroyed on a non-message thread.
         std::atomic<bool> done{false};
         std::thread worker([&] {
@@ -374,8 +382,9 @@ static void runTests()
         expect("W3-TM-T03 nothing starts at construction", !processor.areServicesRunning());
         for (int i = 0; i < 100; ++i)
             processor.ensureServices();
-        expect("W3-TM-T03 ensureServices is idempotent and starts the timer on the message thread",
-               waitUntil([&] { return processor.areServicesRunning(); }));
+        if (loopDelivers)
+            expect("W3-TM-T03 ensureServices is idempotent and starts the timer on the message thread",
+                   waitUntil([&] { return processor.areServicesRunning(); }));
 
         // Core-level: detach waits for a tick in flight and no tick runs afterwards.
         std::atomic<int> ticks{0};
@@ -389,7 +398,8 @@ static void runTests()
         }, 50);
         timer.ensureStarted();
         pumpMessages(200);
-        expect("W3-TM-T02 the timer ticks", ticks.load() > 0);
+        if (loopDelivers)
+            expect("W3-TM-T02 the timer ticks", ticks.load() > 0);
         std::thread detacher([&] {
             timer.detach();
             detached = true;
@@ -399,7 +409,8 @@ static void runTests()
         pumpMessages(200);
         expect("W3-TM-T02 no tick after detach returned", ticks.load() == before && late.load() == 0);
         timer.detach();
-        expect("W3-TM-T03 detach twice is safe and stops the timer", waitUntil([&] { return !timer.isRunning(); }));
+        if (loopDelivers)
+            expect("W3-TM-T03 detach twice is safe and stops the timer", waitUntil([&] { return !timer.isRunning(); }));
     }
 
     // ---- W3-TM-T05: an evolution step lands on the first sample of the phrase, for any block size ----

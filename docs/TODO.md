@@ -61,3 +61,5 @@ is 16-bit. No production or release claim is made.
 [timing handoff](TIMING_INTEGRATION_HANDOFF.md), [traceability](TRACEABILITY.md) and the older
 [feature audit](feature-audit/FEATURE_AUDIT_2026-10-13.md) (historical, from before the beta work).
 Close a task only with a current test or a recorded manual result, and update this file.
+
+- B-12: On the headless macOS CI runner the W3 test harness's console message loop does not deliver async messages, so W3-TM-T03 (service start) and W3-TM-T02 (timer ticks) are reported SKIPPED there. They pass on Linux and Windows. Not verified in a real macOS host; check in a DAW during native QA (issue #19).
