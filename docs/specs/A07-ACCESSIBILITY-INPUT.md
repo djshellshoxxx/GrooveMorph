@@ -43,7 +43,7 @@ Motion and colour
 Shortcuts are listed in the Info tab and in `help/CONTROLS.md`. Keys the host needs (transport, save) are not captured when the host owns them: only handle keys the focused component did not use, and never consume Space when the internal transport is inactive.
 
 ### 3.2 Event canvas keyboard authoring (owner W10)
-With the canvas focused: Up/Down moves the lane cursor between the five operation lanes; Left/Right moves the time cursor by the snap unit (Shift = one beat, Ctrl/Cmd = one bar);
+With the canvas focused: Up/Down moves the lane cursor between the seven operation lanes; Left/Right moves the time cursor by the snap unit (Shift = one beat, Ctrl/Cmd = one bar);
 Enter creates an event of the snap length at the cursor (same validation as mouse creation: overlap, capacity, locks, protected regions give an announced failure); Tab/Shift+Tab selects next/previous event;
 Delete removes; Alt+Left/Right resizes the end; L toggles the event lock; announcements go through the accessibility handler's value/title text ("Gate event 2 of 4, beat 3.00, length 0.50 beats, depth 80 percent, locked").
 

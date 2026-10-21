@@ -18,7 +18,7 @@ Still fixed-capacity arrays, no allocation. 32-bit event-index bit masks in Redu
 `LaneEvent` is 28 bytes: lane 7168 B, `SceneControl` about 7.4 KB, `VariationSettings` about 7.5 KB, `SceneSnapshot` (4 scenes) about 30 KB. The audio thread copies a snapshot only when a new one is published
 (`pullScene`, SpinLock try-lock, previous copy kept on contention): one 30 KB `memcpy` (microseconds) per scene edit, not per block. `static_assert`s and a test fix `is_trivially_copyable<SceneSnapshot>` and
 `sizeof(SceneSnapshot) <= 64 KiB`. Per render segment the processor no longer copies the 7.5 KB settings: `effectiveSettings` returns a reference (snapshot or the morph cache) and the gated engine input is a
-5-element operations array. `evaluate()` is O(events) per segment; worst case (256 events, edges every sample) is bounded by block length * 256 iterations. No timing is claimed (not measured).
+operationCount-element operations array. `evaluate()` is O(events) per segment; worst case (256 events, edges every sample) is bounded by block length * 256 iterations. No timing is claimed (not measured).
 
 ## 3. Serialization
 

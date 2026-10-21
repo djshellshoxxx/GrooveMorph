@@ -53,7 +53,7 @@ No new keys. Applied candidates become ordinary scene keys (`variation.<i>.op.*`
 
 ## 5. Real-time and threading
 
-`buildCandidate` is `noexcept`, allocation-free and bounded (5 operations, at most 64 attempts per event,
+`buildCandidate` is `noexcept`, allocation-free and bounded (operationCount (7) operations, at most 64 attempts per event,
 at most 32 events today). It runs on the message thread when the user presses a Gen tab button. It is never called from the
 audio callback. Preview goes through `AuditionSession`/`publishSceneLocked` (snapshot handoff with SpinLock try-lock,
 see `PluginProcessor.h` header comment), so the stored bank is untouched until Apply, which is one undoable commit.

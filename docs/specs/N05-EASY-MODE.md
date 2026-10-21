@@ -41,7 +41,7 @@ struct ChaosContext { float chaos; uint64_t seed; uint32_t sceneIndex; int64_t p
                       uint32_t neverTouchMask = 0; };
 ```
 
-Pure, allocation-free, noexcept, bounded loops (5 operations x 4 candidate events). The input scene is
+Pure, allocation-free, noexcept, bounded loops (operationCount operations x 4 candidate events). The input scene is
 const; the result is a copy used only as the *sounding* scene. Stored scenes, the undo stack, the
 saved state and the audition session are never touched.
 
