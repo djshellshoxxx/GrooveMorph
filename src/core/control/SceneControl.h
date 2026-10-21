@@ -17,6 +17,9 @@ inline constexpr std::int32_t ticksPerBeat = 960;
 inline constexpr std::size_t maxLaneEvents = 256; // W3: spec capacity (was 32)
 inline constexpr std::size_t laneCount = 7; // equals operationCount (static_assert in OperationParams.h); kept independent of it
 inline constexpr std::uint8_t maxEvery = 64;
+// Longest phrase the editor can express: 64 bars x 32 beats. Message-thread algorithms that unroll lanes over a
+// phrase (reduceEvents) reject anything longer, so a hostile phrase length cannot make them allocate without bound.
+inline constexpr std::int64_t maxPhraseTicks = std::int64_t{64} * 32 * ticksPerBeat;
 
 enum class WindowMode : std::uint8_t { FullPhrase = 0, Custom = 1, LastBar = 2 };
 

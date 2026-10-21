@@ -26,7 +26,8 @@ inline SliceCursor sliceCursor(double beat, double sliceBeats, double samplesPer
     const double rounded = std::nearbyint(pos);
     if (std::abs(pos - rounded) < 1.0e-6)
         pos = rounded;
-    c.index = static_cast<std::int64_t>(index);
+    // Only the parity of the index is used by callers; saturate so a hostile beat cannot make the cast undefined (A3-06).
+    c.index = std::abs(index) < 4.0e18 ? static_cast<std::int64_t>(index) : 0;
     if (pos >= sliceSamples)
     {
         pos = 0.0;

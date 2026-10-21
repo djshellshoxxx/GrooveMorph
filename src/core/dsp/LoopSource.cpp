@@ -168,7 +168,16 @@ void LoopCapture::process(const float* const* channels, int numChannels, int num
             return; // the bar line is in a later block
         first = static_cast<int>(firstRounded);
         const double beats = static_cast<double>(requestedBars.load(std::memory_order_relaxed)) * bar;
-        const auto wanted = static_cast<std::int64_t>(std::llround(beats * samplesPerBeat));
+        const double wantedExact = beats * samplesPerBeat;
+        if (!(wantedExact >= 1.0) || !std::isfinite(wantedExact))
+        {
+            failureReason.store(1, std::memory_order_relaxed); // absurd tempo (length < 1 sample or not finite): llround would be undefined (A3-05)
+            int armedState = static_cast<int>(State::Armed);
+            stateValue.compare_exchange_strong(armedState, static_cast<int>(State::Idle), std::memory_order_seq_cst);
+            return;
+        }
+        const auto wanted = wantedExact > static_cast<double>(capacity) ? capacity + 1
+                                                                       : static_cast<std::int64_t>(std::llround(wantedExact));
         if (wanted > capacity)
         {
             failureReason.store(1, std::memory_order_relaxed); // would not fit: refuse instead of truncating

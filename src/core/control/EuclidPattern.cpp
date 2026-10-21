@@ -184,8 +184,9 @@ EuclidReport applyEuclid(VariationSettings& scene, const EuclidParams& raw, std:
     EuclidReport report;
     EuclidParams p = raw;
     sanitize(p);
-    if (phraseTicks <= 0 || raw.operation >= laneCount)
+    if (phraseTicks <= 0 || phraseTicks > maxPhraseTicks || raw.operation >= laneCount)
     {
+        // A3-07: tile count is ring / tileTicks; an unbounded phrase overflowed it and could spin for hours.
         report.status = EuclidStatus::Invalid;
         return report;
     }
