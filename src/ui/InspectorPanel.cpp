@@ -1117,8 +1117,10 @@ public:
         history.onChange = [this] { recall(); };
         for (std::size_t i = 0; i < gm::operationCount; ++i)
         {
-            protectOp[i].setButtonText(operationShort[static_cast<int>(i)]);
-            protectOp[i].setTooltip("Generator never changes this operation for this run.");
+            // Seven toggles share one row: Sweep and Crush get the shorter Swp / Bit so nothing is ellipsised.
+            static const char* const protectShort[] = {"Rpt", "Rev", "Gate", "Half", "Stop", "Swp", "Bit"};
+            protectOp[i].setButtonText(protectShort[i]);
+            protectOp[i].setTooltip(juce::String("Generator never changes ") + operationNames[static_cast<int>(i)] + " for this run.");
             addAndMakeVisible(protectOp[i]);
             protectOp[i].onClick = [this, i] {
                 if (protectOp[i].getToggleState()) settings.protectedOperations |= 1u << i;
@@ -1611,6 +1613,8 @@ public:
         linkParam(morphTarget, GrooveMorphAudioProcessor::morphTargetId);
         attachments.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::morphAmountId, morphAmount));
         linkParam(morphAmount, GrooveMorphAudioProcessor::morphAmountId);
+        morphAmount.textFromValueFunction = [](double v) { return juce::String(v, 2); }; // the attachment's own text shows 7 decimals
+        morphAmount.updateText();
         attachments.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnBarsId, returnBars));
         linkParam(returnBars, GrooveMorphAudioProcessor::autoReturnBarsId);
         attachments.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::autoReturnTargetId, returnTarget));
@@ -1976,6 +1980,8 @@ public:
         linkParam(trigger, GrooveMorphAudioProcessor::audioTriggerId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::audioTriggerSensId, sens));
         linkParam(sens, GrooveMorphAudioProcessor::audioTriggerSensId);
+        sens.textFromValueFunction = [](double v) { return juce::String(v, 2); };
+        sens.updateText();
         sens.setNumDecimalPlacesToDisplay(2);
     }
     void refresh(const gm::VariationSettings&) override
@@ -2207,12 +2213,18 @@ public:
         linkParam(transition, GrooveMorphAudioProcessor::transitionModeId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::masterIntensityId, macros[0]));
         linkParam(macros[0], GrooveMorphAudioProcessor::masterIntensityId);
+        macros[0].textFromValueFunction = [](double v) { return juce::String(v, 2); };
+        macros[0].updateText();
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::dryWetId, macros[1]));
         linkParam(macros[1], GrooveMorphAudioProcessor::dryWetId);
+        macros[1].textFromValueFunction = [](double v) { return juce::String(v, 2); };
+        macros[1].updateText();
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::morphAmountId, macros[2]));
         linkParam(macros[2], GrooveMorphAudioProcessor::morphAmountId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::chaosId, macros[3]));
         linkParam(macros[3], GrooveMorphAudioProcessor::chaosId);
+        macros[2].textFromValueFunction = [](double v) { return juce::String(v, 2); };
+        macros[2].updateText();
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::morphTargetId, morphTarget));
         linkParam(morphTarget, GrooveMorphAudioProcessor::morphTargetId);
         for (auto& m : macros)
@@ -2358,27 +2370,27 @@ public:
         text.setCaretVisible(false);
         text.setTooltip("Honest list of what this alpha implements and what it does not (read only).");
         text.setText(
-            "ALPHA FEATURE STATUS (see docs/alpha/ALPHA-FEATURE-STATUS.md)\n\n"
+            "BETA FEATURE STATUS (see docs/alpha/ALPHA-FEATURE-STATUS.md)\n\n"
             "Implemented (automated tests; not tried in a DAW or by ear):\n"
-            " - Placement window/cadence/origin/snap, downbeat protect, up to 4 protected regions, event lanes\n"
-            "   with per-event depth, slice, priority, cycle restart and lock; per-lane loop lengths\n"
+            " - Seven effects: Repeat, Reverse, Gate, Half-time, Tape stop, Filter sweep, Bit crush\n"
+            " - Placement window/cadence/origin/snap, downbeat protect, up to 8 protected regions, event lanes\n"
+            "   with per-event depth, slice, priority, cycle restart and lock; per-lane loop lengths;\n"
+            "   Euclidean pattern generator and per-event / per-lane chance\n"
             " - Generator: seed, style, distance, three-option gallery, event-pattern generation, locks,\n"
             "   preview/apply/revert, locally saved 24-entry history\n"
             " - Scenes: duplicate, reset, copy FX, rename, undo/redo, morph, auto-return (bars/phrases),\n"
-            "   scene start phase (follow / restart / snap to next beat, offset, Restart scene now)\n"
-            " - Limits: effects at once + priority; spacing/coverage via Reduce; Events x2 and /2\n"
-            " - Input: demo loop, capture/import loop (beat-locked), band split (6 or 12 dB/oct), audio\n"
-            "   trigger, MIDI CC/program-change macros (tick MIDI macros first)\n"
-            " - Perform: scene launch, macros, gesture lane, phrase evolution\n"
-            " - Print: record the processed output for N bars to a 24-bit WAV, drag it into the DAW (untested)\n"
+            "   scene start phase, per-scene transition smoothing, Restart scene now\n"
+            " - Limits: effects at once + priority; spacing/coverage via Reduce (loop-aware); Events x2 and /2\n"
+            " - Input: demo loop, capture/import loop saved with the project, optional stretch to host\n"
+            "   tempo, band split (classic or Linkwitz-Riley), Dry return, audio trigger, MIDI macros\n"
+            " - Perform: scene launch, macros, gesture lane, phrase evolution, Chaos macro\n"
+            " - Print: record the processed output for N bars to a 24-bit WAV, drag it into the DAW\n"
+            " - Presets bar (factory and user presets, host programs), Easy mode with first-run guide\n"
             " - Right-click on any control: exact value, copy/paste, reset, MIDI learn; Visual window\n"
             " - Host Variation parameter follows the sounding scene\n\n"
-            "Not implemented / limited in this alpha:\n"
-            " - Per-scene transition smoothing time; Linkwitz-Riley or steeper crossovers; loop-aware Reduce\n"
-            " - No time stretching for loops; loop audio is not saved with the project. Generator history\n"
-            "   is saved locally on this computer, not embedded in the DAW project\n"
-            "   (gesture curve, evolution settings and MIDI links are); gestures run at ~20 Hz\n"
-            " - Capture is stereo-limited, 20 s max; CLAP and other formats\n\n"
+            "Limited:\n"
+            " - Generator history is saved locally on this computer, not embedded in the DAW project\n"
+            " - Capture is stereo-limited, 20 s max; gestures and MIDI links run at ~20 Hz\n\n"
             "Untested: real DAW hosts, audio hardware, listening quality.",
             false);
         addAndMakeVisible(text);

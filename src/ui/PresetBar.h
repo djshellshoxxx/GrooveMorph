@@ -23,6 +23,9 @@ public:
     // Cheap; call from the editor's timer so the name, modified marker and button states follow the model.
     void refresh();
 
+    // The browser dropdown's content (also used by the snapshot tool to render the open state).
+    std::unique_ptr<juce::Component> createBrowserContent();
+
     // Called on the message thread after a preset has been loaded, imported or deleted.
     std::function<void()> onChanged;
 

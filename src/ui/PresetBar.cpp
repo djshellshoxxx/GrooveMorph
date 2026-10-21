@@ -268,15 +268,19 @@ void PresetBar::stepPreset(int direction)
     load(next);
 }
 
-void PresetBar::showBrowser()
+std::unique_ptr<juce::Component> PresetBar::createBrowserContent()
 {
     juce::Component::SafePointer<PresetBar> safe(this);
-    auto panel = std::make_unique<BrowserPanel>(processor.getPresetManager(), processor.getCurrentPresetName(),
-                                                [safe](int index) {
-                                                    if (safe != nullptr)
-                                                        safe->load(index);
-                                                });
-    juce::CallOutBox::launchAsynchronously(std::move(panel), nameButton.getScreenBounds(), nullptr);
+    return std::make_unique<BrowserPanel>(processor.getPresetManager(), processor.getCurrentPresetName(),
+                                          [safe](int index) {
+                                              if (safe != nullptr)
+                                                  safe->load(index);
+                                          });
+}
+
+void PresetBar::showBrowser()
+{
+    juce::CallOutBox::launchAsynchronously(createBrowserContent(), nameButton.getScreenBounds(), nullptr);
 }
 
 void PresetBar::saveNamed(const juce::String& name, const juce::String& category, const juce::StringArray& tags,

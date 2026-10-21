@@ -162,6 +162,18 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         target_link_libraries(GrooveMorphW3ProcessorTests PRIVATE GrooveMorphPlugin)
         add_test(NAME GrooveMorphW3ProcessorTests COMMAND GrooveMorphW3ProcessorTests)
 
+        # A4: offline audio smoke matrix (sample rates, block sizes, effects, chaos, loops, print, transport storms).
+        add_executable(GrooveMorphAudioSmokeTests tests/AudioSmokeTests.cpp)
+        target_include_directories(GrooveMorphAudioSmokeTests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            $<TARGET_PROPERTY:GrooveMorphPlugin,INCLUDE_DIRECTORIES>
+        )
+        target_compile_definitions(GrooveMorphAudioSmokeTests PRIVATE
+            $<TARGET_PROPERTY:GrooveMorphPlugin,COMPILE_DEFINITIONS>
+        )
+        target_link_libraries(GrooveMorphAudioSmokeTests PRIVATE GrooveMorphPlugin)
+        add_test(NAME GrooveMorphAudioSmokeTests COMMAND GrooveMorphAudioSmokeTests)
+
         # Developer tool (not a CTest): renders the real editor, software-rendered, to PNG files.
         add_executable(GrooveMorphEditorSnapshot tools/EditorSnapshot.cpp)
         target_include_directories(GrooveMorphEditorSnapshot PRIVATE
