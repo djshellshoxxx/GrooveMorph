@@ -86,17 +86,16 @@ bool allFinite(const juce::AudioBuffer<float>& b)
 }
 
 // Runs the message loop for about `ms` milliseconds (the test's main thread is the message thread).
-// The tests run on a worker thread while the real message thread dispatches in main(), so "off the message
-// thread" is the normal case here; waiting just lets queued messages run.
+// The tests run on the message thread; waiting dispatches queued messages and timers.
 void pumpMessages(int ms)
 {
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(ms);
 }
 
 bool waitUntil(const std::function<bool()>& condition, int timeoutMs = 2000)
 {
     for (int waited = 0; waited < timeoutMs && !condition(); waited += 5)
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        pumpMessages(5);
     return condition();
 }
 
@@ -454,18 +453,7 @@ static void runTests()
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    // Scene snapshots are large; secondary threads default to a 512 KB stack on macOS, so ask for 64 MB.
-    struct TestThread final : juce::Thread
-    {
-        TestThread() : juce::Thread("W3 tests", 64u * 1024u * 1024u) {}
-        void run() override
-        {
-            runTests();
-            juce::MessageManager::callAsync([] { juce::MessageManager::getInstance()->stopDispatchLoop(); });
-        }
-    } worker;
-    worker.startThread();
-    juce::MessageManager::getInstance()->runDispatchLoop();
-    worker.stopThread(10000);
+    // The tests run on the message thread (the main thread) and pump it with runDispatchLoopUntil.
+    runTests();
     return failures == 0 ? 0 : 1;
 }
