@@ -4,6 +4,7 @@
 
 ## Start here
 
+0. [The new interface (beta.2)](INTERFACE-TOUR.md): layout tour, shortcuts, UI scale, the Timing popover and where each old control moved. Newer than the pages below, which still describe the older fixed layout in places.
 1. [Quick start](QUICK-START.md): getting audio through the effect and changing variations.
 2. [Interface and controls](CONTROLS.md): every visible control, with linked annotated visual references.
 3. [Workflow recipes](WORKFLOWS.md): quantized scene changes, editing, MIDI, preview/compare, and standalone timing.

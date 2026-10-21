@@ -1,5 +1,6 @@
 // Developer tool: renders the real GrooveMorph editor (software rendering, no display needed for
-// the snapshot itself) to PNG files so the layout can be inspected. Usage: EditorSnapshot <outdir>
+// the snapshot itself) to PNG files so the layout can be inspected. Usage: EditorSnapshot [outdir] (default docs/beta/screenshots).
+// Exits non-zero if any PNG is missing, empty or a single flat colour.
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "ui/PresetBar.h"
@@ -18,24 +19,76 @@ public:
     PositionInfo info;
 };
 
-void pump(int) {} // no message loop is run; the editor refreshes synchronously on construction
+int failures = 0; // PNGs that are missing, empty or one flat colour make the tool exit non-zero
+
+bool isFlat(const juce::Image& image)
+{
+    if (!image.isValid() || image.getWidth() <= 0 || image.getHeight() <= 0)
+        return true;
+    const auto first = image.getPixelAt(0, 0);
+    for (int y = 0; y < image.getHeight(); ++y)
+        for (int x = 0; x < image.getWidth(); ++x)
+            if (image.getPixelAt(x, y) != first)
+                return false;
+    return true;
+}
 
 void save(juce::Component& component, const juce::File& file)
 {
-    const auto image = component.createComponentSnapshot(component.getLocalBounds(), true, 1.0f);
+    const auto bounds = component.getLocalBounds();
+    if (bounds.isEmpty())
+    {
+        std::cout << "FAIL empty bounds for " << file.getFileName() << "\n";
+        ++failures;
+        return;
+    }
+    const auto image = component.createComponentSnapshot(bounds, true, 1.0f);
+    if (isFlat(image))
+    {
+        std::cout << "FAIL empty or flat image for " << file.getFileName() << "\n";
+        ++failures;
+        return;
+    }
     file.deleteFile();
-    juce::FileOutputStream stream(file);
-    juce::PNGImageFormat png;
-    if (stream.openedOk())
-        png.writeImageToStream(image, stream);
+    {
+        juce::FileOutputStream stream(file);
+        juce::PNGImageFormat png;
+        if (!stream.openedOk() || !png.writeImageToStream(image, stream))
+        {
+            std::cout << "FAIL could not write " << file.getFullPathName() << "\n";
+            ++failures;
+            return;
+        }
+    }
     std::cout << "wrote " << file.getFullPathName() << " (" << image.getWidth() << "x" << image.getHeight() << ")\n";
+}
+
+// Resize like a host would. The editor clamps to its own limits, so the PNG may differ from the request;
+// that is reported, not fatal.
+void resizeEditor(juce::Component& editor, int w, int h)
+{
+    editor.setSize(w + 1, h); // force a layout pass even when the size is unchanged
+    editor.setSize(w, h);
+    if (editor.getWidth() != w || editor.getHeight() != h)
+        std::cout << "note: requested " << w << "x" << h << ", editor is " << editor.getWidth() << "x"
+                  << editor.getHeight() << "\n";
+}
+
+GrooveMorphAudioProcessorEditor* openEditor(GrooveMorphAudioProcessor& processor)
+{
+    auto* editor = dynamic_cast<GrooveMorphAudioProcessorEditor*>(processor.createEditor());
+    if (editor == nullptr)
+        std::cout << "FAIL createEditor did not return a GrooveMorphAudioProcessorEditor\n";
+    else
+        editor->setVisible(true);
+    return editor;
 }
 } // namespace
 
 int main(int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
-    const juce::File out(argc > 1 ? argv[1] : ".");
+    const juce::File out(juce::File::getCurrentWorkingDirectory().getChildFile(argc > 1 ? argv[1] : "docs/beta/screenshots"));
     out.createDirectory();
 
     GrooveMorphAudioProcessor processor;
@@ -101,68 +154,42 @@ int main(int argc, char** argv)
         std::cout << "loop import: " << (processor.importLoopFile(wav, 4).wasOk() ? "ok" : "FAILED") << "\n";
     }
 
-    auto chainVisible = [](juce::Component& c) {
-        for (auto* p = &c; p != nullptr; p = p->getParentComponent())
-            if (!p->isVisible())
-                return false;
-        return true;
-    };
-    auto clickButton = [&chainVisible](juce::Component& root, const juce::String& text) {
-        std::function<bool(juce::Component&)> find = [&](juce::Component& c) -> bool {
-            if (auto* b = dynamic_cast<juce::Button*>(&c))
-                if (b->getButtonText() == text && chainVisible(*b))
-                {
-                    if (b->getClickingTogglesState())
-                        b->setToggleState(!b->getToggleState(), juce::sendNotificationSync);
-                    else
-                        { if (b->onClick) b->onClick(); } // triggerClick() is asynchronous; no message loop runs here
-                    return true;
-                }
-            for (auto* child : c.getChildren())
-                if (find(*child))
-                    return true;
-            return false;
-        };
-        return find(root);
-    };
-
-    auto* editor = dynamic_cast<GrooveMorphAudioProcessorEditor*>(processor.createEditor());
-    editor->setVisible(true);
-    editor->setSize(1290, 784);
-    pump(200);
     const char* names[] = {"place", "generator", "scenes", "morph", "limit", "input", "perform", "info", "print"};
-    for (int i = 0; i < 9; ++i)
-    {
-        editor->showInspectorTab(i);
-        pump(120);
-        save(*editor, out.getChildFile(juce::String("editor-") + names[i] + ".png"));
-    }
-    editor->showInspectorTab(0);
-    (void) clickButton(*editor, "Euclid / chance");
-    editor->setSize(1291, 784); // re-run layout so the revealed panel gets bounds
-    editor->setSize(1290, 784);
-    save(*editor, out.getChildFile("editor-place-euclid.png"));
-    (void) clickButton(*editor, "Euclid / chance");
-    // Input tab with the loop source selected so the waveform is drawn.
-    processor.setSourceMode(2);
-    editor->showInspectorTab(5);
-    save(*editor, out.getChildFile("editor-input-waveform.png"));
-    processor.setSourceMode(1);
+    const auto sized = [](const char* prefix, int w, int h) { return juce::String(prefix) + juce::String(w) + "x" + juce::String(h) + ".png"; };
 
-    // Narrowest supported size, every tab.
-    editor->setSize(1230, 784);
-    pump(120);
-    for (int i = 0; i < 9; ++i)
+    // Studio editor at the four sizes of UR-01.
+    if (auto* editor = openEditor(processor))
     {
-        editor->showInspectorTab(i);
-        save(*editor, out.getChildFile(juce::String("editor-min-") + names[i] + ".png"));
+        editor->showInspectorTab(0);
+        const int sizes[][2] = {{960, 640}, {1180, 760}, {1600, 1000}, {2200, 1400}};
+        for (const auto& sz : sizes)
+        {
+            resizeEditor(*editor, sz[0], sz[1]);
+            save(*editor, out.getChildFile(sized("studio-", sz[0], sz[1])));
+        }
+
+        // Every inspector tab at the default size.
+        resizeEditor(*editor, 1180, 760);
+        for (int i = 0; i < 9; ++i)
+        {
+            if (i == 5)
+                processor.setSourceMode(2); // loop source so the Input tab draws the waveform
+            editor->showInspectorTab(i);
+            save(*editor, out.getChildFile(juce::String("tab-") + names[i] + ".png"));
+            if (i == 5)
+                processor.setSourceMode(1);
+        }
+
+        // Minimum size, every tab.
+        resizeEditor(*editor, 960, 640);
+        for (int i = 0; i < 9; ++i)
+        {
+            editor->showInspectorTab(i);
+            save(*editor, out.getChildFile(juce::String("tab-min-") + names[i] + ".png"));
+        }
+        editor->showInspectorTab(0);
+        delete editor;
     }
-    editor->showInspectorTab(0);
-    (void) clickButton(*editor, "Euclid / chance");
-    editor->setSize(1231, 784);
-    editor->setSize(1230, 784);
-    save(*editor, out.getChildFile("editor-min-place-euclid.png"));
-    delete editor;
 
     // Preset browser (the dropdown behind the preset bar), rendered on its own.
     {
@@ -173,26 +200,21 @@ int main(int argc, char** argv)
                 browser->setSize(420, 360);
             save(*browser, out.getChildFile("preset-browser.png"));
         }
+        else
+        {
+            std::cout << "FAIL no preset browser content\n";
+            ++failures;
+        }
     }
 
-    // Easy mode (N05): first-run guide (unseen flag), then the plain view, at the default and minimum size.
+    // Easy mode (N05) through the processor API: default and minimum size.
     processor.setEasyMode(true);
+    if (auto* easyEditor = openEditor(processor))
     {
-        auto* easyEditor = dynamic_cast<GrooveMorphAudioProcessorEditor*>(processor.createEditor());
-        easyEditor->setVisible(true);
-        easyEditor->setSize(1290, 784);
-        save(*easyEditor, out.getChildFile("editor-easy-guide.png"));
-        easyEditor->setSize(1230, 784);
-        save(*easyEditor, out.getChildFile("editor-easy-guide-minimum-size.png"));
-        for (int i = 0; i < 3; ++i) // reach the last guide step for one more shot
-            (void) clickButton(*easyEditor, "Next");
-        save(*easyEditor, out.getChildFile("editor-easy-guide-last-step.png"));
-        (void) clickButton(*easyEditor, "Skip guide");
-        (void) clickButton(*easyEditor, "Done");
-        easyEditor->setSize(1290, 784);
-        save(*easyEditor, out.getChildFile("editor-easy.png"));
-        easyEditor->setSize(1230, 784);
-        save(*easyEditor, out.getChildFile("editor-easy-minimum-size.png"));
+        resizeEditor(*easyEditor, 1180, 760);
+        save(*easyEditor, out.getChildFile("easy-1180x760.png"));
+        resizeEditor(*easyEditor, 960, 640);
+        save(*easyEditor, out.getChildFile("easy-960x640.png"));
         delete easyEditor;
     }
     processor.setEasyMode(false);
@@ -245,5 +267,7 @@ int main(int argc, char** argv)
         visualShot("visual-wide.png", placed, 1280, 720);
     }
     processor.setPlayHead(nullptr);
-    return 0;
+    if (failures > 0)
+        std::cout << failures << " snapshot(s) failed\n";
+    return failures > 0 ? 1 : 0;
 }
