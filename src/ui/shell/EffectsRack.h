@@ -17,7 +17,7 @@ namespace groovemorph::ui::shell
 class EffectsRack final : public juce::Component
 {
 public:
-    static constexpr int height = 112;
+    static constexpr int height = 92;
 
     explicit EffectsRack(GrooveMorphAudioProcessor& processor);
     ~EffectsRack() override;

@@ -65,7 +65,9 @@ inline juce::Font font(float height, bool bold = false)
 }
 
 // Window geometry (logical px). Layout is proportional to getLocalBounds(); these are only defaults/limits.
-inline constexpr int defaultWidth = 1180, defaultHeight = 760;
+inline constexpr int defaultWidth = 1180, defaultHeight = 800;
 inline constexpr int minWidth = 960, minHeight = 640;
+// Band heights of the shell (the editor gives each of these exactly, whatever the window size).
+inline constexpr int headerHeight = 44, bandHeight = 108, shellGap = 8;
 inline constexpr int maxWidth = 2200, maxHeight = 1400;
 } // namespace groovemorph::ui::theme

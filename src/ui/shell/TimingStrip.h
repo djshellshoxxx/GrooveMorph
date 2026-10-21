@@ -11,7 +11,7 @@ namespace groovemorph::ui::shell
 class TimingStrip final : public juce::Component
 {
 public:
-    static constexpr int height = 28;
+    static constexpr int height = 26;
 
     explicit TimingStrip(GrooveMorphAudioProcessor& processor);
     ~TimingStrip() override;
