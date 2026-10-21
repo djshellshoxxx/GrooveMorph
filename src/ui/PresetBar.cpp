@@ -3,6 +3,7 @@
 
 #include "PluginProcessor.h"
 
+#include <algorithm>
 #include <vector>
 
 namespace groovemorph::ui
@@ -160,32 +161,29 @@ private:
 
 PresetBar::PresetBar(GrooveMorphAudioProcessor& processorToUse) : processor(processorToUse)
 {
-    for (auto* button : {&previousButton, &nextButton, &nameButton, &saveButton, &saveAsButton, &renameButton,
-                         &deleteButton, &importButton, &exportButton})
+    for (auto* button : {&previousButton, &nextButton, &nameButton, &saveButton, &moreButton})
     {
         button->setColour(juce::TextButton::buttonColourId, buttonColour);
         button->setColour(juce::TextButton::textColourOffId, theme::text);
+        button->setWantsKeyboardFocus(true);
         addAndMakeVisible(*button);
     }
     previousButton.setTooltip("Load the previous preset in the list. Loading is one Undo step.");
+    previousButton.setTitle("Previous preset");
     nextButton.setTooltip("Load the next preset in the list. Loading is one Undo step.");
+    nextButton.setTitle("Next preset");
     nameButton.setTooltip("Open the preset browser: search, filter by tag, grouped by category. A * after the name means the scenes were changed after loading.");
+    nameButton.setTitle("Preset browser");
     saveButton.setTooltip("Save the four scenes over the loaded user preset. On a factory preset (or with none loaded) this works like Save As.");
-    saveAsButton.setTooltip("Save the four scenes as a new user preset with a name, category and tags.");
-    renameButton.setTooltip("Rename the loaded user preset. Factory presets cannot be renamed.");
-    deleteButton.setTooltip("Delete the loaded user preset file. Factory presets cannot be deleted.");
-    importButton.setTooltip("Import a .gmpreset file into your user presets.");
-    exportButton.setTooltip("Export the loaded preset to a .gmpreset file you can share.");
+    saveButton.setTitle("Save preset");
+    moreButton.setTooltip("More preset actions: Save As, Rename, Delete, Import and Export.");
+    moreButton.setTitle("More preset actions");
 
     previousButton.onClick = [this] { stepPreset(-1); };
     nextButton.onClick = [this] { stepPreset(1); };
     nameButton.onClick = [this] { showBrowser(); };
     saveButton.onClick = [this] { save(); };
-    saveAsButton.onClick = [this] { promptSaveAs(); };
-    renameButton.onClick = [this] { promptRename(); };
-    deleteButton.onClick = [this] { confirmDelete(); };
-    importButton.onClick = [this] { importPreset(); };
-    exportButton.onClick = [this] { exportPreset(); };
+    moreButton.onClick = [this] { showMoreMenu(); };
     refresh();
 }
 
@@ -205,15 +203,11 @@ void PresetBar::resized()
         area.removeFromLeft(4);
     };
     place(previousButton, 32);
-    const int fixedRight = 62 + 66 + 66 + 62 + 62 + 62 + 6 * 4 + 32 + 4;
-    place(nameButton, juce::jmax(120, area.getWidth() - fixedRight));
+    const int fixedRight = 62 + 40 + 32 + 3 * 4;
+    place(nameButton, std::max(120, area.getWidth() - fixedRight));
     place(nextButton, 32);
     place(saveButton, 62);
-    place(saveAsButton, 66);
-    place(renameButton, 66);
-    place(deleteButton, 62);
-    place(importButton, 62);
-    place(exportButton, 62);
+    place(moreButton, 40);
 }
 
 void PresetBar::refresh()
@@ -229,10 +223,39 @@ void PresetBar::refresh()
     const auto& manager = processor.getPresetManager();
     const int index = name.isEmpty() ? -1 : manager.indexOf(name);
     const bool user = index >= 0 && !manager.isFactory(index);
-    deleteButton.setEnabled(user);
-    renameButton.setEnabled(user);
-    exportButton.setEnabled(index >= 0);
     saveButton.setButtonText(user ? "Save" : "Save...");
+}
+
+// The "..." menu. Enable rules are evaluated when it opens (same rules the separate buttons had):
+// Rename and Delete need a loaded user preset, Export needs any loaded preset.
+void PresetBar::showMoreMenu()
+{
+    const auto name = processor.getCurrentPresetName();
+    const auto& manager = processor.getPresetManager();
+    const int index = name.isEmpty() ? -1 : manager.indexOf(name);
+    const bool user = index >= 0 && !manager.isFactory(index);
+
+    juce::PopupMenu menu;
+    menu.addItem(1, "Save As...");
+    menu.addItem(2, "Rename...", user);
+    menu.addItem(3, "Delete...", user);
+    menu.addSeparator();
+    menu.addItem(4, "Import...");
+    menu.addItem(5, "Export...", index >= 0);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&moreButton).withMinimumWidth(160),
+                       [safe = juce::Component::SafePointer<PresetBar>(this)](int result) {
+                           if (safe == nullptr)
+                               return;
+                           switch (result)
+                           {
+                               case 1: safe->promptSaveAs(); break;
+                               case 2: safe->promptRename(); break;
+                               case 3: safe->confirmDelete(); break;
+                               case 4: safe->importPreset(); break;
+                               case 5: safe->exportPreset(); break;
+                               default: break;
+                           }
+                       });
 }
 
 void PresetBar::changed()

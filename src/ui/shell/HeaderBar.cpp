@@ -80,8 +80,9 @@ void HeaderBar::resized()
         area.removeFromRight(gap);
     };
     placeRight(settingsButton, buttonHeight);
-    placeRight(bypassButton, compact ? 72 : 84);
-    placeRight(visualButton, compact ? 62 : 72);
+    // Toggle text starts 32 px in (tick box), so the widths below keep 'Bypass' and 'Visual' unclipped at 960 px.
+    placeRight(bypassButton, compact ? 90 : 96);
+    placeRight(visualButton, compact ? 84 : 90);
     placeRight(easyButton, compact ? 52 : 64);
     placeRight(stopButton, compact ? 46 : 56);
     placeRight(playButton, compact ? 46 : 56);
@@ -94,7 +95,7 @@ void HeaderBar::resized()
     {
         wordmark.setVisible(false);
     }
-    // The preset bar needs about 600 px; it is 40 px high, centred.
+    // The preset bar needs about 300 px (it shrinks first); it is 40 px high, centred.
     presetBar.setBounds(area.withY((getHeight() - 40) / 2).withHeight(40));
 }
 } // namespace groovemorph::ui::shell

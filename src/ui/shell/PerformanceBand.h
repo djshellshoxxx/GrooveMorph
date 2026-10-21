@@ -18,7 +18,7 @@ namespace groovemorph::ui::shell
 class PerformanceBand final : public juce::Component
 {
 public:
-    static constexpr int height = 128;
+    static constexpr int height = 108;
 
     explicit PerformanceBand(GrooveMorphAudioProcessor& processor);
     ~PerformanceBand() override;
@@ -33,6 +33,7 @@ public:
     juce::TextButton surpriseButton{"Surprise me"}, undoButton{"Undo"}, redoButton{"Redo"};
 
 private:
+    std::array<juce::Rectangle<int>, 4> captionBounds; // Intensity, Dry / wet, Morph, Chaos (set in resized)
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> sliderAttachments;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PerformanceBand)
