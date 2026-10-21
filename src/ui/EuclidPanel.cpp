@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace gm = groovemorph::core;
 namespace ctl = groovemorph::core::control;
@@ -13,10 +14,12 @@ namespace groovemorph::ui
 {
 namespace
 {
-const juce::StringArray operationNames{"Repeat / stutter", "Reverse slice", "Gate", "Half-time", "Tape stop"};
+const juce::StringArray operationNames{"Repeat / stutter", "Reverse slice", "Gate", "Half-time", "Tape stop", "Filter sweep", "Bit crush"};
 const juce::Colour operationColours[] = {juce::Colour(0xff4fc3f7), juce::Colour(0xffba68c8),
                                          juce::Colour(0xff81c784), juce::Colour(0xffffb74d),
-                                         juce::Colour(0xffe57373)};
+                                         juce::Colour(0xffe57373), juce::Colour(0xffdce775),
+                                         juce::Colour(0xfff48fb1)};
+static_assert(std::size(operationColours) == groovemorph::core::operationCount, "one lane colour per operation");
 constexpr std::uint8_t gridValues[] = {1, 2, 3, 4, 6, 8, 12, 16};
 constexpr int rowHeight = 22;
 constexpr int rowGap = 2;
@@ -304,7 +307,7 @@ void EuclidPanel::paint(juce::Graphics& g)
 
     const auto p = params();
     const auto hits = ctl::euclidSteps(p);
-    const auto colour = operationColours[p.operation % 5];
+    const auto colour = operationColours[p.operation % groovemorph::core::operationCount];
     const auto bounds = ringBounds.toFloat();
     const auto centre = bounds.getCentre();
     const float radius = std::min(bounds.getWidth(), bounds.getHeight()) * 0.5f - 7.0f;

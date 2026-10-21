@@ -2,7 +2,7 @@
 
 ![Editor control map](images/editor-overview.svg)
 
-**Image status:** source-derived map of the ORIGINAL 820 × 720 MVP layout (the alpha editor is 1290 × 740 by default and now has inspector tabs, so arrows no longer match its bounds). It is not a captured screenshot. Numbered arrows and highlights link exact regions to the reference below. The alpha window is resizable (minimum 1230 × 700; maximum 1900 × 1100; it shrinks to fit small displays); actual positions scale or shift with window width.
+**Image status:** source-derived map of the ORIGINAL 820 × 720 MVP layout (the alpha editor is 1290 × 784 by default and now has inspector tabs, so arrows no longer match its bounds). It is not a captured screenshot. Numbered arrows and highlights link exact regions to the reference below. The alpha window is resizable (minimum 1230 × 784; maximum 1900 × 1100; it shrinks to fit small displays); actual positions scale or shift with window width.
 
 | Map | Control | What it does |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ Depth controls how strongly each transformation contributes. The system processe
 
 ## Audio, automation, and state notes
 
-The five operation-row settings belong to variations in the internal scene bank; do not assume they appear as host-exposed automation parameters. The top-level controls including Intensity, Dry/Wet, manual timing, timing/transition selection, and Bypass use the processor's parameter state. The plugin is intended to restore stored scenes and parameter state with a saved host project; test the specific DAW before relying on it live.
+The seven operation-row settings belong to variations in the internal scene bank; do not assume they appear as host-exposed automation parameters. The top-level controls including Intensity, Dry/Wet, manual timing, timing/transition selection, and Bypass use the processor's parameter state. The plugin is intended to restore stored scenes and parameter state with a saved host project; test the specific DAW before relying on it live.
 
 For modes, fallback, and quantized scheduling, see [Timing](TIMING.md). For interactions, see [Workflows](WORKFLOWS.md).
 

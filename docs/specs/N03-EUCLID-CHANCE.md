@@ -88,7 +88,7 @@ only tile 0 is placed. Duration = `max(1, stepTicks*gatePercent/100)` clipped to
 Legacy files lack the keys and load as 100 % / seed 0, and scenes that do not use chance serialize byte-identically
 to earlier builds. Out-of-range values are clamped. The scene format stays `v1`.
 
-"Per lane" means per operation lane (the five rows of the Place canvas). The probability that an event fires is
+"Per lane" means per operation lane (the seven rows of the Place canvas). The probability that an event fires is
 `event.chance * chanceByOp[op]` in units of 1/10000.
 
 ### Decision (`core/control/Chance.h`, header-only, constexpr)

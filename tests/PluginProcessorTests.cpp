@@ -1270,6 +1270,10 @@ int main()
         using PrintState = groovemorph::core::OutputCapture::State;
         expect("print arms", processor.armPrint(1, true, true));
         expect("print cannot arm twice", !processor.armPrint(1, false, false));
+        // A2: the loop source is shared, so a running print refuses loop capture and import with a message.
+        expect("loop capture refused during a print", !processor.armLoopCapture(1)
+                   && processor.captureConflict(GrooveMorphAudioProcessor::CaptureKind::LoopCapture).isNotEmpty());
+        expect("import refused during a print", processor.importLoopFile(juce::File("/nonexistent/none.wav"), 2).getErrorMessage().contains("print"));
         drive(5 * blockSize, 96000 * 2 + 4800);
         expect("print still recording into its tail", processor.getPrintState() == PrintState::Recording);
         drive(96000 * 2 + 4800, 96000 * 2 + 4800 + 5 * 48000);

@@ -322,7 +322,7 @@ int main() {
         a.prepare(48000.0, 256, 2);
         b.prepare(48000.0, 256, 2);
         VariationSettings v;
-        for (std::size_t i = 0; i < 5; ++i) v.operations[i] = {true, 1.0f, 0.25f};
+        for (std::size_t i = 0; i < operationCount; ++i) v.operations[i] = {true, 1.0f, 0.25f};
         RhythmTiming timing{4800.0, 0.0, true};
         std::vector<float> clean(256, 0.3f), dirty(256, 0.3f);
         dirty[10] = std::nanf(""); dirty[11] = INFINITY;

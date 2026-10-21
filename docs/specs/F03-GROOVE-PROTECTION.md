@@ -13,7 +13,7 @@ time regions, (c) keep the low end (kick/bass) out of the effects.
 
 ### 2.1 Downbeat protection (per scene)
 `PlacementConfig::downbeatProtectBeats` (float, 0..4 meter beats, 0 = off; clamped in `sanitize`). In
-`evaluate()` (`src/core/control/PlacementEvaluator.cpp`), when > 0, all five operations are forced inactive while
+`evaluate()` (`src/core/control/PlacementEvaluator.cpp`), when > 0, all operations are forced inactive while
 `barPhase < min(barTicks, protect*960)`, where `barPhase = positiveMod(globalPos, barTicks)`. It uses the GLOBAL transport position
 (`globalBeats`), so a C04 phase shift never moves the protected downbeat. `ticksUntilChange` includes both the end of the protected
 span and the next bar start, so the renderer splits segments there (sample accurate for any block size).

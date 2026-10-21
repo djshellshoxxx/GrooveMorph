@@ -18,7 +18,7 @@ Blend the SOUNDING scene toward another scene by a host-automatable amount, with
   Control state (placement, lane, permissions, activity, phase) is taken from `a` unchanged.
 - `GrooveMorphAudioProcessor::effectiveSettings(variation)`: returns the base scene when `morphTargetIndex < 0`,
   `morphWeight <= 0`, or the target equals the scene being rendered; otherwise `morph(base, target, weight)`.
-  Evaluated per render segment (`renderSegment`), on the audio thread, 5 operations, no allocation.
+  Evaluated per render segment (`renderSegment`), on the audio thread, operationCount (7) operations, no allocation.
 - Parameters are read once per block (`process()`): `morphTargetIndex = loadIndex(morphTarget,4) - 1`,
   `morphWeight = clamp(morphAmount,0,1)`. There is no per-sample smoothing; the engine's fixed 3 ms taps
   (`RhythmEngine::crossfadeSeconds`) soften parameter steps (listening-test item in `docs/alpha/ALPHA-FEATURE-STATUS.md`).
