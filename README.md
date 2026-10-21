@@ -53,3 +53,8 @@ Native REAPER/project recall, audio-device playback, listening/alias analysis,
 CPU/deadline/heap instrumentation, product licensing and deployment QA remain
 unverified. **Passing CI does not mean production or DAW certification.**
 Track these gates in [issue #19](https://github.com/djshellshoxxx/GrooveMorph/issues/19).
+
+## Support this project
+Built by Circuit Drift Labs. More tools and plugins: https://djshellshoxxx.github.io/circuitdriftlabs/
+I make these solo and release them free. If one saved you time, a Monero donation helps cover dev time and hosting.
+<!-- XMR-ADDRESS -->
