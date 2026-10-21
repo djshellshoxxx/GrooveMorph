@@ -206,10 +206,12 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     dryBuffer.setSize(maxProcessedChannels, maxBlock, false, true, false);
     bandBypass.setSize(maxProcessedChannels, maxBlock, false, true, false);
     bandPart.setSize(maxProcessedChannels, maxBlock, false, true, false);
+    printScratch.setSize(maxProcessedChannels, maxBlock, false, true, false);
     {
         const std::lock_guard<std::mutex> lock(loopServiceMutex);
         loopSource.prepare(currentSampleRate);
         loopCapture.prepare(currentSampleRate);
+        outputCapture.prepare(currentSampleRate); // N04: frees any print buffers; memory is allocated by armPrint()
         sampleRateStatus.store(currentSampleRate, std::memory_order_relaxed);
         // The host may call prepareToPlay again (sample rate or buffer size change): keep the user's loop.
         if (!republishStoredLoop())
@@ -707,8 +709,12 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
                 onsetThisBlock = true;
         }
 
+        const auto printState = outputCapture.state(); // N04
+        const bool printActive = printState == core::OutputCapture::State::Armed
+                                 || printState == core::OutputCapture::State::Recording;
+        const bool printWet = printActive && printWetOnly.load(std::memory_order_relaxed);
         const bool needDry = bypassGain > 0.0f || bypassTarget > 0.0f;
-        if (needDry || bandModeSel != 0) // dryBuffer also keeps the unsplit input for band-split exactness
+        if (needDry || bandModeSel != 0 || printWet) // dryBuffer also keeps the unsplit input for band-split exactness
             for (int c = 0; c < numChannels; ++c)
                 dryBuffer.copyFrom(c, 0, buffer, c, offset, n);
 
@@ -796,6 +802,30 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
                         out[i] += g * (dry - out[i]);
                 }
             }
+        }
+
+        // N04 Print to WAV: record the finished block. No allocation: the buffers were sized in
+        // prepareToPlay/armPrint and wet-only extraction uses printScratch.
+        if (printActive)
+        {
+            std::array<const float*, maxProcessedChannels> printSource{};
+            for (int c = 0; c < numChannels; ++c)
+                printSource[static_cast<std::size_t>(c)] = channels[static_cast<std::size_t>(c)];
+            if (printWet && n <= printScratch.getNumSamples())
+            {
+                bool applied = true;
+                for (int c = 0; c < numChannels; ++c)
+                {
+                    float* scratch = printScratch.getWritePointer(c);
+                    std::copy_n(channels[static_cast<std::size_t>(c)], n, scratch);
+                    applied = core::extractWet(scratch, dryBuffer.getReadPointer(c), wetAmount, n) && applied;
+                    printSource[static_cast<std::size_t>(c)] = scratch;
+                }
+                if (!applied)
+                    printWetFallback.store(true, std::memory_order_relaxed);
+            }
+            outputCapture.process(printSource.data(), numChannels, n, globalBeat, rhythm.samplesPerBeat,
+                                  rhythm.isPlaying && std::isfinite(globalBeat));
         }
         done += n;
     }
@@ -1010,6 +1040,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         autoReturn.disarm(); // a seek/loop cancels a transient automatic return
         if (loopCapture.state() == core::LoopCapture::State::Recording)
             loopCapture.abort(); // a splice of two timeline positions would be a corrupted loop
+        outputCapture.abortBody(core::OutputCapture::Failure::Jumped); // N04: same for a print body
     }
     previousHostSamplePosition = hostTransport.timeInSamples;
     previousHostPpqPosition = timing ? timing->ppqPosition : std::nullopt;
@@ -1882,7 +1913,57 @@ bool GrooveMorphAudioProcessor::republishStoredLoop()
     return true;
 }
 
-juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, int bars, double nativeBpm)
+// N04 Print to WAV (message thread)
+bool GrooveMorphAudioProcessor::armPrint(int bars, bool wetOnly, bool includeTail)
+{
+    const auto bank = getSceneBank();
+    const auto index = std::min(getActiveVariation(), core::variationCount - 1);
+    const juce::String sceneName = juce::String(bank.variation(index).name);
+    const int beatsPerBar = getGridContext().beatsPerBar;
+    const std::lock_guard<std::mutex> lock(loopServiceMutex);
+    if (outputCapture.state() != core::OutputCapture::State::Idle)
+        return false; // a running print must keep its own wet-only/fallback state
+    printWetOnly.store(wetOnly, std::memory_order_relaxed); // read by the audio thread only after the capture is armed
+    printWetFallback.store(false, std::memory_order_relaxed);
+    if (!outputCapture.arm(bars, beatsPerBar, includeTail ? getPrintTailSeconds() : 0.0))
+        return false;
+    printSceneName = sceneName;
+    printWetOnlyRequested = wetOnly;
+    printBars = bars;
+    printBeatsPerBar = beatsPerBar;
+    return true;
+}
+
+bool GrooveMorphAudioProcessor::takePrintResult(PrintResult& result)
+{
+    if (outputCapture.state() != core::OutputCapture::State::Done)
+        return false;
+    const std::lock_guard<std::mutex> lock(loopServiceMutex);
+    if (outputCapture.state() != core::OutputCapture::State::Done)
+        return false;
+    const auto samples = outputCapture.recordedSamples();
+    if (samples < 1 || samples > static_cast<std::int64_t>(std::numeric_limits<int>::max()))
+    {
+        outputCapture.release();
+        return false;
+    }
+    result.audio.setSize(2, static_cast<int>(samples), false, false, false);
+    for (int c = 0; c < 2; ++c)
+        result.audio.copyFrom(c, 0, outputCapture.channel(c), static_cast<int>(samples));
+    result.sampleRate = outputCapture.sampleRate();
+    result.bodySamples = static_cast<int>(outputCapture.bodySamples());
+    result.bars = printBars;
+    result.beatsPerBar = printBeatsPerBar;
+    result.bpm = outputCapture.startBpm();
+    result.wetOnly = printWetOnlyRequested;
+    result.wetOnlyApplied = printWetOnlyRequested && !printWetFallback.load(std::memory_order_relaxed);
+    result.sceneName = printSceneName;
+    outputCapture.release();
+    return true;
+}
+
+juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, int bars, double nativeBpm,
+                                                       double trimToSeconds)
 {
     const std::lock_guard<std::mutex> lock(loopServiceMutex);
     if (bars < 0 || bars > 16)
@@ -1896,7 +1977,9 @@ juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, i
     std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
     if (reader == nullptr || reader->numChannels < 1 || reader->sampleRate <= 0.0)
         return juce::Result::fail("Unsupported or unreadable audio file");
-    const double seconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+    const double fileSeconds = static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+    // N04: a print with a tail is trimmed to its bar-aligned body.
+    const double seconds = trimToSeconds > 0.0 && trimToSeconds < fileSeconds ? trimToSeconds : fileSeconds;
     if (seconds < 0.05)
         return juce::Result::fail("File is too short");
     if (seconds > core::LoopSource::maxSeconds)
@@ -1905,7 +1988,9 @@ juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, i
     const auto outLength = static_cast<int>(std::llround(seconds * deviceRate));
     if (outLength < 16 || outLength > loopSource.capacitySamples())
         return juce::Result::fail("File has too many samples for this session's sample rate; use a shorter file");
-    const auto length = static_cast<int>(reader->lengthInSamples);
+    const auto length = seconds < fileSeconds
+        ? static_cast<int>(std::min<std::int64_t>(reader->lengthInSamples, std::llround(seconds * reader->sampleRate)))
+        : static_cast<int>(reader->lengthInSamples);
     juce::AudioBuffer<float> data(juce::jmin(2, static_cast<int>(reader->numChannels)), length);
     if (!reader->read(&data, 0, length, 0, true, data.getNumChannels() > 1))
         return juce::Result::fail("Could not read the audio data");

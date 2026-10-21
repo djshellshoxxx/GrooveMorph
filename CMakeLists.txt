@@ -102,6 +102,7 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         src/PluginProcessorLoop.cpp
         src/ui/WaveformView.cpp
         src/ui/ControlMenu.cpp
+        src/ui/PrintPanel.cpp
         src/ui/visual/VisualWindow.cpp
         src/ui/visual/WeaveView.cpp
         src/ui/visual/LedgerView.cpp

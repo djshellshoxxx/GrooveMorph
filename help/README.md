@@ -20,6 +20,7 @@
 10. [MIDI notes, MIDI learn and host automation of effects](MIDI-AND-AUTOMATION.md): note swap, learn rules, panic messages, per-effect automation trims, update rates.
 11. [Keyboard editing, event lanes and screen readers](KEYBOARD-AND-ACCESSIBILITY.md): create events with the keyboard, thin events, phrase-end badge, undo steps, accessible names.
 10. [Easy mode](EASY.md): the compact single-screen view, the Chaos knob, Surprise me and the first-run guide.
+10. [Print to WAV](PRINT.md): record the processed output for N bars to a WAV file and drag it into your DAW.
 
 ## Scope
 
