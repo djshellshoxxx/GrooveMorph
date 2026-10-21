@@ -56,7 +56,7 @@ jobs:
       - name: Configure plugin targets
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.juce-fetch"
       - name: Build VST3 and Standalone
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --config Release --parallel 3
       - name: Run core tests
         run: ctest --test-dir build --build-config Release --output-on-failure --parallel 2
 
@@ -81,7 +81,7 @@ jobs:
       - name: Configure plugin targets
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DFETCHCONTENT_BASE_DIR="${{ github.workspace }}/.juce-fetch"
       - name: Build EditorSnapshot
-        run: cmake --build build --config Release --parallel --target GrooveMorphEditorSnapshot
+        run: cmake --build build --config Release --parallel 3 --target GrooveMorphEditorSnapshot
       - name: Render UI snapshots
         run: |
           mkdir -p ui-snapshots
