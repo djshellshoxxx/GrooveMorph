@@ -27,8 +27,11 @@ class MidiLinkTable final
 public:
     static constexpr std::size_t maxLinks = 64;
 
-    // Replaces any existing link of the same target. False when the CC is out of 0..127, the target is not
-    // well formed, or the table is full.
+    enum class LinkResult : std::uint8_t { Ok, Invalid, TableFull };
+    // Replaces any existing link of the same target. Invalid: the CC is out of 0..127 or the target is not
+    // well formed. TableFull: a new target would exceed maxLinks (relinking a present target still works).
+    LinkResult linkChecked(int cc, std::string_view target);
+    // Same as linkChecked(), true only for Ok.
     bool link(int cc, std::string_view target);
     void unlink(std::string_view target);
     void clear() noexcept { entries.clear(); }
@@ -56,16 +59,26 @@ public:
     struct Change
     {
         int cc = 0;
-        int value = 0; // 0..127
+        int value = 0;  // 0..127, the newest value
+        int travel = 0; // sum of |step| of every event since the last collect(): how much the control moved
     };
-    // Message thread. Writes the CCs whose value differs from the last collect() (up to capacity) and
-    // returns how many. Also remembers them so an unchanged CC is not reported again.
+    // Message thread. Writes the CCs that moved since the last collect() (up to capacity) and returns how
+    // many. A CC counts as moved when its newest value differs OR it travelled in between, so a pulse that
+    // returns to its old value (0 -> 127 -> 0 between two polls) is still reported. Unmoved CCs are not
+    // repeated.
     std::size_t collect(Change* out, std::size_t capacity) noexcept;
     // Message thread. Forget everything pending, so only movements after this call are reported.
     void discardPending() noexcept;
 
 private:
     std::array<std::atomic<std::int16_t>, 128> latest;
-    std::array<std::int16_t, 128> seen{}; // message thread only
+    std::array<std::atomic<std::uint32_t>, 128> travelTotal; // wraps; only differences are used
+    std::array<std::int16_t, 128> seen{};                    // message thread only
+    std::array<std::uint32_t, 128> seenTravel{};             // message thread only
 };
+
+// MIDI learn: the CC to link among those that moved in one collect() batch. The one that travelled most
+// wins (a fader sweep beats a stray button press); ties go to the lowest CC. -1 when the batch is empty or
+// nothing travelled.
+[[nodiscard]] int pickLearnCc(const CcInbox::Change* changes, std::size_t count) noexcept;
 } // namespace groovemorph::core
