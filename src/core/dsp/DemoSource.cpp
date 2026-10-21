@@ -21,12 +21,13 @@ float noise(std::uint64_t n) noexcept
 } // namespace
 
 void DemoSource::render(float* const* channels, int numChannels, int numSamples, double beatAtStart,
-                        double samplesPerBeat, double sampleRate) noexcept
+                        double samplesPerBeat, double sampleRate, int beatsPerBar) noexcept
 {
     if (channels == nullptr || numSamples <= 0 || !(samplesPerBeat > 0.0) || !(sampleRate > 0.0)
         || !std::isfinite(beatAtStart))
         return;
     const double beatSeconds = samplesPerBeat / sampleRate;
+    const long long bar = beatsPerBar >= 1 && beatsPerBar <= 32 ? beatsPerBar : 4;
     for (int i = 0; i < numSamples; ++i)
     {
         const double beat = beatAtStart + static_cast<double>(i) / samplesPerBeat;
@@ -36,7 +37,7 @@ void DemoSource::render(float* const* channels, int numChannels, int numSamples,
         const auto beatIndex = static_cast<long long>(whole);
         // Noise is keyed to the absolute sample position so splitting blocks never changes it.
         const auto absolute = static_cast<std::int64_t>(std::llround(std::fmod(beat, 1.0e9) * samplesPerBeat));
-        const long long inBar = ((beatIndex % 4) + 4) % 4;
+        const long long inBar = ((beatIndex % bar) + bar) % bar;
         float v = 0.0f;
         // Kick: pitch-swept sine with exponential decay.
         {
@@ -44,8 +45,8 @@ void DemoSource::render(float* const* channels, int numChannels, int numSamples,
             const double phase = twoPi * (50.0 * t + 90.0 * (1.0 - std::exp(-t * 30.0)) / 30.0);
             v += static_cast<float>(0.9 * env * std::sin(phase));
         }
-        // Snare on 2 and 4: noise burst plus a short tone.
-        if (inBar == 1 || inBar == 3)
+        // Snare on the odd beats of the bar (2 and 4 in 4/4): noise burst plus a short tone.
+        if ((inBar & 1) == 1)
         {
             const double env = std::exp(-t * 18.0);
             v += static_cast<float>(0.5 * env * noise(static_cast<std::uint64_t>(absolute) * 7919u));

@@ -4,6 +4,7 @@
 
 #include "core/Scheduler.h"
 #include "core/control/AutoReturn.h"
+#include "core/control/OperationTrims.h"
 #include "core/control/PhaseResolver.h"
 #include "core/control/LaunchPhase.h"
 #include "core/control/PlacementEvaluator.h"
@@ -15,11 +16,16 @@
 #include "core/control/GestureLane.h"
 #include "core/dsp/DemoSource.h"
 #include "core/MidiLinks.h"
+#include "core/dsp/LoopBlob.h"
 #include "core/dsp/LoopSource.h"
+#include "core/dsp/TimeStretcher.h"
+#include "core/dsp/WaveformPeaks.h"
+#include "core/dsp/OutputCapture.h"
 #include "core/variation/CandidateBuilder.h"
 #include "core/dsp/OnsetDetector.h"
 #include "core/dsp/RhythmEngine.h"
 #include "core/scene/AuditionSession.h"
+#include "core/scene/EditCoalescing.h"
 #include "core/scene/MidiNoteMap.h"
 #include "core/scene/SceneBank.h"
 #include "core/scene/SceneSerializer.h"
@@ -71,6 +77,12 @@ public:
     static constexpr const char* bandSlopeId = "bandSlope";
     static constexpr const char* audioTriggerId = "audioTrigger";
     static constexpr const char* audioTriggerSensId = "audioTriggerSens";
+    // Appended for the beta (A06): live trims of the sounding scene's per-operation controls. The IDs are
+    // generated from the operation index (core::control::operationTrimId: "op0Enable", "op0Depth",
+    // "op0Slice", ... one set per operation) and are never renumbered or reused.
+    // Appended for N05 (Chaos macro). Never repurpose.
+    static constexpr const char* chaosId = "chaos";
+    static constexpr const char* loopStretchId = "loopStretch";
     // Appended in the Beta (W3): crossover topology (Classic / Linkwitz-Riley). Never repurpose.
     static constexpr const char* bandTopologyId = "bandTopology";
 
@@ -174,6 +186,10 @@ public:
     void clearMidiLinks();
     // Applies controller movement received since the last call (the processor's timer calls this ~20x/s).
     void servicePendingControllers() { applyMidiLinks(); }
+    // Why the last link attempt failed, for the UI: 0 none, 1 the 64-link table is full. Reading clears it.
+    int consumeMidiLinkNotice() noexcept { return midiLinkNotice.exchange(0, std::memory_order_relaxed); }
+    int getMidiLinkCount() const;
+    static constexpr int midiLinkNoticeTableFull = 1;
     // Live scene edit for controllers: no undo entry per move, refused while a preview is active.
     void setOperationSettingsLive(std::size_t index, groovemorph::core::OperationType op,
                                   const groovemorph::core::OperationSettings& settings);
@@ -205,7 +221,33 @@ public:
     // bars: 1..16, or 0 = automatic. nativeBpm: the loop's own tempo, or 0 = unknown. nativeBpm wins over bars
     // (see core/dsp/LoopImport.h). The file is resampled to the device rate. The result is readable through
     // getLoopBeats()/getLoopBpm() for the UI to report what was decided.
-    juce::Result importLoopFile(const juce::File& file, int bars, double nativeBpm = 0.0);
+    // trimToSeconds > 0 uses only that much of the start of the file (a print with a tail); 0 = whole file.
+    juce::Result importLoopFile(const juce::File& file, int bars, double nativeBpm = 0.0, double trimToSeconds = 0.0);
+
+    // ---- Print to WAV (N04, message thread) ----
+    // Records the processed output for `bars` bars from the next bar line while the transport plays.
+    // The panel polls takePrintResult() (about 20 Hz) and writes the file; see core/dsp/OutputCapture.h.
+    struct PrintResult
+    {
+        juce::AudioBuffer<float> audio;  // stereo, body + optional tail
+        double sampleRate = 48000.0;
+        int bodySamples = 0;             // bar-aligned part (without the tail)
+        int bars = 0;
+        int beatsPerBar = 4;
+        double bpm = 120.0;              // tempo at the start of the print
+        bool wetOnly = false;
+        bool wetOnlyApplied = false;     // false when wet-only was requested but Intensity * Dry/Wet was too small for a block
+        juce::String sceneName;
+    };
+    bool armPrint(int bars, bool wetOnly, bool includeTail);
+    void cancelPrint() noexcept { outputCapture.cancel(); }
+    groovemorph::core::OutputCapture::State getPrintState() const noexcept { return outputCapture.state(); }
+    groovemorph::core::OutputCapture::Failure getPrintFailure() const noexcept { return outputCapture.failure(); }
+    double getPrintProgress() const noexcept { return outputCapture.progress(); }
+    // True once and fills `result` when a print has finished; also acknowledges (frees) an aborted one.
+    bool takePrintResult(PrintResult& result);
+    // Tail length that "Include tail" appends, in seconds.
+    double getPrintTailSeconds() const noexcept { return getTailLengthSeconds(); }
     double getLoopBeats() const noexcept { return loopBeatsStatus.load(std::memory_order_relaxed); }
     double getLoopBpm() const noexcept { return loopBpmStatus.load(std::memory_order_relaxed); }
     // Sets the manual tempo parameter to the loop's native tempo. False when there is no loop or the tempo is out of range.
@@ -214,6 +256,25 @@ public:
     bool hasLoop() const noexcept { return loopSource.hasLoop(); }
     double getLoopSeconds() const noexcept { return loopSeconds.load(std::memory_order_relaxed); }
     void pollLoopCapture();
+    // F09 follow-up (PluginProcessorLoop.cpp). "Stretch to host tempo": a background WSOLA render of the loop
+    // replaces the varispeed buffer when the tempo settles (off by default = beat-locked varispeed).
+    bool isLoopStretchEnabled() const noexcept { return loadStretchFlag(); }
+    double getLoopStretchRatio() const noexcept { return loopStretchRatioStatus.load(std::memory_order_relaxed); }
+    bool isLoopStretchLimited() const noexcept { return loopStretchLimitedStatus.load(std::memory_order_relaxed); }
+    bool isLoopStretchBusy() const noexcept { return stretchWorker.busy(); }
+    // 0 none, 1 the loop is too large to be saved with the project, 2 saving failed, 3 a saved loop could not be restored.
+    int getLoopPersistWarning() const noexcept { return loopPersistWarning.load(std::memory_order_relaxed); }
+    // Waveform overview of the stored loop: min/max columns (0 = no loop). Cached per loop version.
+    int getLoopPeaks(int columns, std::vector<float>& minimums, std::vector<float>& maximums) const;
+    // Playhead 0..1 inside the loop while the loop source is playing, otherwise -1.
+    double getLoopPlayFraction() const noexcept;
+    // Timeline beat at which the stored loop starts (modulo its length).
+    double getLoopOriginBeats() const noexcept { return loopSource.publishedOrigin(); }
+    // Timer work: finished stretch jobs, new jobs after a tempo change, retrying a failed loop publish.
+    void updateLoopStretch();
+    // Project state (getStateInformation / setStateInformation).
+    void appendLoopState(juce::ValueTree& state);
+    void restoreLoopState(juce::ValueTree& restoredState);
     // Gesture lane (F11, message thread): records one phrase of movement of a macro parameter (0 Morph
     // amount, 1 Intensity, 2 Dry/Wet) and plays it back by phrase position at timer rate (~20 Hz).
     void setGestureTarget(int target);
@@ -248,6 +309,21 @@ public:
     std::uint32_t getOnsetCount() const noexcept { return onsetCount.load(std::memory_order_relaxed); }
     // Automatic-return status for the UI: scene index the pending return will switch to, or -1.
     int getAutoReturnTarget() const noexcept { return autoReturnTargetStatus.load(std::memory_order_relaxed); }
+    // ---- N05 Easy mode (implemented in PluginProcessorEasy.cpp) ----
+    // Which editor view is shown. Saved in plugin state (child "Ui"): ON for a fresh instance, OFF for state
+    // saved before N05. Message thread; not a host parameter.
+    bool isEasyMode() const noexcept { return easyMode.load(std::memory_order_relaxed); }
+    void setEasyMode(bool on) noexcept { easyMode.store(on, std::memory_order_relaxed); }
+    // "Surprise me": builds a constrained candidate for the sounding scene, previews it (audition) and keeps
+    // it at the next phrase boundary as one undoable edit. Message thread.
+    enum class SurpriseStatus { Armed, NothingToChange, Busy };
+    [[nodiscard]] SurpriseStatus requestSurprise();
+    void cancelSurprise();          // reverts the pending preview; no-op when nothing is pending
+    bool isSurprisePending() const;
+    void updateSurprise();          // commits at the phrase boundary (processor timer)
+    // Panic: no overlays, no pending changes. Stored scenes, intensity and the transport are untouched.
+    void panicEasy();
+    std::int64_t getPhraseIndex() const noexcept { return phraseIndexStatus.load(std::memory_order_relaxed); }
     // Queues a switch using the current transitionMode parameter.
     void requestVariation(std::size_t index) noexcept;
     void triggerManualSwitch() noexcept { uiTrigger.store(true, std::memory_order_release); }
@@ -343,6 +419,9 @@ private:
         EvolutionPlan evolution{};
     };
 
+    // Message-thread services at 20 Hz (up to ~50 ms late), started lazily by ensureServices(): host Variation
+    // realignment, MIDI macros/links, loop capture publishing, gesture playback and the evolution follow-up.
+    // Rate table: docs/specs/W10-MIDI-PANIC-RATES.md.
     ServiceTimer serviceTimer{[this] { serviceTick(); }};
     void serviceTick()
     {
@@ -350,8 +429,10 @@ private:
         applyMidiMacros();
         applyMidiLinks();
         pollLoopCapture();
+        updateLoopStretch();
         updateGesture();
         updateEvolution();
+        updateSurprise();
     }
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     groovemorph::core::HostTransport readHostTransport() const;
@@ -371,7 +452,13 @@ private:
                        std::size_t variation, float wetAmount, float bypassTarget) noexcept;
     // Effective settings for a scene: morph blend (F02) applied; placement is applied per slice.
     const groovemorph::core::VariationSettings& effectiveSettings(std::size_t variation) noexcept;
+    const groovemorph::core::VariationSettings& morphedSettings(std::size_t variation) noexcept; // F02 result, cached
+    groovemorph::core::VariationSettings effectiveScratch{}; // trims/chaos applied on top of the morph result
     void process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, bool forceBypass) noexcept;
+    // Audio thread: copies the A06 trim parameters into `trims` once per block.
+    void readOperationTrims() noexcept;
+    // Message thread; caller holds modelMutex. Edits of one numeric field within 500 ms share an undo entry.
+    void commitBankCoalescedLocked(const groovemorph::core::scene::SceneBank& next, std::uint64_t key);
 
     // Cache APVTS lookup results once; the callback only loads atomic scalars.
     struct ParameterCache
@@ -396,7 +483,13 @@ private:
         std::atomic<float>* bandTopology = nullptr;
         std::atomic<float>* audioTrigger = nullptr;
         std::atomic<float>* audioTriggerSens = nullptr;
+        // A06 trims, operation-major: [op * trimKindCount + kind].
+        std::array<std::atomic<float>*, groovemorph::core::operationCount * groovemorph::core::control::trimKindCount>
+            operationTrims{};
+        std::atomic<float>* chaos = nullptr;
+        std::atomic<float>* loopStretch = nullptr;
     } cached;
+    bool loadStretchFlag() const noexcept { return cached.loopStretch != nullptr && cached.loopStretch->load(std::memory_order_relaxed) >= 0.5f; }
     juce::AudioParameterBool* bypassParameter = nullptr;
 
     // Message-thread model.
@@ -443,6 +536,7 @@ private:
     groovemorph::core::control::AutoReturn autoReturn;
     int morphTargetIndex = -1;   // -1 = off; scene whose settings are blended in
     float morphWeight = 0.0f;
+    float chaosAmount = 0.0f;    // N05 Chaos macro, read once per block; 0 = no overlay
     // F03/F10 band split (first-order complementary crossover) and F07 audio trigger.
     int bandModeSel = 0;          // 0 full band, 1 protect lows, 2 lows only
     float bandCoefficient = 0.0f;
@@ -497,6 +591,8 @@ private:
     bool phaseNeedsReset = true;  // audio thread: re-resolve the shift for the active scene (Preserve policy)
     double lastPhaseGridBeats = 0.0;
     int previousBandModeSel = 0, previousBandSlopeSel = 0;
+    groovemorph::core::control::OperationTrims trims{}; // audio thread: this block's A06 live trims
+    bool trimsActive = false;                           // false = every trim at its default (identity)
 
     // Audio -> UI.
     std::atomic<bool> prepared{false};
@@ -516,12 +612,43 @@ private:
     std::atomic<int> sourceMode{0};
     groovemorph::core::LoopSource loopSource;
     groovemorph::core::LoopCapture loopCapture;
+    groovemorph::core::OutputCapture outputCapture;           // N04 print to WAV
+    juce::AudioBuffer<float> printScratch;                    // wet-only extraction scratch (prepared with the block size)
+    std::atomic<bool> printWetOnly{false};
+    std::atomic<bool> printWetFallback{false};                // audio thread: some block was recorded as full output
+    juce::String printSceneName;                              // message thread (loopServiceMutex)
+    bool printWetOnlyRequested = false;                       // message thread (loopServiceMutex)
+    int printBars = 0, printBeatsPerBar = 4;                  // message thread (loopServiceMutex)
     std::atomic<double> loopSeconds{0.0};
     // Message-thread copy of the loop at its sample rate, so it survives prepareToPlay (guarded by loopServiceMutex).
     juce::AudioBuffer<float> loopStore;
     double loopStoreRate = 0.0;
     double loopStoreBeats = 0.0;
     bool republishStoredLoop();
+    // Caller holds loopServiceMutex. The stored loop's content (or its published form) changed: invalidate
+    // cached peaks/blob, drop stretch jobs and forget the stretch state.
+    void loopContentChangedLocked();
+    void publishStretchedLoop(const groovemorph::core::StretchWorker::Result& result);
+    double loopStoreOrigin = 0.0;
+    std::atomic<std::uint64_t> loopGeneration{0};
+    groovemorph::core::StretchWorker stretchWorker;
+    double stretchRatioInUse = 1.0;      // ratio of the published or in-flight stretched buffer (guarded by loopServiceMutex)
+    double stretchPublishedRatio = 1.0;
+    std::uint64_t stretchJobId = 0;
+    int stretchStableTicks = 0;
+    double stretchLastTempo = 0.0;
+    bool loopPublishPending = false;      // a finished capture/restored loop is stored but not yet published
+    int loopPublishRetries = 0;
+    std::atomic<double> loopStretchRatioStatus{1.0};
+    std::atomic<bool> loopStretchLimitedStatus{false};
+    std::atomic<double> hostTempoStatus{0.0};
+    std::atomic<double> loopPlayBeatStatus{0.0};
+    std::atomic<int> loopPersistWarning{0};
+    std::vector<std::uint8_t> loopBlobCache;
+    std::uint64_t loopBlobGeneration = ~0ull;
+    mutable std::vector<float> peaksMin, peaksMax;
+    mutable std::uint64_t peaksGeneration = ~0ull;
+    mutable int peaksColumns = 0;
     std::atomic<double> loopBeatsStatus{0.0};
     std::atomic<double> loopBpmStatus{0.0};
     std::atomic<double> sampleRateStatus{48000.0};
@@ -539,11 +666,17 @@ private:
     groovemorph::core::variation::GeneratorSettings evolutionSettings;
     std::uint32_t evolutionStep = 0;
     std::int64_t lastEvolutionPhrase = -1;
+    // N05 Easy mode (guarded by modelMutex except the atomic).
+    std::atomic<bool> easyMode{true};
+    bool surprisePending = false;
+    std::int64_t surprisePhrase = 0;
+    std::uint32_t surpriseAttempt = 0;
     // MIDI links: the audio thread only pushes CC values into the inbox; links are applied by the timer.
     groovemorph::core::CcInbox ccInbox;
     mutable std::mutex midiLinkMutex;
     groovemorph::core::MidiLinkTable midiLinks;
     juce::String midiLearnTarget;
+    std::atomic<int> midiLinkNotice{0};
     void applyMidiLinks();
     void applyLinkedValue(const std::string& target, float normalised);
     std::atomic<bool> midiMacros{false};

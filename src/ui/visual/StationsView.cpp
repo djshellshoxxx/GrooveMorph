@@ -40,7 +40,7 @@ void StationsView::setStages(std::array<viz::StageView, groovemorph::core::opera
     for (const auto& st : stages)
         text << st.name << ": " << (st.state == viz::StageState::Active ? "active" : st.state == viz::StageState::HeldOff ? "held off" : "bypassed")
              << (st.text.empty() ? "" : ", " + juce::String(st.text)) << ". ";
-    setDescription(text);
+    setDescriptionThrottled(*this, descriptionThrottle, text);
     repaint();
 }
 
@@ -123,7 +123,7 @@ void SceneOrbitView::setOrbit(viz::OrbitView o)
         text << juce::String::charToString(static_cast<juce::juce_wchar>('A' + i)) << ": "
              << (n.sounding ? "sounding" : n.queued ? "queued" : "idle") << (n.returnTarget ? ", return target" : "") << ". ";
     }
-    setDescription(text);
+    setDescriptionThrottled(*this, descriptionThrottle, text);
     repaint();
 }
 

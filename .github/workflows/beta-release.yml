@@ -1,0 +1,269 @@
+name: Beta release
+
+# Builds, tests, packages and (optionally) publishes the GrooveMorph BETA PRERELEASE:
+#   Windows x64, macOS arm64, macOS x86_64 (separate native packages) and Linux x86_64,
+#   each with Standalone + VST3 + CLAP.
+#
+# Triggers: manual dispatch, or a pushed tag matching v*-beta*. There is deliberately NO trigger on
+# commit messages and none on branch pushes (the alpha workflows' [publish-alpha] trigger is not reused).
+#
+# Single version source: the VERSION file. A tag must equal "v" + VERSION; a dispatch "version" input,
+# if given, must equal VERSION. To release: edit VERSION, commit, then push the tag (publishes) or
+# dispatch with publish ticked. Dispatch with publish unticked only builds and uploads artifacts.
+#
+# Supersedes windows-alpha.yml and macos-alpha.yml for releases (they stay in place, unchanged).
+# See docs/specs/N06-CLAP-AND-RELEASE.md and docs/beta/RELEASE-PROCESS.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional. Must equal the VERSION file (single source), e.g. 0.2.0-beta.1. Empty = use VERSION.'
+        type: string
+        required: false
+        default: ''
+      publish:
+        description: 'Create/update the GitHub PRERELEASE v<VERSION> with all assets'
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*-beta*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CMAKE_BUILD_TYPE: Release
+
+jobs:
+  prepare:
+    name: Resolve version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      publish: ${{ steps.pub.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check tag / input against VERSION
+        id: v
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: bash tools/package/check-version.sh "$EVENT_NAME" "$REF_NAME" "$INPUT_VERSION"
+      - name: Decide whether to publish
+        id: pub
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+        run: |
+          if [ "$EVENT_NAME" = push ] || [ "$INPUT_PUBLISH" = true ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2022
+            validator: windows
+            cmake_args: '-G "Visual Studio 17 2022" -A x64'
+          - platform: macos-arm64
+            runner: macos-15
+            validator: macos-arm64
+            cmake_args: '-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
+          # macos-13 was retired in Dec 2025; macos-15-intel is the documented native Intel image
+          # (offered by GitHub until Aug 2027).
+          - platform: macos-x86_64
+            runner: macos-15-intel
+            validator: macos-x86_64
+            cmake_args: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
+          # Built on 22.04 for a glibc 2.35 floor. GitHub deprecates this image from 2026-09-17 and
+          # retires it 2027-04-17; then move this leg to `container: ubuntu:22.04` on ubuntu-24.04.
+          - platform: linux-x86_64
+            runner: ubuntu-22.04
+            validator: linux
+            cmake_args: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake git curl zip unzip xvfb \
+            libasound2-dev libjack-jackd2-dev libfreetype6-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxinerama-dev libxrandr-dev \
+            libxext-dev libxrender-dev libgl1-mesa-dev mesa-common-dev libglu1-mesa-dev libgtk-3-dev
+
+      # JUCE (and the CLAP adapter) are fetched by CMake FetchContent into one directory that is cached.
+      # The key hashes cmake/GrooveMorphPins.cmake, so changing a pin invalidates the cache.
+      - name: Choose FetchContent directory
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then d="$(pwd -W)/.fetch"; else d="$(pwd)/.fetch"; fi
+          echo "FETCH_DIR=$d" >> "$GITHUB_ENV"
+      - name: Restore FetchContent cache (JUCE, clap-juce-extensions)
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FETCH_DIR }}
+          key: fetch-${{ matrix.platform }}-${{ hashFiles('cmake/GrooveMorphPins.cmake') }}-v1
+
+      - name: Configure
+        shell: bash
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DGROOVEMORPH_ENABLE_CLAP=ON
+          -DFETCHCONTENT_BASE_DIR="$FETCH_DIR"
+          ${{ matrix.cmake_args }}
+
+      - name: Build Standalone, VST3, CLAP and tests
+        shell: bash
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Run ctest
+        shell: bash
+        run: ctest --test-dir build --build-config Release --output-on-failure --parallel 2 2>&1 | tee ctest.log
+
+      - name: Locate CLAP
+        id: clap
+        shell: bash
+        run: |
+          p="$(find build/GrooveMorphPlugin_artefacts -path '*/CLAP/GrooveMorph.clap' -print -quit)"
+          test -n "$p" || { echo "::error::GrooveMorph.clap was not built"; exit 1; }
+          echo "path=$p" >> "$GITHUB_OUTPUT"
+
+      # Informational and non-blocking: the verdict is written into the package manifest and release notes.
+      - name: clap-validator (pinned 0.4.1, non-blocking)
+        continue-on-error: true
+        shell: bash
+        run: bash tools/package/run-clap-validator.sh "${{ matrix.validator }}" "${{ steps.clap.outputs.path }}" validator-out
+
+      - name: Package (macOS and Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          bash tools/package/package.sh
+          --version "$VERSION" --platform "${{ matrix.platform }}"
+          --build-dir build --out-dir dist
+          --commit "$GITHUB_SHA" --runner "${{ matrix.runner }}" --run-url "$RUN_URL"
+          --ctest-log ctest.log --validator-dir validator-out
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: ./tools/package/package.ps1 -Version $env:VERSION -BuildDir build -OutDir dist -Commit $env:GITHUB_SHA -Runner '${{ matrix.runner }}' -RunUrl $env:RUN_URL -CtestLog ctest.log -ValidatorDir validator-out
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.platform }}
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+            dist/*.status.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.platform }}
+          path: |
+            ctest.log
+            validator-out/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  release:
+    name: Publish prerelease
+    needs: [prepare, build]
+    # Runs only when every matrix leg succeeded (default `needs` semantics) and publishing was requested.
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Refuse to move an existing tag
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          if existing="$(git rev-parse -q --verify "refs/tags/${TAG}^{commit}")"; then
+            if [ "$existing" != "$GITHUB_SHA" ]; then
+              echo "::error::tag $TAG already points at $existing but this run built $GITHUB_SHA. Bump VERSION or dispatch from the tagged commit."
+              exit 1
+            fi
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums and release notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for p in windows-x64 macos-arm64 macos-x86_64 linux-x86_64; do
+            test -f "dist/GrooveMorph-${VERSION}-${p}.zip" || { echo "::error::missing package for ${p}"; exit 1; }
+          done
+          (cd dist && sha256sum GrooveMorph-*.zip > SHA256SUMS && cat SHA256SUMS)
+          bash tools/package/make-release-notes.sh --version "$VERSION" --commit "$GITHUB_SHA" \
+            --run-url "$RUN_URL" --dist-dir dist --output RELEASE-NOTES.md
+
+      - name: Create or update the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          title="GrooveMorph ${VERSION} (Beta)"
+          files=(dist/GrooveMorph-*.zip dist/GrooveMorph-*.zip.sha256 dist/SHA256SUMS RELEASE-NOTES.md)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+              --title "$title" --notes-file RELEASE-NOTES.md
+          else
+            gh release create "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --prerelease --latest=false --title "$title" --notes-file RELEASE-NOTES.md
+          fi

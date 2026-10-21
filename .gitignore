@@ -27,3 +27,8 @@ compile_commands.json
 # Temporary and diagnostic output
 *.log
 *.tmp
+
+# Release packaging outputs and FetchContent cache directory
+/dist/
+/validator-out/
+/.fetch/

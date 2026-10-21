@@ -13,7 +13,7 @@
 
 - Changing the tempo while playing no longer makes the position jump; the beat carries on from where it was.
 - A loop plays at its **original speed when the plugin tempo equals the loop's own tempo**; at other tempos it plays
-  proportionally faster or slower (and its pitch follows, there is no time-stretching).
+  proportionally faster or slower (and its pitch follows) unless **Stretch to host tempo** is on (see [Loops](LOOPS.md)).
 - **Import file**: type the loop's tempo in the **BPM** box if you know it (best, and it keeps any tail or pre-roll in the
   file). Otherwise leave it empty and **Auto bars** picks 1, 2, 4, 8 or 16 bars so that the tempo is nearest your current
   tempo. The message and the loop line show what was decided ("16 beats = 140.0 BPM"). **Set tempo to loop** sets the
@@ -29,7 +29,7 @@ Right-click any slider, drop-down or checkbox:
 | Enter exact value... | Type a number (sliders). Out-of-range values are clamped. |
 | Copy value / Paste value | Copies the number (or the choice, or on/off) to the clipboard and pastes it into any other control. Paste understands numbers in text such as "128.5 bpm". |
 | Reset to default | Back to the control's default. |
-| Link to MIDI controller (learn) | Then move a knob or fader on your MIDI device: the first controller that moves is linked. The control shows an orange outline while waiting and a small "CC n" tag once linked. |
+| Link to MIDI controller (learn) | Then move a knob or fader on your MIDI device: the controller that moves the most is linked. The control shows an orange outline while waiting and a small "CC n" tag once linked. |
 | Re-learn / Unlink MIDI | Change or remove the link. |
 
 What can be linked: every host parameter (intensity, dry/wet, tempo, meter, phrase bars, timing and transition modes,
@@ -43,5 +43,5 @@ Hover any control, effect, tab or Visual-window panel for a plain-language expla
 
 ## Limits
 
-MIDI links use controller (CC) messages only, are applied about 20 times a second (so very fast sweeps are stepped),
+MIDI links use controller (CC) messages only, are applied about 20 times a second (so very fast sweeps are stepped, although a quick pulse is no longer missed),
 and scene links act on the scene that is sounding, not the scene being edited. Not validated in a DAW or with hardware.

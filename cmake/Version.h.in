@@ -1,0 +1,9 @@
+// Generated from cmake/Version.h.in by CMake. Single source of truth: the VERSION file.
+#pragma once
+
+#define GROOVEMORPH_VERSION_STRING "@GM_VERSION_FULL@"
+#define GROOVEMORPH_VERSION_NUMERIC "@GM_VERSION_NUMERIC@"
+// Empty for a final release, otherwise e.g. "beta.1".
+#define GROOVEMORPH_VERSION_PRERELEASE "@GM_VERSION_PRERELEASE@"
+// project(GrooveMorph VERSION ...) as seen by CMake; the test checks it equals the numeric part.
+#define GROOVEMORPH_CMAKE_PROJECT_VERSION "@PROJECT_VERSION@"

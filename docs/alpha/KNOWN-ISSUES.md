@@ -7,10 +7,10 @@ Ranked by severity.
 3. **Sample rates** below 8 kHz or above 384 kHz are rejected by the timing code, so the effects stay bypassed and variation switches do not fire. (The limit was 192 kHz until 2026-10-14.)
 4. **Processor timer (fixed in W3, unverified in a real host).** The 20 Hz service timer now starts lazily (`prepareToPlay`, editor creation, service entry points) through `ServiceTimer`, which is safe to create, start and destroy on any thread (destruction waits out a tick in flight). Evolution steps no longer wait for the timer: the audio thread applies them on the first sample of the phrase. Gesture playback, MIDI links and macros still run at 20 Hz. Covered by `GrooveMorphW3ProcessorTests`.
 5. **Meter/phrase length change.** Events keep their tick positions; events past a shortened phrase wrap around (drawn wrapped) and there is no conflict badge. Use Limit > Events x2 / /2 to rescale (it drops events that would pass the phrase end). Overlap checks follow each lane's loop ring; Reduce still works on the phrase ring.
-6. **Capture/loop limits.** 20 s maximum; capture refuses lengths that would exceed it and stops if the transport stops; a tempo change during recording misaligns the loop length. Loop audio is not saved with the project. Generator history is saved locally on this computer, not in the project. The gesture curve/target, evolution settings and MIDI links are saved with project state. Imported loops are not time-stretched (pitch follows tempo).
+6. **Capture/loop limits.** 20 s maximum; capture refuses lengths that would exceed it and stops if the transport stops; a tempo change (more than 0.1 %) or meter change during recording now aborts the capture with a message. Loop audio is saved with the project (16-bit, up to 20 s; a loop whose compressed form exceeds 10 MiB is not saved and a warning is shown). Generator history is saved locally on this computer, not in the project. The gesture curve/target, evolution settings and MIDI links are saved with project state. Imported loops follow the tempo by varispeed (pitch follows) unless Input > "Stretch to host tempo" is on (WSOLA, off by default, listening quality untested).
 7. **Band split** defaults to the Classic first-order crossover (6 dB/oct); its 12 dB/oct option steepens only the band sent to the effects (not Linkwitz-Riley). Choose Band Topology Linkwitz-Riley 12 or 24 dB/oct for a flat-sum split. Sound quality of both is unverified by listening.
 8. **Audio trigger / macros** use a simple detector and a ~20 Hz parameter write rate; expect false or missed triggers on dense material.
-9. **Host automation.** Slice/placement/limits are scene state, not host parameters. Morph/auto-return/band/trigger/variation are parameters, block-observed. A host in automation-write mode may record the Variation realignment.
+9. **Host automation.** Slice/placement/limits are scene state, not host parameters (beta: per-effect Enable/Depth/Slice can be automated as live trims on the sounding scene, `op<N>Enable/Depth/Slice`; stored scenes are not automatable). Morph/auto-return/band/trigger/variation are parameters, block-observed. A host in automation-write mode may record the Variation realignment.
 10. **Scene sliders apply on release** (depth/slice/placement) to keep one undo step per drag.
 11. **Small screens.** Default 1290x740, minimum 1230x700. The editor now scales itself down to fit the primary display's usable area (not yet confirmed on a Windows machine; the earlier 1024x768 CI screenshot showed it cropped).
 12. **Screenshots:** Linux-rendered via the project's snapshot tool (software rendering of the real editor); the only Windows capture is the CI startup screenshot.
@@ -53,3 +53,15 @@ Known and not fixed:
 - `morph()` takes lane events from scene A only; a held MIDI note can stay stuck after a panic until `reset()`.
 - The release job also runs when a pushed commit message contains `[publish-alpha]`; the binary reports version 0.1.0 while tags carry the run number; no LICENSE or third-party (JUCE) notice ships with the ZIP.
 
+
+## Beta update, workflow and automation worker W10 (2026-10-20)
+
+Fixed in code (core pieces have tests; the editor and processor parts need a JUCE build and have not been run on the authoring machine):
+- A scene note can no longer be silently doubled: a conflicting assignment asks Swap or Cancel (one Undo step). Saved maps with duplicates still load and keep first-match dispatch.
+- MIDI learn links the CC that moved most, notices pulses that return to their start value between two polls, and reports a full 64-link table (status line, message box, greyed menu item).
+- CC 120 and CC 123 release a held trigger note (the "stuck after panic" issue).
+- Per-operation host automation: `op<N>Enable/Depth/Slice` live trims for every operation, default identity (spec `docs/specs/W10-OP-TRIMS.md`).
+- Lane canvas: keyboard cursor and Enter creates events, thin events move on a plain drag (Shift/Alt resize), a badge counts events past the phrase end.
+- Scenes tab no longer claims success when a lock kept fields; slider steps within 500 ms share one undo entry; sliders, combos, buttons and text fields have accessible names and descriptions; Visual window descriptions update at most 4 Hz.
+
+Still open: linked CCs and macros are still applied by the 20 Hz timer (documented in `docs/specs/W10-MIDI-PANIC-RATES.md`); the Visual window draws the untrimmed scene; `s:` links are still ignored during a preview; no screen-reader, DAW or hardware test.

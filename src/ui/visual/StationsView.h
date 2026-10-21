@@ -17,6 +17,7 @@ public:
     void paint(juce::Graphics&) override;
 
 private:
+    groovemorph::core::viz::TextThrottle descriptionThrottle;
     std::array<groovemorph::core::viz::StageView, groovemorph::core::operationCount> stages{};
     juce::String footer;
 };
@@ -30,6 +31,7 @@ public:
     void paint(juce::Graphics&) override;
 
 private:
+    groovemorph::core::viz::TextThrottle descriptionThrottle;
     groovemorph::core::viz::OrbitView orbit;
 };
 } // namespace groovemorph::ui::visual
