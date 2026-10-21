@@ -241,7 +241,10 @@ void PrintPanel::onPrintClicked()
     }
     showMessage({});
     if (!processor.armPrint(bars.getSelectedId(), wetOnly.getToggleState(), includeTail.getToggleState()))
-        showMessage("The print could not start (not ready, or out of memory).");
+    {
+        const auto busy = processor.captureConflict(GrooveMorphAudioProcessor::CaptureKind::Print);
+        showMessage(busy.isNotEmpty() ? busy : juce::String("The print could not start (not ready, or out of memory)."));
+    }
 }
 
 void PrintPanel::timerCallback()

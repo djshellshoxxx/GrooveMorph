@@ -213,6 +213,11 @@ public:
     // Loop capture/import (message thread). Capture records the pre-effect signal for N bars starting
     // on the next bar line while the transport plays; pollLoopCapture() (timer) publishes it.
     bool armLoopCapture(int bars);
+    // The loop source is shared by loop capture, file import (also "Use as loop" for a print), the stretch
+    // renderer and Print. Only one of them may run at a time. Empty when `kind` may start now, otherwise a
+    // sentence that says what is busy. armLoopCapture / armPrint / importLoopFile enforce it themselves.
+    enum class CaptureKind { LoopCapture, LoopImport, Print };
+    juce::String captureConflict(CaptureKind kind) const;
     void cancelLoopCapture() noexcept { loopCapture.cancel(); }
     groovemorph::core::LoopCapture::State getLoopCaptureState() const noexcept { return loopCapture.state(); }
     // Why the last capture produced no loop: 0 none, 1 longer than 20 s, 2 transport stopped.

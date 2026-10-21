@@ -1997,6 +1997,7 @@ void GrooveMorphAudioProcessor::resetToDefaults()
     {
         const std::lock_guard<std::mutex> lock(loopServiceMutex);
         loopCapture.cancel();
+        outputCapture.cancel(); // a running print would otherwise keep recording the loop and scenes that were just reset
     }
     internalPlaying.store(true, std::memory_order_relaxed);
     internalRewind.store(true, std::memory_order_relaxed);
@@ -2018,10 +2019,26 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 // Alpha 2 message-thread services: loop capture/import (F09), gestures (F11), evolution (F05)
 // ---------------------------------------------------------------------------------------
 
+juce::String GrooveMorphAudioProcessor::captureConflict(CaptureKind kind) const
+{
+    const auto printState = outputCapture.state(); // a finished or aborted print no longer reads the loop source
+    const bool printBusy = printState == core::OutputCapture::State::Armed || printState == core::OutputCapture::State::Recording;
+    const bool captureBusy = loopCapture.state() != core::LoopCapture::State::Idle;
+    if (kind == CaptureKind::Print)
+        return captureBusy ? "A loop capture is in progress. Wait for it to finish, or cancel it, then print." : juce::String();
+    if (printBusy)
+        return "A print is in progress and it uses the loop source. Wait for it to finish, or cancel it, then try again.";
+    if (kind == CaptureKind::LoopImport && captureBusy)
+        return "A loop capture is in progress. Wait for it to finish, or cancel it, then import.";
+    return {};
+}
+
 bool GrooveMorphAudioProcessor::armLoopCapture(int bars)
 {
     ensureServices();
     const std::lock_guard<std::mutex> lock(loopServiceMutex);
+    if (captureConflict(CaptureKind::LoopCapture).isNotEmpty())
+        return false;
     return loopCapture.arm(bars, getGridContext().beatsPerBar);
 }
 
@@ -2117,8 +2134,9 @@ bool GrooveMorphAudioProcessor::armPrint(int bars, bool wetOnly, bool includeTai
     const juce::String sceneName = juce::String(bank.variation(index).name);
     const int beatsPerBar = getGridContext().beatsPerBar;
     const std::lock_guard<std::mutex> lock(loopServiceMutex);
-    if (outputCapture.state() != core::OutputCapture::State::Idle)
-        return false; // a running print must keep its own wet-only/fallback state
+    if (outputCapture.state() != core::OutputCapture::State::Idle
+        || captureConflict(CaptureKind::Print).isNotEmpty())
+        return false; // a running print must keep its own wet-only/fallback state; loop capture and print never overlap
     printWetOnly.store(wetOnly, std::memory_order_relaxed); // read by the audio thread only after the capture is armed
     printWetFallback.store(false, std::memory_order_relaxed);
     if (!outputCapture.arm(bars, beatsPerBar, includeTail ? getPrintTailSeconds() : 0.0))
@@ -2162,6 +2180,8 @@ juce::Result GrooveMorphAudioProcessor::importLoopFile(const juce::File& file, i
                                                        double trimToSeconds)
 {
     const std::lock_guard<std::mutex> lock(loopServiceMutex);
+    if (const auto busy = captureConflict(CaptureKind::LoopImport); busy.isNotEmpty())
+        return juce::Result::fail(busy);
     if (bars < 0 || bars > 16)
         return juce::Result::fail("Bars must be automatic or 1-16");
     if (nativeBpm != 0.0 && !(nativeBpm >= 20.0 && nativeBpm <= 400.0))

@@ -46,6 +46,14 @@ void GrooveMorphAudioProcessor::updateLoopStretch()
     std::unique_lock<std::mutex> lock(loopServiceMutex, std::try_to_lock);
     if (!lock.owns_lock() || loopSource.capacitySamples() <= 0)
         return; // busy (import, state restore) or not prepared yet: next tick
+    {
+        // Print records what the loop source plays: the loop must not be swapped (new stretch copy, stretch
+        // switched off, republish after a failed publish) while a print is armed or recording. Finished stretch
+        // jobs wait in the worker and are published right after the print.
+        const auto printState = outputCapture.state();
+        if (printState == core::OutputCapture::State::Armed || printState == core::OutputCapture::State::Recording)
+            return;
+    }
 
     // A stored loop whose publish failed (finished capture, restored project) is kept and retried.
     if (loopPublishPending)

@@ -1889,7 +1889,10 @@ public:
             if (processor.getLoopCaptureState() != groovemorph::core::LoopCapture::State::Idle)
                 processor.cancelLoopCapture();
             else if (!processor.armLoopCapture(barChoice() == 0 ? 2 : barChoice()))
-                message.setText("Capture could not start.", juce::dontSendNotification);
+            {
+                const auto busy = processor.captureConflict(GrooveMorphAudioProcessor::CaptureKind::LoopCapture);
+                message.setText(busy.isNotEmpty() ? busy : juce::String("Capture could not start."), juce::dontSendNotification);
+            }
         };
         importButton.setButtonText("Import file...");
         importButton.setTooltip("Loads a WAV, AIFF, FLAC or OGG file of up to 20 seconds as a loop. Its tempo comes from the BPM box if filled in, otherwise from the bars choice (Auto works it out). It plays locked to the beat grid at the plugin tempo; pitch follows tempo unless 'Stretch to host tempo' is on.");
