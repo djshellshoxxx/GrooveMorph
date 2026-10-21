@@ -505,7 +505,8 @@ void testSnapshotBudget()
 void testHookWorks()
 {
     const NoAllocRegion region;
-    auto* p = new int(3);
+    // volatile: the optimiser must not elide the new/delete pair (Apple clang does), or nothing is counted.
+    int* volatile p = new int(3);
     const auto seen = region.allocations();
     delete p;
     expect("hook counts a deliberate allocation", seen == 1 && region.deallocations() == 1);
