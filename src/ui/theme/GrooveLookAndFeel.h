@@ -60,7 +60,7 @@ public:
     void drawTabAreaBehindFrontButton(juce::TabbedButtonBar&, juce::Graphics&, int w, int h) override;
     int getTabButtonBestWidth(juce::TabBarButton&, int tabDepth) override;
     int getTabButtonOverlap(int tabDepth) override;
-    int getTabButtonSpaceAround(int tabDepth) override;
+    int getTabButtonSpaceAroundImage() override;
 
     // ScrollBar
     void drawScrollbar(juce::Graphics&, juce::ScrollBar&, int x, int y, int width, int height, bool isScrollbarVertical,

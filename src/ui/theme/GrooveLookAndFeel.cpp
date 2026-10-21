@@ -577,7 +577,7 @@ int GrooveLookAndFeel::getTabButtonBestWidth(juce::TabBarButton& button, int)
 }
 
 int GrooveLookAndFeel::getTabButtonOverlap(int) { return 0; }
-int GrooveLookAndFeel::getTabButtonSpaceAround(int) { return 0; }
+int GrooveLookAndFeel::getTabButtonSpaceAroundImage() { return 0; }
 
 // ---------------------------------------------------------------------------------------------------------------
 // ScrollBar
