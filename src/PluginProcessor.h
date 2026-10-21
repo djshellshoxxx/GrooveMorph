@@ -4,6 +4,7 @@
 
 #include "core/Scheduler.h"
 #include "core/control/AutoReturn.h"
+#include "core/control/OperationTrims.h"
 #include "core/control/PhaseResolver.h"
 #include "core/control/PlacementEvaluator.h"
 #include "core/control/VariationBlend.h"
@@ -16,6 +17,7 @@
 #include "core/dsp/OnsetDetector.h"
 #include "core/dsp/RhythmEngine.h"
 #include "core/scene/AuditionSession.h"
+#include "core/scene/EditCoalescing.h"
 #include "core/scene/MidiNoteMap.h"
 #include "core/scene/SceneBank.h"
 #include "core/scene/SceneSerializer.h"
@@ -68,6 +70,9 @@ public:
     static constexpr const char* bandSlopeId = "bandSlope";
     static constexpr const char* audioTriggerId = "audioTrigger";
     static constexpr const char* audioTriggerSensId = "audioTriggerSens";
+    // Appended for the beta (A06): live trims of the sounding scene's per-operation controls. The IDs are
+    // generated from the operation index (core::control::operationTrimId: "op0Enable", "op0Depth",
+    // "op0Slice", ... one set per operation) and are never renumbered or reused.
 
     static constexpr double bypassFadeSeconds = 0.010;
 
@@ -164,6 +169,10 @@ public:
     void clearMidiLinks();
     // Applies controller movement received since the last call (the processor's timer calls this ~20x/s).
     void servicePendingControllers() { applyMidiLinks(); }
+    // Why the last link attempt failed, for the UI: 0 none, 1 the 64-link table is full. Reading clears it.
+    int consumeMidiLinkNotice() noexcept { return midiLinkNotice.exchange(0, std::memory_order_relaxed); }
+    int getMidiLinkCount() const;
+    static constexpr int midiLinkNoticeTableFull = 1;
     // Live scene edit for controllers: no undo entry per move, refused while a preview is active.
     void setOperationSettingsLive(std::size_t index, groovemorph::core::OperationType op,
                                   const groovemorph::core::OperationSettings& settings);
@@ -304,6 +313,10 @@ private:
         bool auditioning = false;
     };
 
+    // Message-thread services, all at the 20 Hz timer started in the constructor (up to ~50 ms late):
+    // host Variation realignment, MIDI macros (CC 20-22), linked controllers and MIDI learn, loop
+    // capture publishing, gesture playback (~20 Hz resolution) and phrase-evolution steps. The audio thread
+    // only records CC values and their travel in ccInbox. Rate table: docs/specs/W10-MIDI-PANIC-RATES.md.
     void timerCallback() override
     {
         syncHostVariationParameter();
@@ -332,6 +345,10 @@ private:
     // Effective settings for a scene: morph blend (F02) applied; placement is applied per slice.
     groovemorph::core::VariationSettings effectiveSettings(std::size_t variation) const noexcept;
     void process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, bool forceBypass) noexcept;
+    // Audio thread: copies the A06 trim parameters into `trims` once per block.
+    void readOperationTrims() noexcept;
+    // Message thread; caller holds modelMutex. Edits of one numeric field within 500 ms share an undo entry.
+    void commitBankCoalescedLocked(const groovemorph::core::scene::SceneBank& next, std::uint64_t key);
 
     // Cache APVTS lookup results once; the callback only loads atomic scalars.
     struct ParameterCache
@@ -355,6 +372,9 @@ private:
         std::atomic<float>* bandSlope = nullptr;
         std::atomic<float>* audioTrigger = nullptr;
         std::atomic<float>* audioTriggerSens = nullptr;
+        // A06 trims, operation-major: [op * trimKindCount + kind].
+        std::array<std::atomic<float>*, groovemorph::core::operationCount * groovemorph::core::control::trimKindCount>
+            operationTrims{};
     } cached;
     juce::AudioParameterBool* bypassParameter = nullptr;
 
@@ -431,6 +451,8 @@ private:
     bool phaseNeedsReset = true;  // audio thread: re-resolve the shift for the active scene (Preserve policy)
     double lastPhaseGridBeats = 0.0;
     int previousBandModeSel = 0, previousBandSlopeSel = 0;
+    groovemorph::core::control::OperationTrims trims{}; // audio thread: this block's A06 live trims
+    bool trimsActive = false;                           // false = every trim at its default (identity)
 
     // Audio -> UI.
     std::atomic<bool> prepared{false};
@@ -478,6 +500,7 @@ private:
     mutable std::mutex midiLinkMutex;
     groovemorph::core::MidiLinkTable midiLinks;
     juce::String midiLearnTarget;
+    std::atomic<int> midiLinkNotice{0};
     void applyMidiLinks();
     void applyLinkedValue(const std::string& target, float normalised);
     std::atomic<bool> midiMacros{false};

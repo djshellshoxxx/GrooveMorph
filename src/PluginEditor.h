@@ -61,6 +61,9 @@ private:
     std::size_t editingIndex = 0;
     groovemorph::core::scene::Variation editedVariation;
     bool refreshing = false, comparingStored = false, draggingMidi = false;
+    bool midiSwapDialogOpen = false;     // A04: a note-swap confirmation is showing
+    juce::uint32 midiNoticeUntil = 0;    // A04: "MIDI link table full" shown in the status line until then
+    juce::uint32 midiEditDue = 0;        // A04: keyboard/wheel note steps are applied after a short pause (0 = none)
     void timerCallback() override;
     static constexpr int inspectorWidth = 470;
     int contentWidth() const noexcept { return getWidth() - inspectorWidth; }

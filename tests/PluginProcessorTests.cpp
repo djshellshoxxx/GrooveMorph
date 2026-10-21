@@ -5,11 +5,14 @@
 #include <cstdlib>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <iostream>
 #include <limits>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 using groovemorph::core::TimingSource;
 namespace Missing = groovemorph::core::MissingField;
@@ -1628,7 +1631,7 @@ int main()
         p.prepareToPlay(48000.0, 256);
         std::unique_ptr<juce::AudioProcessorEditor> editor(p.createEditor());
         editor->setSize(1290, 784);
-        std::vector<juce::String> missing;
+        std::vector<juce::String> missing, unnamed;
         std::function<void(juce::Component&)> walk = [&](juce::Component& c) {
             for (auto* child : c.getChildren())
             {
@@ -1638,6 +1641,9 @@ int main()
                 const bool insideControl = dynamic_cast<juce::Slider*>(&c) != nullptr || dynamic_cast<juce::ComboBox*>(&c) != nullptr;
                 if (interactive && !insideControl)
                 {
+                    // U6: screen readers need a name and, where a tooltip exists, a description.
+                    if (child->getTitle().trim().isEmpty())
+                        unnamed.push_back(juce::String(typeid(*child).name()) + " " + child->getName());
                     auto* client = dynamic_cast<juce::TooltipClient*>(child);
                     const auto tip = client != nullptr ? client->getTooltip() : juce::String();
                     if (tip.trim().length() < 12)
@@ -1659,6 +1665,9 @@ int main()
         for (const auto& m : missing)
             std::cout << "no tooltip: " << m << "\n";
         expect("every control has a tooltip", missing.empty());
+        for (const auto& m : unnamed)
+            std::cout << "no accessible name: " << m << "\n";
+        expect("UI-AX-1 every control has an accessible name", unnamed.empty());
     }
 
     // Audit fixes: a loaded loop survives prepareToPlay (host rate/buffer change); 384 kHz sessions keep timing.
@@ -1751,6 +1760,213 @@ int main()
         expect("paste a copied number into another slider", applyTextToSlider(other, access.paste()) && std::abs(other.getValue() - 0.75) < 1e-9);
         access.copy = savedCopy;
         access.paste = savedPaste;
+    }
+
+
+    // W10 (A04): scene note assignment through the processor is one undo step; a legacy duplicate map loads unchanged.
+    {
+        namespace scene = groovemorph::core::scene;
+        GrooveMorphAudioProcessor p;
+        auto map = p.getSceneBank().midiNoteMap();
+        const auto original = map;
+        expect("A04-08 conflict planned", map.planAssign(0, 62).kind == scene::NoteAssignPlan::Kind::Conflict);
+        expect("A04-08 swap applied", map.assign(0, 62, scene::ConflictChoice::Swap));
+        p.setMidiNoteMap(map);
+        const std::array<int, 4> swapped{62, 61, 60, 63};
+        expect("A04-08 map swapped in the bank", p.getSceneBank().midiNoteMap().notes == swapped);
+        expect("A04-08 one undo reverts both notes", p.undoSceneEdit() && p.getSceneBank().midiNoteMap() == original);
+
+        auto legacy = original;
+        legacy.notes = {60, 60, 62, 63};
+        p.setMidiNoteMap(legacy);
+        juce::MemoryBlock state;
+        p.getStateInformation(state);
+        GrooveMorphAudioProcessor q;
+        q.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+        expect("A04-08 legacy duplicate map loads unchanged", q.getSceneBank().midiNoteMap() == legacy
+                   && q.getLastSceneLoadReport().status == scene::LoadStatus::Ok);
+    }
+
+    // W10 (A04): learn picks the biggest mover and reports a full table instead of failing silently.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        auto sendCcs = [](GrooveMorphAudioProcessor& p, std::initializer_list<std::pair<int, int>> events) {
+            juce::AudioBuffer<float> buf(2, 64);
+            buf.clear();
+            juce::MidiBuffer midi;
+            int at = 0;
+            for (const auto& e : events)
+                midi.addEvent(juce::MidiMessage::controllerEvent(1, e.first, e.second), at++);
+            p.processBlock(buf, midi);
+        };
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 64);
+        p.beginMidiLearn("p:dryWet");
+        sendCcs(p, {{20, 10}, {21, 5}, {21, 125}});
+        p.servicePendingControllers();
+        expect("A04-09 the controller that moved most is linked", p.getMidiLinkCc("p:dryWet") == 21);
+
+        GrooveMorphAudioProcessor full;
+        full.prepareToPlay(48000.0, 64);
+        for (int i = 0; i < 64; ++i)
+            full.linkMidi(i, "p:fake" + juce::String(i));
+        expect("A04-09 table is full", full.getMidiLinkCount() == 64);
+        full.beginMidiLearn("p:dryWet");
+        sendCcs(full, {{70, 100}});
+        full.servicePendingControllers();
+        expect("A04-09 learn on a full table leaves learn mode", full.getMidiLearnTarget().isEmpty()
+                   && full.getMidiLinkCc("p:dryWet") == -1);
+        expect("A04-09 the full table is reported once", full.consumeMidiLinkNotice() == GrooveMorphAudioProcessor::midiLinkNoticeTableFull
+                   && full.consumeMidiLinkNotice() == 0);
+        expect("A04-09 manual link on a full table is reported", !full.linkMidi(1, "p:masterIntensity")
+                   && full.consumeMidiLinkNotice() == GrooveMorphAudioProcessor::midiLinkNoticeTableFull);
+        expect("A04-09 relinking an existing target still works when full", full.linkMidi(100, "p:fake3")
+                   && full.getMidiLinkCc("p:fake3") == 100);
+    }
+
+    // W10: CC 123 / CC 120 release a held trigger note (return to the previous scene), nothing else changes.
+    {
+        namespace scene = groovemorph::core::scene;
+        for (const int panicCc : {123, 120})
+        {
+            GrooveMorphAudioProcessor processor;
+            processor.prepareToPlay(48000.0, 512);
+            FakePlayHead playHead;
+            processor.setPlayHead(&playHead);
+            setParameter(processor, "transitionMode", 0.0f); // Immediate
+            auto map = processor.getSceneBank().midiNoteMap();
+            map.noteOffPolicy = scene::NoteOffPolicy::ReturnToPrevious;
+            processor.setMidiNoteMap(map);
+            std::int64_t sample = 4800;
+            auto run = [&](const juce::MidiMessage& message) {
+                setTransport(playHead, sample);
+                juce::AudioBuffer<float> buffer(2, 512);
+                buffer.clear();
+                juce::MidiBuffer midi;
+                midi.addEvent(message, 10);
+                processor.processBlock(buffer, midi);
+                sample += 512;
+            };
+            run(juce::MidiMessage::noteOn(1, 62, 0.8f));
+            expect("PANIC-1 held note switched the scene", processor.getActiveVariation() == 2);
+            run(juce::MidiMessage::controllerEvent(1, panicCc, 0));
+            expect("PANIC-1 panic returns to the previous scene", processor.getActiveVariation() == 0);
+            run(juce::MidiMessage::noteOff(1, 62));
+            expect("PANIC-1 the late note-off does nothing", processor.getActiveVariation() == 0);
+            run(juce::MidiMessage::controllerEvent(1, panicCc, 0));
+            expect("PANIC-1 panic with nothing held does nothing", processor.getActiveVariation() == 0);
+            processor.setPlayHead(nullptr);
+        }
+    }
+
+    // W10 (A06): trims have stable ids for every operation, default to no effect, never touch stored scenes.
+    {
+        namespace control = groovemorph::core::control;
+        GrooveMorphAudioProcessor p;
+        bool allPresent = true;
+        for (std::size_t op = 0; op < groovemorph::core::operationCount; ++op)
+            for (std::size_t kind = 0; kind < control::trimKindCount; ++kind)
+                allPresent = allPresent && p.parameters.getParameter(
+                    juce::String(control::operationTrimId(op, static_cast<control::TrimKind>(kind)))) != nullptr;
+        expect("A06-06 a trim exists for every operation and kind", allPresent);
+        bool legacyPresent = true;
+        for (const char* id : {"masterIntensity", "dryWet", "manualTempo", "manualMeterNumerator", "manualMeterDenominator",
+                               "phraseBars", "activeVariation", "transitionMode", "timingMode", "bypass", "morphTarget",
+                               "morphAmount", "autoReturnBars", "autoReturnTarget", "autoReturnUnit", "bandMode",
+                               "bandCrossover", "bandSlope", "audioTrigger", "audioTriggerSens"})
+            legacyPresent = legacyPresent && p.parameters.getParameter(id) != nullptr;
+        expect("A06-06 every earlier parameter id still exists", legacyPresent);
+        // The skewed slice range may store its default one ulp away from 1; the overlay treats that as no change.
+        expect("A06-06 defaults", std::abs(p.parameters.getRawParameterValue("op0Depth")->load() - 1.0f) < 1.0e-4f
+                   && std::abs(p.parameters.getRawParameterValue("op0Slice")->load() - 1.0f) < 1.0e-4f
+                   && p.parameters.getRawParameterValue("op0Enable")->load() == 0.0f);
+
+        auto render = [](GrooveMorphAudioProcessor& processor, bool moveTrim, bool restoreTrim) {
+            setParameter(processor, "masterIntensity", 1.0f);
+            setParameter(processor, "activeVariation", 1.0f); // B: gate
+            setParameter(processor, "transitionMode", 0.0f);
+            processor.prepareToPlay(48000.0, 64);
+            FakePlayHead playHead;
+            processor.setPlayHead(&playHead);
+            std::vector<float> out;
+            std::int64_t sample = 0;
+            for (int block = 0; block < 300; ++block)
+            {
+                if (block == 5 && moveTrim)
+                    setParameter(processor, "op2Enable", 1.0f); // gate forced off
+                if (block == 150 && restoreTrim)
+                    setParameter(processor, "op2Enable", 0.0f);
+                setTransport(playHead, sample);
+                juce::AudioBuffer<float> buffer(2, 64);
+                for (int i = 0; i < 64; ++i)
+                    buffer.setSample(0, i, 0.5f * std::sin(0.01f * static_cast<float>(sample + i)));
+                buffer.copyFrom(1, 0, buffer, 0, 0, 64);
+                juce::MidiBuffer midi;
+                processor.processBlock(buffer, midi);
+                for (int i = 0; i < 64; ++i)
+                    out.push_back(buffer.getSample(0, i));
+                sample += 64;
+            }
+            processor.setPlayHead(nullptr);
+            return out;
+        };
+        GrooveMorphAudioProcessor reference, trimmed, untouched;
+        const auto base = render(reference, false, false);
+        const auto moved = render(trimmed, true, false);
+        expect("A06-07 a moved trim changes the sound", base.size() == moved.size() && base != moved);
+        const auto sceneBefore = untouched.getSceneBank();
+        const auto restoredRun = render(untouched, true, true);
+        expect("A06-07 returning the trim to default restores the reference output", [&] {
+            // From the block after the restore the output must match the reference run sample for sample
+            // (the gate has no memory beyond its beat phase, which the transport fixes).
+            const std::size_t from = 200 * 64; // clear of any crossfade after the restore at block 150
+            for (std::size_t i = from; i < base.size(); ++i)
+                if (base[i] != restoredRun[i])
+                    return false;
+            return true;
+        }());
+        expect("A06-07 stored scenes and undo history are untouched", untouched.getSceneBank() == sceneBefore
+                   && !untouched.canUndoSceneEdit());
+
+        // A06-08: a state without trim parameters (saved by an earlier build) restores them to the default.
+        GrooveMorphAudioProcessor source;
+        setParameter(source, "op0Depth", 0.3f);
+        auto tree = source.parameters.copyState();
+        for (std::size_t op = 0; op < groovemorph::core::operationCount; ++op)
+            for (std::size_t kind = 0; kind < control::trimKindCount; ++kind)
+                tree.removeChild(tree.getChildWithProperty("id", juce::String(control::operationTrimId(
+                                     op, static_cast<control::TrimKind>(kind)))), nullptr);
+        juce::MemoryBlock legacy;
+        juce::AudioProcessor::copyXmlToBinary(*tree.createXml(), legacy);
+        GrooveMorphAudioProcessor restored;
+        setParameter(restored, "op0Depth", 0.6f);
+        restored.setStateInformation(legacy.getData(), static_cast<int>(legacy.getSize()));
+        expect("A06-08 trims absent from an old state return to default", restored.parameters.getRawParameterValue("op0Depth")->load() == 1.0f);
+    }
+
+    // W10 (UI-UC-7): twenty slider steps within 500 ms are one undo step.
+    {
+        GrooveMorphAudioProcessor p;
+        expect("UI-UC-7 nothing to undo yet", !p.canUndoSceneEdit());
+        const auto original = p.getSceneBank().variation(0).settings;
+        for (int i = 1; i <= 20; ++i)
+        {
+            auto settings = p.getSceneBank().variation(0).settings;
+            settings.operations[0].depth = 0.003f + 0.04f * static_cast<float>(i);
+            p.setVariationSettings(0, settings);
+        }
+        expect("UI-UC-7 newest value kept", std::abs(p.getSceneBank().variation(0).settings.operations[0].depth - (0.003f + 0.8f)) < 1.0e-5f);
+        expect("UI-UC-7 one undo reverts the run", p.undoSceneEdit() && p.getSceneBank().variation(0).settings.operations[0].depth == original.operations[0].depth
+                   && !p.canUndoSceneEdit());
+        // A toggle in between starts a new entry.
+        auto a = p.getSceneBank().variation(0).settings;
+        a.operations[1].depth = 0.31f; p.setVariationSettings(0, a);
+        a.operations[1].enabled = !a.operations[1].enabled; p.setVariationSettings(0, a);
+        a.operations[1].depth = 0.32f; p.setVariationSettings(0, a);
+        int undos = 0;
+        while (p.undoSceneEdit())
+            ++undos;
+        expect("UI-UC-7 a toggle splits the runs", undos == 3);
     }
 
     if (failures == 0)

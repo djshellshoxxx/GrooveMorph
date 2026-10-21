@@ -247,7 +247,9 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     midiNoteSlider.setNumDecimalPlacesToDisplay(0);
     midiNoteSlider.onDragStart = [this] { draggingMidi = true; };
     midiNoteSlider.onDragEnd = [this] { draggingMidi = false; editMidiMap(); };
-    midiNoteSlider.onValueChange = [this] { if (!draggingMidi) editMidiMap(); };
+    // Keyboard and wheel steps pass through other scenes' notes; wait for a pause so only the note the user
+    // stops on can raise the swap question. Drags and typed values still apply immediately.
+    midiNoteSlider.onValueChange = [this] { if (!draggingMidi && !refreshing) midiEditDue = juce::Time::getMillisecondCounter() + 600; };
     returnOnNoteOff.onClick = [this] { editMidiMap(); };
     addAndMakeVisible(midiNoteSlider);
     addAndMakeVisible(returnOnNoteOff);
@@ -367,13 +369,51 @@ void GrooveMorphAudioProcessorEditor::editName()
 
 void GrooveMorphAudioProcessorEditor::editMidiMap()
 {
-    if (refreshing || audioProcessor.isAuditioning()) return;
+    if (refreshing || audioProcessor.isAuditioning() || midiSwapDialogOpen) return;
+    namespace scene = groovemorph::core::scene;
     auto map = audioProcessor.getSceneBank().midiNoteMap();
-    map.notes[editingIndex] = static_cast<int>(midiNoteSlider.getValue());
     map.noteOffPolicy = returnOnNoteOff.getToggleState()
-        ? groovemorph::core::scene::NoteOffPolicy::ReturnToPrevious
-        : groovemorph::core::scene::NoteOffPolicy::Ignore;
-    audioProcessor.setMidiNoteMap(map);
+        ? scene::NoteOffPolicy::ReturnToPrevious
+        : scene::NoteOffPolicy::Ignore;
+    const int requested = static_cast<int>(midiNoteSlider.getValue());
+    const auto plan = map.planAssign(editingIndex, requested);
+    if (plan.kind != scene::NoteAssignPlan::Kind::Conflict)
+    {
+        (void) map.assign(editingIndex, requested, scene::ConflictChoice::Swap); // Free: just sets the note
+        audioProcessor.setMidiNoteMap(map);
+        return;
+    }
+
+    // A04: another scene already owns the note. Never leave a silent duplicate: ask, and swap on request.
+    audioProcessor.setMidiNoteMap(map); // the note-off policy part of this edit still applies
+    midiSwapDialogOpen = true;
+    const auto bank = audioProcessor.getSceneBank();
+    auto sceneName = [&bank](std::size_t i) {
+        return juce::String::charToString(static_cast<juce::juce_wchar>('A' + i)) + " (" + juce::String(bank.variation(i).name) + ")";
+    };
+    juce::String text;
+    text << "Note " << requested << " already triggers scene " << sceneName(plan.owner) << ".\n\n"
+         << "Swap: scene " << sceneName(editingIndex) << " takes note " << requested << " and scene "
+         << sceneName(plan.owner) << " gets note " << plan.ownerNewNote << ".\n"
+         << "Cancel: nothing changes. A swap is one step in Undo.";
+    const auto index = editingIndex;
+    juce::Component::SafePointer<GrooveMorphAudioProcessorEditor> safe(this);
+    juce::AlertWindow::showAsync(
+        juce::MessageBoxOptions::makeOptionsOkCancel(
+            juce::MessageBoxIconType::QuestionIcon, "Note " + juce::String(requested) + " is already used", text,
+            "Swap", "Cancel", this),
+        [safe, index, requested](int result) {
+            if (safe == nullptr)
+                return;
+            safe->midiSwapDialogOpen = false;
+            if (result == 1)
+            {
+                auto current = safe->audioProcessor.getSceneBank().midiNoteMap();
+                if (current.assign(index, requested, groovemorph::core::scene::ConflictChoice::Swap))
+                    safe->audioProcessor.setMidiNoteMap(current);
+            }
+            safe->refreshSceneControls(); // Cancel: the slider returns to the stored note
+        });
 }
 
 void GrooveMorphAudioProcessorEditor::finishPreview(bool apply)
@@ -386,6 +426,11 @@ void GrooveMorphAudioProcessorEditor::finishPreview(bool apply)
 
 void GrooveMorphAudioProcessorEditor::timerCallback()
 {
+    if (midiEditDue != 0 && static_cast<juce::int32>(juce::Time::getMillisecondCounter() - midiEditDue) >= 0)
+    {
+        midiEditDue = 0;
+        editMidiMap();
+    }
     updateTransportButtons();
     presetBar.refresh();
     timingLabel.setText(describeTiming(audioProcessor), juce::dontSendNotification);
@@ -430,6 +475,16 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
         returnOnNoteOff.setToggleState(bank.midiNoteMap().noteOffPolicy ==
             groovemorph::core::scene::NoteOffPolicy::ReturnToPrevious, juce::dontSendNotification);
     }
+    if (audioProcessor.consumeMidiLinkNotice() == GrooveMorphAudioProcessor::midiLinkNoticeTableFull)
+    {
+        midiNoticeUntil = juce::Time::getMillisecondCounter() + 8000;
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon, "MIDI link table full",
+            "GrooveMorph can hold 64 MIDI links and all 64 are in use, so this control was not linked. "
+            "Right-click a linked control and choose Unlink MIDI to free a slot, then try again.",
+            "OK", this);
+    }
+    if (juce::Time::getMillisecondCounter() < midiNoticeUntil) status << " | MIDI link table full (64): not linked";
     if (juce::Time::getMillisecondCounter() < lockNoticeUntil) status << " | locked field(s) kept (Generator tab > Locks)";
     if (preview) status << (comparingStored ? " | Preview: stored" : " | Preview: edited")
                         << (audioProcessor.isAuditionDirty() ? " (unapplied)" : "");
@@ -449,8 +504,8 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
     copyActiveFxButton.setEnabled(!preview && active != editingIndex);
     undoButton.setEnabled(!preview && audioProcessor.canUndoSceneEdit());
     redoButton.setEnabled(!preview && audioProcessor.canRedoSceneEdit());
-    midiNoteSlider.setEnabled(!preview);
-    returnOnNoteOff.setEnabled(!preview);
+    midiNoteSlider.setEnabled(!preview && !midiSwapDialogOpen);
+    returnOnNoteOff.setEnabled(!preview && !midiSwapDialogOpen);
     cancelButton.setEnabled(queued >= 0);
     // The scheduler captures the request policy; changing the selector does not
     // rewrite it. Keep manual triggering available for any armed request.
@@ -464,7 +519,7 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
         juce::String tooltip("Note ");
         tooltip << *duplicateNote
                 << " is assigned to multiple variations. The first mapped variation wins. "
-                   "Edit one variation's MIDI note to restore independent triggering. "
+                   "Set the note of one of them again (you will be offered a swap) to restore independent triggering. "
                    "Received note events: "
                 << juce::String(audioProcessor.getMidiNoteEventCount());
         midiLabel.setTooltip(tooltip);

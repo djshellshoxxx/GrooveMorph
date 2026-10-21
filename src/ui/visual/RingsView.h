@@ -33,6 +33,7 @@ public:
     void paint(juce::Graphics&) override;
 
 private:
+    groovemorph::core::viz::TextThrottle descriptionThrottle;
     Data data;
 };
 } // namespace groovemorph::ui::visual

@@ -29,7 +29,7 @@ Right-click any slider, drop-down or checkbox:
 | Enter exact value... | Type a number (sliders). Out-of-range values are clamped. |
 | Copy value / Paste value | Copies the number (or the choice, or on/off) to the clipboard and pastes it into any other control. Paste understands numbers in text such as "128.5 bpm". |
 | Reset to default | Back to the control's default. |
-| Link to MIDI controller (learn) | Then move a knob or fader on your MIDI device: the first controller that moves is linked. The control shows an orange outline while waiting and a small "CC n" tag once linked. |
+| Link to MIDI controller (learn) | Then move a knob or fader on your MIDI device: the controller that moves the most is linked. The control shows an orange outline while waiting and a small "CC n" tag once linked. |
 | Re-learn / Unlink MIDI | Change or remove the link. |
 
 What can be linked: every host parameter (intensity, dry/wet, tempo, meter, phrase bars, timing and transition modes,
@@ -43,5 +43,5 @@ Hover any control, effect, tab or Visual-window panel for a plain-language expla
 
 ## Limits
 
-MIDI links use controller (CC) messages only, are applied about 20 times a second (so very fast sweeps are stepped),
+MIDI links use controller (CC) messages only, are applied about 20 times a second (so very fast sweeps are stepped, although a quick pulse is no longer missed),
 and scene links act on the scene that is sounding, not the scene being edited. Not validated in a DAW or with hardware.

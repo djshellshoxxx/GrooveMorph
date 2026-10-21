@@ -16,6 +16,8 @@
 10. [Presets](PRESETS.md): factory and user presets for the whole scene bank, the preset bar, host preset menu, import/export.
 10. [Filter sweep and Bit crush](EFFECTS-SWEEP-CRUSH.md): the two tonal effects.
 10. [Euclidean patterns and chance](EUCLID-AND-CHANCE.md): fill a lane with a Euclidean rhythm and make events play only some of the time, repeatably.
+10. [MIDI notes, MIDI learn and host automation of effects](MIDI-AND-AUTOMATION.md): note swap, learn rules, panic messages, per-effect automation trims, update rates.
+11. [Keyboard editing, event lanes and screen readers](KEYBOARD-AND-ACCESSIBILITY.md): create events with the keyboard, thin events, phrase-end badge, undo steps, accessible names.
 
 ## Scope
 

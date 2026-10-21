@@ -197,6 +197,39 @@ void MenuSupport::paintMidiOverlay(juce::Graphics& g)
     g.drawText(text, tag, juce::Justification::centred);
 }
 
+namespace
+{
+// U6: accessible name and description for the standard controls. Never overwrites a title or description
+// that was set on purpose (the Visual views set their own).
+void nameForAccessibility(juce::Component& c, const juce::String& preferredName)
+{
+    const bool isControl = dynamic_cast<juce::Slider*>(&c) != nullptr || dynamic_cast<juce::ComboBox*>(&c) != nullptr
+                           || dynamic_cast<juce::Button*>(&c) != nullptr || dynamic_cast<juce::TextEditor*>(&c) != nullptr;
+    if (!isControl)
+        return;
+    juce::String tooltip;
+    if (auto* client = dynamic_cast<juce::SettableTooltipClient*>(&c))
+        tooltip = client->getTooltip();
+    if (c.getTitle().isEmpty())
+    {
+        auto name = preferredName.trim();
+        if (name.isEmpty())
+        {
+            if (auto* button = dynamic_cast<juce::Button*>(&c))
+                name = button->getButtonText();
+        }
+        if (name.isEmpty())
+            name = tooltip.upToFirstOccurrenceOf(".", false, false).trim();
+        if (name.isEmpty())
+            name = c.getName();
+        if (name.isNotEmpty())
+            c.setTitle(name);
+    }
+    if (c.getDescription().isEmpty() && tooltip.isNotEmpty())
+        c.setDescription(tooltip);
+}
+} // namespace
+
 void finishControlMenus(juce::Component& root, GrooveMorphAudioProcessor& processor)
 {
     auto nameFrom = [](const juce::String& tooltip, const juce::String& fallback) {
@@ -225,6 +258,14 @@ void finishControlMenus(juce::Component& root, GrooveMorphAudioProcessor& proces
             if (b->info().name.isEmpty())
                 b->info().name = b->getButtonText().isNotEmpty() ? b->getButtonText() : nameFrom(b->getTooltip(), b->getName());
         }
+        juce::String preferred;
+        if (auto* s = dynamic_cast<MenuSlider*>(child))
+            preferred = s->info().name;
+        else if (auto* c = dynamic_cast<MenuComboBox*>(child))
+            preferred = c->info().name;
+        else if (auto* b = dynamic_cast<MenuToggleButton*>(child))
+            preferred = b->info().name;
+        nameForAccessibility(*child, preferred);
         finishControlMenus(*child, processor);
     }
 }
@@ -269,8 +310,14 @@ bool MenuSupport::showMenu(const juce::MouseEvent& e)
     const bool linkable = menu.processor != nullptr && menu.midiTarget.isNotEmpty();
     const int cc = linkable ? menu.processor->getMidiLinkCc(menu.midiTarget) : -1;
     const bool learning = linkable && menu.processor->getMidiLearnTarget() == menu.midiTarget;
+    // A04: a full link table cannot take a new control; say so instead of failing after the user moves a knob.
+    const bool tableFull = linkable && cc < 0
+        && menu.processor->getMidiLinkCount() >= static_cast<int>(groovemorph::core::MidiLinkTable::maxLinks);
     if (learning)
         m.addItem(5, "Cancel MIDI learn");
+    else if (tableFull)
+        m.addItem(5, "Link to MIDI controller (table full, " + juce::String(static_cast<int>(groovemorph::core::MidiLinkTable::maxLinks))
+                         + " links; unlink one first)", false);
     else
         m.addItem(5, linkable ? (cc >= 0 ? "Re-learn MIDI controller (now CC " + juce::String(cc) + ")..." : juce::String("Link to MIDI controller (learn)..."))
                               : juce::String("Link to MIDI (not available for this control)"),

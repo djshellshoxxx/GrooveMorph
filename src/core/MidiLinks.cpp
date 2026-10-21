@@ -26,20 +26,25 @@ bool MidiLinkTable::validTarget(std::string_view t) noexcept
     return false;
 }
 
-bool MidiLinkTable::link(int cc, std::string_view target)
+MidiLinkTable::LinkResult MidiLinkTable::linkChecked(int cc, std::string_view target)
 {
     if (cc < 0 || cc > 127 || !validTarget(target))
-        return false;
+        return LinkResult::Invalid;
     for (auto& e : entries)
         if (e.target == target)
         {
             e.cc = cc;
-            return true;
+            return LinkResult::Ok;
         }
     if (entries.size() >= maxLinks)
-        return false;
+        return LinkResult::TableFull;
     entries.push_back({cc, std::string(target)});
-    return true;
+    return LinkResult::Ok;
+}
+
+bool MidiLinkTable::link(int cc, std::string_view target)
+{
+    return linkChecked(cc, target) == LinkResult::Ok;
 }
 
 void MidiLinkTable::unlink(std::string_view target)
@@ -98,13 +103,24 @@ CcInbox::CcInbox() noexcept
 {
     for (auto& v : latest)
         v.store(-1, std::memory_order_relaxed);
+    for (auto& v : travelTotal)
+        v.store(0, std::memory_order_relaxed);
     seen.fill(-1);
+    seenTravel.fill(0);
 }
 
 void CcInbox::push(int cc, int value) noexcept
 {
-    if (cc >= 0 && cc < 128)
-        latest[static_cast<std::size_t>(cc)].store(static_cast<std::int16_t>(value & 0x7f), std::memory_order_relaxed);
+    if (cc < 0 || cc >= 128)
+        return;
+    const auto i = static_cast<std::size_t>(cc);
+    const int v = value & 0x7f;
+    const int previous = latest[i].load(std::memory_order_relaxed);
+    // The first event of a CC has no previous value; count it as one step so it registers as movement.
+    const int step = previous < 0 ? 1 : (v > previous ? v - previous : previous - v);
+    if (step != 0)
+        travelTotal[i].fetch_add(static_cast<std::uint32_t>(step), std::memory_order_relaxed);
+    latest[i].store(static_cast<std::int16_t>(v), std::memory_order_relaxed);
 }
 
 std::size_t CcInbox::collect(Change* out, std::size_t capacity) noexcept
@@ -112,12 +128,17 @@ std::size_t CcInbox::collect(Change* out, std::size_t capacity) noexcept
     std::size_t n = 0;
     for (std::size_t cc = 0; cc < 128 && n < capacity; ++cc)
     {
+        // Travel first, then the value: a push that lands in between is reported by the next collect().
+        const auto travel = travelTotal[cc].load(std::memory_order_relaxed);
         const auto v = latest[cc].load(std::memory_order_relaxed);
-        if (v >= 0 && v != seen[cc])
+        if (v >= 0 && (v != seen[cc] || travel != seenTravel[cc]))
         {
+            const auto moved = travel - seenTravel[cc]; // unsigned wrap-around is intended
             seen[cc] = v;
+            seenTravel[cc] = travel;
             if (out != nullptr)
-                out[n] = {static_cast<int>(cc), static_cast<int>(v)};
+                out[n] = {static_cast<int>(cc), static_cast<int>(v),
+                          static_cast<int>(std::min<std::uint32_t>(moved, 0x7fffffffu))};
             ++n;
         }
     }
@@ -127,6 +148,22 @@ std::size_t CcInbox::collect(Change* out, std::size_t capacity) noexcept
 void CcInbox::discardPending() noexcept
 {
     for (std::size_t cc = 0; cc < 128; ++cc)
+    {
+        seenTravel[cc] = travelTotal[cc].load(std::memory_order_relaxed);
         seen[cc] = latest[cc].load(std::memory_order_relaxed);
+    }
+}
+
+int pickLearnCc(const CcInbox::Change* changes, std::size_t count) noexcept
+{
+    int best = -1;
+    int bestTravel = 0;
+    for (std::size_t i = 0; changes != nullptr && i < count; ++i)
+        if (changes[i].travel > bestTravel || (changes[i].travel == bestTravel && bestTravel > 0 && changes[i].cc < best))
+        {
+            best = changes[i].cc;
+            bestTravel = changes[i].travel;
+        }
+    return best;
 }
 } // namespace groovemorph::core
