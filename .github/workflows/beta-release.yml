@@ -58,7 +58,7 @@ jobs:
       tag: ${{ steps.v.outputs.tag }}
       publish: ${{ steps.pub.outputs.publish }}
       platforms: ${{ steps.plat.outputs.platforms }}
-      platform_list: ${{ steps.plat.outputs.platform_list }}
+      matrix: ${{ steps.plat.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,13 +78,17 @@ jobs:
         run: |
           p="all"
           if [ "$EVENT_NAME" = workflow_dispatch ] && [ -n "$INPUT_PLATFORMS" ]; then p="$INPUT_PLATFORMS"; fi
+          win='{"platform":"windows-x64","runner":"windows-2022","validator":"windows","cmake_args":"-G \"Visual Studio 17 2022\" -A x64"}'
+          maa='{"platform":"macos-arm64","runner":"macos-15","validator":"macos-arm64","cmake_args":"-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0"}'
+          mai='{"platform":"macos-x86_64","runner":"macos-15-intel","validator":"macos-x86_64","cmake_args":"-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0"}'
+          lin='{"platform":"linux-x86_64","runner":"ubuntu-22.04","validator":"linux","cmake_args":""}'
           case "$p" in
-            all) list='["windows-x64","macos-arm64","macos-x86_64","linux-x86_64"]' ;;
-            windows) list='["windows-x64"]' ;;
+            all) list="[$win,$maa,$mai,$lin]" ;;
+            windows) list="[$win]" ;;
             *) echo "::error::platforms must be 'all' or 'windows', got '$p'"; exit 1 ;;
           esac
           echo "platforms=$p" >> "$GITHUB_OUTPUT"
-          echo "platform_list=$list" >> "$GITHUB_OUTPUT"
+          echo "matrix=$list" >> "$GITHUB_OUTPUT"
       - name: Decide whether to publish
         id: pub
         env:
@@ -105,30 +109,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The platform list comes from the "platforms" input (see the prepare job). The include entries below
-        # only add attributes to the combinations that exist, so legs not listed are never created.
-        platform: ${{ fromJSON(needs.prepare.outputs.platform_list) }}
-        include:
-          - platform: windows-x64
-            runner: windows-2022
-            validator: windows
-            cmake_args: '-G "Visual Studio 17 2022" -A x64'
-          - platform: macos-arm64
-            runner: macos-15
-            validator: macos-arm64
-            cmake_args: '-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
-          # macos-13 was retired in Dec 2025; macos-15-intel is the documented native Intel image
-          # (offered by GitHub until Aug 2027).
-          - platform: macos-x86_64
-            runner: macos-15-intel
-            validator: macos-x86_64
-            cmake_args: '-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
-          # Built on 22.04 for a glibc 2.35 floor. GitHub deprecates this image from 2026-09-17 and
-          # retires it 2027-04-17; then move this leg to `container: ubuntu:22.04` on ubuntu-24.04.
-          - platform: linux-x86_64
-            runner: ubuntu-22.04
-            validator: linux
-            cmake_args: ''
+        # The full matrix (one object per platform) comes from the prepare job, so legs that are not
+        # selected by the "platforms" input are never created.
+        include: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
