@@ -1,4 +1,5 @@
 #include "core/control/PlacementEvaluator.h"
+#include "core/control/Chance.h"
 
 #include <algorithm>
 #include <cmath>
@@ -119,6 +120,10 @@ Targets evaluate(const SceneControl& c, const GridContext& grid, double position
             const double since = positiveMod(opPhase - onset, ring);
             if (windowOpen && !on[e.operation] && since < dur)
             {
+                // N03 chance: one pure decision per lane cycle (the cycle that holds the event onset).
+                if ((e.chance < 100 || c.lane.chanceByOp[e.operation] < 100)
+                    && !eventFires(c.lane, e, static_cast<std::int64_t>(std::floor((q - onset) / ring))))
+                    continue;
                 on[e.operation] = true;
                 scale[e.operation] = std::clamp(e.depth, 0.0f, 1.0f);
                 slice[e.operation] = e.sliceBeats;

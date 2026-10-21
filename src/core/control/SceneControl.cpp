@@ -20,7 +20,7 @@ bool sameEvent(const LaneEvent& a, const LaneEvent& b) noexcept
     return a.operation == b.operation && a.enabled == b.enabled && a.onsetTicks == b.onsetTicks
            && a.durationTicks == b.durationTicks && a.depth == b.depth
            && a.sliceBeats == b.sliceBeats && a.priority == b.priority
-           && a.restartCycle == b.restartCycle && a.locked == b.locked;
+           && a.restartCycle == b.restartCycle && a.locked == b.locked && a.chance == b.chance;
 }
 
 bool validEvent(const LaneEvent& e, std::int64_t phraseTicks) noexcept
@@ -83,7 +83,10 @@ bool sanitize(SceneControl& c, std::int32_t phraseTicksHint) noexcept
         changed = clampFloat(e.sliceBeats, 0.0f, 4.0f, 0.0f) || changed;
         if (e.sliceBeats > 0.0f && e.sliceBeats < 1.0f / 16.0f) { e.sliceBeats = 1.0f / 16.0f; changed = true; }
         if (e.priority > 100) { e.priority = 100; changed = true; }
+        if (e.chance > 100) { e.chance = 100; changed = true; }
     }
+    for (auto& ch : lane.chanceByOp)
+        if (ch > 100) { ch = 100; changed = true; }
     for (auto& l : lane.loopBeats)
         if (l > 64) { l = 64; changed = true; }
     for (auto& l : c.permissions.operationLocks)
@@ -115,7 +118,8 @@ bool sameControl(const SceneControl& a, const SceneControl& b) noexcept
     if (!samePhase(a.phase, b.phase))
         return false;
     if (a.lane.explicitEvents != b.lane.explicitEvents || a.lane.count != b.lane.count
-        || a.lane.loopBeats != b.lane.loopBeats)
+        || a.lane.loopBeats != b.lane.loopBeats || a.lane.chanceByOp != b.lane.chanceByOp
+        || a.lane.chanceSeed != b.lane.chanceSeed)
         return false;
     for (std::size_t i = 0; i < a.lane.count && i < maxLaneEvents; ++i)
         if (!sameEvent(a.lane.events[i], b.lane.events[i]))
@@ -204,6 +208,8 @@ ScaleReport scaleEvents(EventLane& lane, std::int64_t numerator, std::int64_t de
     EventLane scaled;
     scaled.explicitEvents = lane.explicitEvents;
     scaled.loopBeats = lane.loopBeats;
+    scaled.chanceByOp = lane.chanceByOp;
+    scaled.chanceSeed = lane.chanceSeed;
     const auto isLocked = [&permissions](const LaneEvent& e) {
         return e.locked || (permissions.operationLocks[e.operation % laneCount] & lock::events) != 0;
     };
