@@ -15,7 +15,7 @@ namespace groovemorph::core::control
 {
 inline constexpr std::int32_t ticksPerBeat = 960;
 inline constexpr std::size_t maxLaneEvents = 32;
-inline constexpr std::size_t laneCount = 5; // equals operationCount; kept independent of it
+inline constexpr std::size_t laneCount = 7; // equals operationCount (static_assert in OperationParams.h); kept independent of it
 inline constexpr std::uint8_t maxEvery = 64;
 
 enum class WindowMode : std::uint8_t { FullPhrase = 0, Custom = 1, LastBar = 2 };
@@ -55,6 +55,7 @@ struct LaneEvent
     std::uint8_t priority = 50;       // 0..100, higher survives the activity limit
     bool restartCycle = false;        // true: the effect's beat grid restarts at the event onset
     bool locked = false;              // C03 per-event lock: survives generation and edits unchanged
+    std::uint8_t chance = 100;        // N03: percent 0..100 that the event fires in a lane cycle
 };
 
 struct EventLane
@@ -65,6 +66,10 @@ struct EventLane
     // F06 polyrhythm: loop length of each operation's events in meter beats (0 = the phrase).
     // Events of an operation repeat every loopBeats[op] beats, independent of the phrase.
     std::array<std::uint8_t, laneCount> loopBeats{};
+    // N03 chance: per-operation-lane percent (multiplies each event's own chance) and the per-scene
+    // seed of the deterministic decision hash (core/control/Chance.h). 0 = not yet assigned.
+    std::array<std::uint8_t, laneCount> chanceByOp{100, 100, 100, 100, 100};
+    std::uint32_t chanceSeed = 0;
 };
 
 // Field lock bits per operation row (C03).
@@ -86,8 +91,8 @@ struct PermissionConfig
 struct ActivityConfig
 {
     bool enabled = false;
-    std::uint8_t maxConcurrent = 5; // 1..5 operations scheduled at once
-    std::array<std::uint8_t, laneCount> priority{50, 50, 50, 50, 50}; // 0..100, higher wins
+    std::uint8_t maxConcurrent = laneCount; // 1..laneCount operations scheduled at once
+    std::array<std::uint8_t, laneCount> priority{50, 50, 50, 50, 50, 50, 50}; // 0..100, higher wins
     float minSpacingBeats = 0.0f; // 0..4: minimum distance between event starts (Reduce action)
     float maxCoverage = 1.0f;     // 0..1: maximum union of event durations as a phrase fraction
 };

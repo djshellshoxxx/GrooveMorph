@@ -15,10 +15,13 @@ enum class OperationType : std::size_t
     Gate,         // rhythmic volume gate
     HalfTime,     // half-speed playback feel
     TapeStop,     // tape-stop-style rate slowdown curve
+    FilterSweep,  // beat-synced resonant low-pass sweep across each slice (no history)
+    BitCrush,     // slice-synced sample-rate + bit-depth reducer (no history)
     Count
 };
 
 inline constexpr std::size_t operationCount = static_cast<std::size_t>(OperationType::Count);
+static_assert(control::laneCount == operationCount, "SceneControl lane count must match the operation count");
 inline constexpr std::size_t variationCount = 4;
 
 struct OperationSettings

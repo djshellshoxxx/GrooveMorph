@@ -12,7 +12,7 @@
 //
 // A link maps one CC number to one control target:
 //   "p:<parameterId>"      a host parameter (intensity, dry/wet, tempo, morph, ...)
-//   "s:<effect>:<field>"   a scene setting of the sounding scene; effect 0..4, field depth | slice | enabled
+//   "s:<effect>:<field>"   a scene setting of the sounding scene; effect 0..6, field depth | slice | enabled
 // One target has at most one CC; one CC may drive several targets.
 namespace groovemorph::core
 {

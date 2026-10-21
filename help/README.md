@@ -13,10 +13,13 @@
 7. [The Visual window](VISUAL-WINDOW.md): the live picture of what the plugin is doing to the sound (alpha).
 8. [Right-click menu, MIDI links, Play/Stop and Reset](RIGHT-CLICK-AND-MIDI.md): exact values, copy/paste, MIDI learn, the transport buttons, loop tempo.
 9. [Seeded generator and candidate gallery](GENERATOR.md): repeatable options, event-pattern generation, preview/apply and saved local history.
+10. [Presets](PRESETS.md): factory and user presets for the whole scene bank, the preset bar, host preset menu, import/export.
+10. [Filter sweep and Bit crush](EFFECTS-SWEEP-CRUSH.md): the two tonal effects.
+10. [Euclidean patterns and chance](EUCLID-AND-CHANCE.md): fill a lane with a Euclidean rhythm and make events play only some of the time, repeatably.
 
 ## Scope
 
-GrooveMorph is a **rhythmic audio effect** (not an instrument). This version implements four variations A–D, five short-window transformations, wet/dry mixing, master effect intensity (zero = dry), transition quantization, MIDI note triggering, variation audition, undo/redo, host parameter/state persistence, and host/manual timing.
+GrooveMorph is a **rhythmic audio effect** (not an instrument). This version implements four variations A–D, seven transformations (five short-window time effects plus Filter sweep and Bit crush), wet/dry mixing, master effect intensity (zero = dry), transition quantization, MIDI note triggering, variation audition, undo/redo, host parameter/state persistence, and host/manual timing.
 
 The illustrated SVGs in `help/images/` are **source-derived UI diagrams**, **not captured screenshots**. They map to bounds and labels in `src/PluginEditor.cpp` and deliberately distinguish verified controls from imagery. True Windows/Linux screenshots, arrow overlays and visual QA must be captured from a running built binary before calling the image set complete. See [visual guide](VISUAL-GUIDE.md).
 

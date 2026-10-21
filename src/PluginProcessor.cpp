@@ -1282,6 +1282,91 @@ bool GrooveMorphAudioProcessor::redoSceneEdit()
     return true;
 }
 
+int GrooveMorphAudioProcessor::getCurrentProgram()
+{
+    return juce::jmax(0, presetManager.indexOf(getCurrentPresetName()));
+}
+
+juce::String GrooveMorphAudioProcessor::getCurrentPresetName() const
+{
+    const std::lock_guard<std::mutex> lock(modelMutex);
+    return juce::String(currentPresetName);
+}
+
+bool GrooveMorphAudioProcessor::isPresetModified() const
+{
+    const std::lock_guard<std::mutex> lock(modelMutex);
+    return !currentPresetBank.has_value()
+           || !groovemorph::core::preset::sameScenes(undoStack.current(), *currentPresetBank);
+}
+
+void GrooveMorphAudioProcessor::setCurrentPresetName(const juce::String& name)
+{
+    std::optional<groovemorph::core::scene::SceneBank> presetBank;
+    std::string resolved;
+    if (name.isNotEmpty())
+        if (const auto index = presetManager.indexOf(name); index >= 0)
+            if (const auto preset = presetManager.presetAt(index))
+            {
+                resolved = preset->name;
+                presetBank = groovemorph::core::preset::bankOf(*preset);
+            }
+    const std::lock_guard<std::mutex> lock(modelMutex);
+    currentPresetName = presetBank ? resolved : std::string();
+    currentPresetBank = std::move(presetBank);
+}
+
+bool GrooveMorphAudioProcessor::applyPreset(int index)
+{
+    // Message thread (also reached from host program changes, which hosts issue off the audio thread).
+    const auto preset = presetManager.presetAt(index);
+    if (!preset)
+        return false;
+    auto presetBank = groovemorph::core::preset::bankOf(*preset);
+    if (!presetBank)
+        return false;
+    {
+        const std::lock_guard<std::mutex> lock(modelMutex);
+        if (audition.isActive())
+            return false;
+        // One undo entry; the audio thread picks the new snapshot up through the usual handoff.
+        commitBankLocked(groovemorph::core::preset::applyToBank(undoStack.current(), *presetBank));
+        currentPresetName = preset->name;
+        currentPresetBank = std::move(presetBank);
+    }
+    for (const auto& param : preset->params)
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameters.getParameter(juce::String(param.id))))
+        {
+            ranged->beginChangeGesture();
+            ranged->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, param.value));
+            ranged->endChangeGesture();
+        }
+    return true;
+}
+
+PresetManager::Result GrooveMorphAudioProcessor::saveCurrentAsPreset(const juce::String& name, const juce::String& category,
+                                                                      const juce::StringArray& tags, bool overwrite)
+{
+    scene::SceneBank bank;
+    {
+        const std::lock_guard<std::mutex> lock(modelMutex);
+        bank = undoStack.current();
+    }
+    std::vector<std::string> tagList;
+    for (const auto& tag : tags)
+        tagList.push_back(tag.toStdString());
+    std::vector<groovemorph::core::preset::PresetParam> params;
+    for (const char* id : {masterIntensityId, dryWetId, morphTargetId, morphAmountId, bandModeId, bandCrossoverId, bandSlopeId})
+        if (auto* parameter = parameters.getParameter(id))
+            params.push_back({id, parameter->getValue()});
+    auto preset = groovemorph::core::preset::makePreset(name.toStdString(), category.toStdString(), std::move(tagList), bank,
+                                                        "", std::move(params));
+    auto result = presetManager.saveUser(std::move(preset), overwrite);
+    if (result.ok())
+        setCurrentPresetName(presetManager.nameAt(result.index));
+    return result;
+}
+
 bool GrooveMorphAudioProcessor::canUndoSceneEdit() const
 {
     const std::lock_guard<std::mutex> lock(modelMutex);
@@ -1379,6 +1464,12 @@ void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     sceneTree.setProperty(sceneDataProperty, juce::String::fromUTF8(sceneText.data(),
                                                                     static_cast<int>(sceneText.size())),
                           nullptr);
+    {
+        // N02: remember which preset the scenes came from (label only; optional, absent in older states).
+        const std::lock_guard<std::mutex> lock(modelMutex);
+        if (!currentPresetName.empty())
+            sceneTree.setProperty("presetName", juce::String(currentPresetName), nullptr);
+    }
     state.removeChild(state.getChildWithName(sceneTreeType), nullptr);
     state.appendChild(sceneTree, nullptr);
 
@@ -1432,10 +1523,12 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
         return;
 
     std::string sceneText;
+    std::string restoredPresetName;
     const auto sceneTree = restoredState.getChildWithName(sceneTreeType);
     if (sceneTree.isValid())
     {
         sceneText = sceneTree.getProperty(sceneDataProperty).toString().toStdString();
+        restoredPresetName = sceneTree.getProperty("presetName").toString().toStdString();
         restoredState.removeChild(sceneTree, nullptr);
     }
     // Gesture and evolution are optional (absent in older projects) and parsed defensively.
@@ -1502,6 +1595,15 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
         undoStack.reset(result.bank);
         lastLoadReport = std::move(result.report);
         publishSceneLocked();
+        currentPresetName.clear();
+        currentPresetBank.reset();
+        if (const auto presetIndex = presetManager.indexOf(juce::String(restoredPresetName)); presetIndex >= 0)
+            if (const auto preset = presetManager.presetAt(presetIndex))
+                if (auto presetBank = groovemorph::core::preset::bankOf(*preset))
+                {
+                    currentPresetName = preset->name;
+                    currentPresetBank = std::move(presetBank);
+                }
     }
     {
         const std::lock_guard<std::mutex> lock(gestureMutex);
@@ -1541,6 +1643,8 @@ void GrooveMorphAudioProcessor::resetToDefaults()
         audition.revert();
         undoStack.reset(scene::SceneBank{});
         lastLoadReport = {};
+        currentPresetName.clear();
+        currentPresetBank.reset();
         publishSceneLocked();
     }
     setEvolution(false, 0, 1, 0.5f, 1, evolutionSettings.seed);

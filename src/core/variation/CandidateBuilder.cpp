@@ -78,6 +78,8 @@ void generateEventPatterns(const VariationSettings& source, const GeneratorSetti
     control::EventLane generated{};
     generated.explicitEvents = true;
     generated.loopBeats = sourceLane.loopBeats;
+    generated.chanceByOp = sourceLane.chanceByOp; // N03: lane chance and seed survive pattern replacement
+    generated.chanceSeed = sourceLane.chanceSeed;
 
     // Keep event-locked lanes and individually locked events exactly. Other
     // unlocked patterns are intentionally replaced by the generated candidate.

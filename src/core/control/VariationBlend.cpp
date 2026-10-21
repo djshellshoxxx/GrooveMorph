@@ -102,7 +102,7 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
     const auto sameIgnoringLock = [](const LaneEvent& a, const LaneEvent& b) {
         return a.operation == b.operation && a.onsetTicks == b.onsetTicks && a.durationTicks == b.durationTicks
                && a.depth == b.depth && a.sliceBeats == b.sliceBeats && a.priority == b.priority
-               && a.enabled == b.enabled && a.restartCycle == b.restartCycle;
+               && a.enabled == b.enabled && a.restartCycle == b.restartCycle && a.chance == b.chance;
     };
     const auto overlaps = [phraseTicks](const LaneEvent& a, const LaneEvent& b) {
         if (a.operation != b.operation)
@@ -153,6 +153,8 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
         {
             EventLane merged;
             merged.loopBeats = candLane.loopBeats;
+            merged.chanceByOp = candLane.chanceByOp;
+            merged.chanceSeed = candLane.chanceSeed;
             merged.explicitEvents = srcLane.explicitEvents || candLane.explicitEvents;
             const auto push = [&merged](const LaneEvent& e) {
                 if (merged.count < maxLaneEvents)
@@ -179,7 +181,10 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
             }
             for (std::size_t op = 0; op < laneCount; ++op)
                 if (opEventsLocked(static_cast<std::uint8_t>(op)))
+                {
                     merged.loopBeats[op] = srcLane.loopBeats[op];
+                    merged.chanceByOp[op] = srcLane.chanceByOp[op];
+                }
             ++restored;
             candLane = merged;
         }
@@ -195,6 +200,11 @@ std::uint32_t enforcePermissions(const VariationSettings& source, VariationSetti
             if (opProtected && candLane.loopBeats[op] != srcLane.loopBeats[op])
             {
                 candLane.loopBeats[op] = srcLane.loopBeats[op];
+                ++restored;
+            }
+            if (opEventsLocked(op) && candLane.chanceByOp[op] != srcLane.chanceByOp[op]) // Events lock only: a single locked event does not freeze the lane
+            {
+                candLane.chanceByOp[op] = srcLane.chanceByOp[op];
                 ++restored;
             }
         }

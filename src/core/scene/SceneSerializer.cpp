@@ -17,7 +17,10 @@ namespace groovemorph::core::scene
 namespace
 {
 constexpr std::array<std::string_view, operationCount> opKeys{
-    "repeat", "reverse", "gate", "halftime", "tapestop"};
+    "repeat", "reverse", "gate", "halftime", "tapestop", "filtersweep", "bitcrush"};
+
+// First operation index that is serialized only when non-default (FilterSweep and later).
+constexpr std::size_t firstOptionalOp = static_cast<std::size_t>(OperationType::FilterSweep);
 
 std::string formatFloat(float v)
 {
@@ -311,6 +314,14 @@ private:
                 return;
             if (asInt(n)) c.lane.loopBeats[op] = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 64));
         }
+        else if (rest.starts_with("lane.chance."))
+        {
+            std::size_t op = 0;
+            if (!parseIndex(rest.substr(12, 1), op, operationCount) || rest.size() != 13)
+                return;
+            if (asInt(n)) c.lane.chanceByOp[op] = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 100));
+        }
+        else if (rest == "lane.seed") { if (asInt(n)) c.lane.chanceSeed = static_cast<std::uint32_t>(std::clamp<long long>(n, 0, 4294967295LL)); }
         else if (rest == "activity.spacing") asFloat(c.activity.minSpacingBeats);
         else if (rest == "activity.coverage") asFloat(c.activity.maxCoverage);
         else if (rest.starts_with("event."))
@@ -335,6 +346,7 @@ private:
             else if (field == "priority") { if (asInt(n)) e.priority = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 100)); }
             else if (field == "restart") { bool v = false; if (asBool(v)) e.restartCycle = v; }
             else if (field == "locked") { bool v = false; if (asBool(v)) e.locked = v; }
+            else if (field == "chance") { if (asInt(n)) e.chance = static_cast<std::uint8_t>(std::clamp<long long>(n, 0, 100)); }
             return; // committed in finish()
         }
         else if (rest.starts_with("perm.op."))
@@ -346,7 +358,7 @@ private:
         }
         else if (rest == "perm.placement") asBool(c.permissions.placementLocked);
         else if (rest == "activity.enabled") asBool(c.activity.enabled);
-        else if (rest == "activity.max") { if (asInt(n)) c.activity.maxConcurrent = static_cast<std::uint8_t>(std::clamp<long long>(n, 1, 5)); }
+        else if (rest == "activity.max") { if (asInt(n)) c.activity.maxConcurrent = static_cast<std::uint8_t>(std::clamp<long long>(n, 1, static_cast<long long>(control::laneCount))); }
         else if (rest.starts_with("activity.prio."))
         {
             std::size_t op = 0;
@@ -439,6 +451,11 @@ std::string SceneSerializer::serialize(const SceneBank& bank)
         for (std::size_t op = 0; op < operationCount; ++op)
         {
             const auto& s = v.settings.operations[op];
+            // Operations added after the first release are written only when they differ from the
+            // disabled default, so scenes that never use them stay byte-identical to earlier builds.
+            if (op >= firstOptionalOp && !s.enabled && s.depth == OperationSettings{}.depth
+                && s.sliceBeats == OperationSettings{}.sliceBeats)
+                continue;
             const std::string p = prefix + "op." + std::string(opKeys[op]) + ".";
             line(p + "enabled", s.enabled ? "1" : "0");
             line(p + "depth", formatFloat(s.depth));
@@ -485,6 +502,8 @@ std::string SceneSerializer::serialize(const SceneBank& bank)
             line(ep + "priority", std::to_string(e.priority));
             line(ep + "restart", e.restartCycle ? "1" : "0");
             line(ep + "locked", e.locked ? "1" : "0");
+            if (e.chance != 100)
+                line(ep + "chance", std::to_string(e.chance));
         }
         for (std::size_t op = 0; op < operationCount; ++op)
         {
@@ -493,6 +512,11 @@ std::string SceneSerializer::serialize(const SceneBank& bank)
         }
         for (std::size_t op = 0; op < operationCount; ++op)
             line(prefix + "lane.loop." + std::to_string(op), std::to_string(c.lane.loopBeats[op]));
+        for (std::size_t op = 0; op < operationCount; ++op)
+            if (c.lane.chanceByOp[op] != 100)
+                line(prefix + "lane.chance." + std::to_string(op), std::to_string(c.lane.chanceByOp[op]));
+        if (c.lane.chanceSeed != 0)
+            line(prefix + "lane.seed", std::to_string(c.lane.chanceSeed));
         line(prefix + "activity.spacing", formatFloat(c.activity.minSpacingBeats));
         line(prefix + "activity.coverage", formatFloat(c.activity.maxCoverage));
         line(prefix + "perm.placement", c.permissions.placementLocked ? "1" : "0");
