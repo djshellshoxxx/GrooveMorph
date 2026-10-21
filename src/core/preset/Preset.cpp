@@ -15,8 +15,8 @@ namespace groovemorph::core::preset
 {
 namespace
 {
-constexpr std::array<std::string_view, 7> allowedParams{
-    "masterIntensity", "dryWet", "morphTarget", "morphAmount", "bandMode", "bandCrossover", "bandSlope"};
+constexpr std::array<std::string_view, 8> allowedParams{
+    "masterIntensity", "dryWet", "morphTarget", "morphAmount", "bandMode", "bandCrossover", "bandSlope", "bandTopology"};
 
 std::string_view trimSpaces(std::string_view s) noexcept
 {

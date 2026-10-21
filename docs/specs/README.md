@@ -74,6 +74,7 @@ the F-specs above (F02, F03, F06, F09, F10, C04, C05) and may add `docs/specs/W3
 1. Host parameter IDs are append-only (`ParameterID` version hint 1). Never reorder, rename, reuse or lengthen an existing choice list (hosts store normalised values). Existing IDs:
    `masterIntensity`, `manualTempo`, `manualMeterNumerator`, `manualMeterDenominator`, `phraseBars`, `dryWet`, `activeVariation`, `transitionMode`, `bypass`, `timingMode`, `morphTarget`, `morphAmount`,
    `autoReturnBars`, `autoReturnTarget`, `autoReturnUnit`, `bandMode`, `bandCrossover`, `bandSlope`, `audioTrigger`, `audioTriggerSens` (in layout order, `createParameterLayout()`).
+   The complete current table (generated, 44 rows including the per-operation trims, Chaos, Loop Stretch and Band Topology): [PARAMETER-TABLE.md](PARAMETER-TABLE.md); regenerate with `python3 tools/gen_parameter_table.py`.
 2. Scene format stays `groovemorph-scenes v1`; new scene keys are optional and written only when non-default; old files load unchanged; add a legacy-fixture test when touching serialization.
 3. Project state root `GrooveMorphState` has children `SceneBank`, `Gesture`, `Evolution`, `MidiLinks`; new children are optional (W4 adds `Loop`, W5/W8 may add their own). Load limit is 1 MiB unless a spec raises it explicitly.
 4. The audio thread allocates nothing, takes no locks, does no I/O and never calls the host; message-thread services use `modelMutex`, `gestureMutex`, `loopServiceMutex`, `midiLinkMutex`.

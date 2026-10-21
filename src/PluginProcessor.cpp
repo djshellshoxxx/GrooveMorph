@@ -1680,7 +1680,7 @@ PresetManager::Result GrooveMorphAudioProcessor::saveCurrentAsPreset(const juce:
     for (const auto& tag : tags)
         tagList.push_back(tag.toStdString());
     std::vector<groovemorph::core::preset::PresetParam> params;
-    for (const char* id : {masterIntensityId, dryWetId, morphTargetId, morphAmountId, bandModeId, bandCrossoverId, bandSlopeId})
+    for (const char* id : {masterIntensityId, dryWetId, morphTargetId, morphAmountId, bandModeId, bandCrossoverId, bandSlopeId, bandTopologyId})
         if (auto* parameter = parameters.getParameter(id))
             params.push_back({id, parameter->getValue()});
     auto preset = groovemorph::core::preset::makePreset(name.toStdString(), category.toStdString(), std::move(tagList), bank,

@@ -12,7 +12,7 @@ One-click recall of a whole scene bank (four scenes A-D) from a built-in factory
 
 Limits: name 1..48 chars, category 0..24, author 0..48, tag 1..24 chars. All strings printable ASCII (others become `_`), no commas in tags, tags lower-cased, trimmed, de-duplicated. File size cap 512 KiB (a bank with every lane at capacity is about 350 KB). User preset count cap 512.
 
-Optional parameters (`params`): normalised 0..1 host values for a fixed whitelist: `masterIntensity`, `dryWet`, `morphTarget`, `morphAmount`, `bandMode`, `bandCrossover`, `bandSlope`. Anything else is ignored on parse. Absent = leave the current value alone. Timing, transport, auto-return and trigger parameters are never part of a preset.
+Optional parameters (`params`): normalised 0..1 host values for a fixed whitelist: `masterIntensity`, `dryWet`, `morphTarget`, `morphAmount`, `bandMode`, `bandCrossover`, `bandSlope`, `bandTopology` (appended by the A2 audit; older files simply lack it). Anything else is ignored on parse. Absent = leave the current value alone. Timing, transport, auto-return and trigger parameters are never part of a preset.
 
 What a preset applies: the four scenes (names, operation settings, placement, lane, permissions, activity, phase). It does NOT replace the MIDI note map, the active scene, or the seed of the current bank.
 

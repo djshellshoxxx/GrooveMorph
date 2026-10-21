@@ -17,7 +17,7 @@ gestures, no screenshots (UI cannot be built on the authoring machine; CI compil
 
 | Item | ID / key | Range | Default | Notes |
 |---|---|---|---|---|
-| Chaos macro | APVTS float `chaos`, version 1, name "Chaos" | 0..1 | 0 | Appended last in `createParameterLayout`. Never reuse or reorder. |
+| Chaos macro | APVTS float `chaos`, version 1, name "Chaos" | 0..1 | 0 | Appended in `createParameterLayout` after the trims; later parameters follow it. Never reuse or reorder. |
 | Easy mode toggle | state child `Ui`, property `easyMode` (bool) | - | see below | Editor/UI state, not a parameter, not automatable. |
 | First-run guide seen | user settings file (`GrooveMorph.settings`), key `easy.guideSeen` | bool | false | Per user, not per project. |
 
@@ -175,7 +175,7 @@ the guide still works for the session.
 | N05-C4 | Locks respected: enable/depth/slice/events bits, per-event locks, placement lock, protected regions, never-touch mask; `enforcePermissions` restores nothing | `ChaosMapperTests` |
 | N05-C5 | Output stays valid (ranges, <= 32 events, no same-operation overlap, sanitize is a no-op); stored events kept | `ChaosMapperTests` |
 | N05-C6 | Chaos 1 enables every unlocked operation and never lengthens a slice | `ChaosMapperTests` |
-| N05-C7 | `chaos` parameter exists, default 0, range 0..1, is the last parameter; legacy state restores it to 0 | `PluginProcessorTests` (CI only) |
+| N05-C7 | `chaos` parameter exists, default 0, range 0..1, is appended after every earlier parameter (later appends follow it, see PARAMETER-TABLE.md); legacy state restores it to 0 | `PluginProcessorTests` (CI only) |
 | N05-C8 | With chaos > 0 the stored bank, undo depth and saved scene state are unchanged | `PluginProcessorTests` (CI only) |
 | N05-S1 | `buildSurprise` deterministic; different attempts differ; result audible and different from stored | `SurpriseTests` |
 | N05-S2 | Surprise respects locks, returns `ok = false` when everything is locked | `SurpriseTests` |

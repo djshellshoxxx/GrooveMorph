@@ -118,6 +118,15 @@ int main()
         control::applyLiveOverlays(again, &trims, &chaos);
         expect("O5 deterministic", equal(again, both));
     }
+    // P1: the crossover topology travels with a preset like the other band parameters.
+    {
+        const auto p = preset::makePreset("Band", "Stutter", {}, SceneBank{}, "", {{"bandTopology", 1.0f}, {"bandSlope", 0.0f}});
+        const auto parsed = preset::parsePreset(preset::serializePreset(p));
+        bool found = false;
+        for (const auto& param : parsed.preset.params)
+            found = found || (param.id == "bandTopology" && param.value == 1.0f);
+        expect("P1 bandTopology survives a preset round trip", parsed.ok && found);
+    }
     std::cout << (failures == 0 ? "WiringAuditTests passed\n" : "WiringAuditTests FAILED\n");
     return failures == 0 ? 0 : 1;
 }
