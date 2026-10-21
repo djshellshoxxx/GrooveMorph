@@ -27,9 +27,9 @@ void drawPanel(juce::Graphics& g, juce::Rectangle<float> b, const juce::String& 
 
 StationsView::StationsView()
 {
-    setTooltip("Chain Stations: the five effects in signal order, with how much each is applied now and whether it is active, held off by placement or limits, stopped, or bypassed.");
+    setTooltip("Chain Stations: the seven effects in signal order, with how much each is applied now and whether it is active, held off by placement or limits, stopped, or bypassed.");
     setTitle("Chain stations");
-    setDescription("The five effects in signal order and what each is doing now.");
+    setDescription("The seven effects in signal order and what each is doing now.");
 }
 
 void StationsView::setStages(std::array<viz::StageView, groovemorph::core::operationCount> s, juce::String note)
@@ -50,7 +50,7 @@ void StationsView::paint(juce::Graphics& g)
     drawPanel(g, b, "CHAIN STATIONS", "the real signal path, in order: what each stage is doing right now");
     const float top = 56.0f, bottom = b.getHeight() - 30.0f;
     const float gap = 10.0f;
-    const float cell = (b.getWidth() - 32.0f - gap * 4.0f) / 5.0f;
+    const float cell = (b.getWidth() - 32.0f - gap * static_cast<float>(stages.size() - 1)) / static_cast<float>(stages.size());
     // The pipe the audio flows through.
     g.setColour(palette::line);
     g.drawLine(12.0f, (top + bottom) * 0.5f, b.getWidth() - 12.0f, (top + bottom) * 0.5f, 8.0f);
