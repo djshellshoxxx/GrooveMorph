@@ -13,7 +13,7 @@
 
 - Changing the tempo while playing no longer makes the position jump; the beat carries on from where it was.
 - A loop plays at its **original speed when the plugin tempo equals the loop's own tempo**; at other tempos it plays
-  proportionally faster or slower (and its pitch follows, there is no time-stretching).
+  proportionally faster or slower (and its pitch follows) unless **Stretch to host tempo** is on (see [Loops](LOOPS.md)).
 - **Import file**: type the loop's tempo in the **BPM** box if you know it (best, and it keeps any tail or pre-roll in the
   file). Otherwise leave it empty and **Auto bars** picks 1, 2, 4, 8 or 16 bars so that the tempo is nearest your current
   tempo. The message and the loop line show what was decided ("16 beats = 140.0 BPM"). **Set tempo to loop** sets the

@@ -99,6 +99,8 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         src/ui/FirstRunGuide.cpp
         src/ui/InspectorPanel.cpp
         src/ui/EuclidPanel.cpp
+        src/PluginProcessorLoop.cpp
+        src/ui/WaveformView.cpp
         src/ui/ControlMenu.cpp
         src/ui/visual/VisualWindow.cpp
         src/ui/visual/WeaveView.cpp

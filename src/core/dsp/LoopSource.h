@@ -8,7 +8,8 @@ namespace groovemorph::core
 {
 // Beat-locked loop playback source (F09 import/capture). The loop covers `loopBeats` meter beats and
 // is read from the timeline position, so it follows seeks, loops and tempo changes (pitch follows
-// tempo: there is no time stretching in this alpha).
+// tempo). The processor can instead publish a pitch-preserving stretched copy (TimeStretcher), which is
+// loaded here like any other buffer.
 //
 // Threading: load() runs on the message thread and fills the buffer that was NOT last published,
 // then publishes it with a release store; render() runs on the audio thread, reads only the
@@ -33,6 +34,22 @@ public:
     [[nodiscard]] std::int64_t capacitySamples() const noexcept { return capacity; }
     [[nodiscard]] bool hasLoop() const noexcept { return active.load(std::memory_order_acquire) >= 0; }
     [[nodiscard]] double loopBeats() const noexcept { return beats[0].load(std::memory_order_relaxed); }
+    // Message thread: length and origin of the published loop (0 when none).
+    [[nodiscard]] std::int64_t publishedSamples() const noexcept
+    {
+        const int a = active.load(std::memory_order_acquire);
+        return a >= 0 ? length[a].load(std::memory_order_relaxed) : 0;
+    }
+    [[nodiscard]] double publishedBeats() const noexcept
+    {
+        const int a = active.load(std::memory_order_acquire);
+        return a >= 0 ? beats[a].load(std::memory_order_relaxed) : 0.0;
+    }
+    [[nodiscard]] double publishedOrigin() const noexcept
+    {
+        const int a = active.load(std::memory_order_acquire);
+        return a >= 0 ? origin[a].load(std::memory_order_relaxed) : 0.0;
+    }
 
     // Audio thread. Overwrites the channels with the loop at the given timeline position.
     // Returns false (buffer untouched) when there is no loop or the timing is invalid.
@@ -72,12 +89,17 @@ public:
     void release() noexcept { stateValue.store(static_cast<int>(State::Idle), std::memory_order_release); }
     // Audio thread: the transport stopped mid-recording.
     void abort() noexcept;
-    // Why the last capture ended without a loop: 0 none, 1 would exceed 20 s, 2 transport stopped.
+    // Why the last capture ended without a loop: 0 none, 1 would exceed 20 s, 2 transport stopped,
+    // 3 tempo changed while recording, 4 meter changed, 5 the finished capture could not be published
+    // (it is kept and retried; set by the processor).
     [[nodiscard]] int failure() const noexcept { return failureReason.load(std::memory_order_relaxed); }
+    void setFailure(int reason) noexcept { failureReason.store(reason, std::memory_order_relaxed); }
 
-    // Audio thread. channels = the signal to record (read only).
+    // Audio thread. channels = the signal to record (read only). beatsPerBar > 0 is the current meter:
+    // a capture armed with another meter is abandoned (failure 4). A samples-per-beat drift of more than
+    // 0.1 % from the start of recording aborts it (failure 3).
     void process(const float* const* channels, int numChannels, int numSamples, double beatAtStart,
-                 double samplesPerBeat, bool playing) noexcept;
+                 double samplesPerBeat, bool playing, int beatsPerBar = 0) noexcept;
 
 private:
     std::vector<float> data[2];
@@ -91,5 +113,6 @@ private:
     std::atomic<double> startBeatValue{0.0};
     std::int64_t target = 0;
     std::int64_t written = 0;
+    double startSamplesPerBeat = 0.0;
 };
 } // namespace groovemorph::core
