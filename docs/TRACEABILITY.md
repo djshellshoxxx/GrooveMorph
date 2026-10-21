@@ -66,3 +66,18 @@ All evidence below is automated Linux tests plus CI; nothing here was validated 
 | N05 Easy mode / Chaos / Surprise me / guide | `docs/specs/N05-EASY-MODE.md`; `core/control/ChaosMapper`, `core/variation/Surprise`, `core/easy/*` (portable); `ui/EasyView`, `ui/FirstRunGuide`, `PluginProcessorEasy.cpp` (JUCE); `chaos` APVTS parameter and `Ui` state child | `ChaosMapperTests` (N05-C1 to C6), `SurpriseTests` (S1, S2), `EasyViewTests` (E2 to E4), `PluginProcessorTests` N05 block (C7, C8, S3, E1, panic, legacy state) | UI behavior (N05-U1) has no automated test; no screenshots or listening checks; processor tests need a JUCE build |
 | F09 loop stretch, persistence, waveform (W4, spec `docs/specs/W4-LOOP-STRETCH-PERSIST.md`) | `TimeStretcher` (WSOLA + `StretchWorker` + `planStretch`), `LoopBlob` (versioned CRC-checked state blob), `WaveformPeaks`, `LoopCapture` tempo/meter abort, `DemoSource` meter; processor: `PluginProcessorLoop.cpp`, `loopStretch` parameter, `LoopAudio` state child; UI `WaveformView` on the Input tab | `TimeStretcherTests` (length, pitch within 10 cents, energy, seam, worker, planning), `LoopBlobTests` (round trip, hostile blobs, state limit, peaks, grid), `LoopCaptureHardeningTests`, `PluginProcessorTests` (state round trip, hostile LoopAudio, stretch ratio) | No listening or DAW test of stretch quality; waveform drawing and Input-tab layout not visually verified; macOS/Windows native runs pending |
 | N04 Print to WAV | `OutputCapture` (bar-aligned processed-output capture, bounded, RT-safe), `PrintNaming` (file names), `PrintPanel` (Print tab: 24-bit WAV, folder, list of 20, drag-out, reveal, delete, use as loop), processor hooks in `renderSegment`/`armPrint`/`takePrintResult` | `OutputCaptureTests` (N04-C01..C11), `PrintNamingTests` (N04-N01/N02), `PluginProcessorTests` print block (N04 print block, built and run locally), spec `docs/specs/N04-PRINT-TO-WAV.md` | Drag into a DAW (N04-U02) and Print-tab GUI behaviour (N04-U01) not verified in a host |
+
+## W3 dsp/control completions (2026-10-20)
+
+| Item | Implementation | Verification |
+|---|---|---|
+| C04 per-scene smoothing and request-time phase capture | `PhaseConfig::smoothingMs`, `LaunchPhase`, `RhythmTiming::crossfadeSeconds` | `TransitionSmoothingTests`, `EngineGoldenTests` (3 ms bit-identical), `W3ControlTests`, `GrooveMorphW3ProcessorTests` |
+| F03/F10 Linkwitz-Riley split | `core/dsp/Crossover`, `bandTopology` parameter | `CrossoverTests`, `GrooveMorphW3ProcessorTests` (NaN on every mode/topology) |
+| C06 loop-aware Reduce | `reduceEvents` | `W3ControlTests` |
+| C05 Dry return | `AutoReturn::armDry`, processor overlay | `W3ControlTests`, `GrooveMorphW3ProcessorTests` |
+| 256 events / 8 regions | `maxLaneEvents`, `maxProtectedRegions`, `uint16_t count` | `SceneControlTests`, `W3ControlTests`, processor state round trip |
+| Input sanitizing | `dsp::sanitizeBlock` at input and output | `W3ControlTests`, `GrooveMorphW3ProcessorTests` |
+| F02 morph of placement, events, regions, locks | `control::morph` | `MorphControlTests`, `GrooveMorphW3ProcessorTests` |
+| Timer safety and phrase-exact evolution | `ServiceTimer`, evolution plan in `PublishedScene` | `GrooveMorphW3ProcessorTests` |
+
+Not verified: any real host, audio device or listening test; sanitizer builds (ASan/UBSan) were not run for W3.

@@ -14,7 +14,7 @@
 namespace groovemorph::core::control
 {
 inline constexpr std::int32_t ticksPerBeat = 960;
-inline constexpr std::size_t maxLaneEvents = 32;
+inline constexpr std::size_t maxLaneEvents = 256; // W3: spec capacity (was 32)
 inline constexpr std::size_t laneCount = 7; // equals operationCount (static_assert in OperationParams.h); kept independent of it
 inline constexpr std::uint8_t maxEvery = 64;
 
@@ -26,7 +26,7 @@ struct ProtectedRegion
     std::int32_t startTicks = 0;
     std::int32_t lengthTicks = 0; // [1, phraseTicks]
 };
-inline constexpr std::size_t maxProtectedRegions = 4;
+inline constexpr std::size_t maxProtectedRegions = 8; // W3: spec capacity (was 4)
 
 struct PlacementConfig
 {
@@ -61,7 +61,7 @@ struct LaneEvent
 struct EventLane
 {
     bool explicitEvents = false; // false: legacy uniform (operations active whole phrase)
-    std::uint8_t count = 0;
+    std::uint16_t count = 0; // 0..maxLaneEvents (256 does not fit in 8 bits)
     std::array<LaneEvent, maxLaneEvents> events{};
     // F06 polyrhythm: loop length of each operation's events in meter beats (0 = the phrase).
     // Events of an operation repeat every loopBeats[op] beats, independent of the phrase.
@@ -109,6 +109,9 @@ struct PhaseConfig
 {
     PhasePolicy policy = PhasePolicy::Preserve;
     float offsetBeats = 0.0f; // -4..4 meter beats, added after the policy, step 1/16
+    // W3 (C04 smoothing): cross-fade length of read-position jumps while this scene sounds, in ms.
+    // 0 = engine default (3 ms, legacy behavior), 0 < v <= 250 explicit. See docs/specs/W3-C04-SMOOTHING.md.
+    float smoothingMs = 0.0f;
 };
 
 struct SceneControl
@@ -145,8 +148,8 @@ enum class ReduceStatus : std::uint8_t { Valid, ConflictLocked };
 struct ReduceReport
 {
     ReduceStatus status = ReduceStatus::Valid;
-    std::uint8_t kept = 0;
-    std::uint8_t dropped = 0;
+    std::uint16_t kept = 0;
+    std::uint16_t dropped = 0;
     float coverage = 0.0f; // union of kept enabled events / phrase, after reduction
     std::uint8_t peakConcurrent = 0;
 };
@@ -161,9 +164,9 @@ ReduceReport reduceEvents(EventLane& lane, const ActivityConfig& config,
 // dropped and counted. Locked events (per-event or Events lock) keep their exact position.
 struct ScaleReport
 {
-    std::uint8_t scaled = 0;
-    std::uint8_t dropped = 0;
-    std::uint8_t skippedLocked = 0;
+    std::uint16_t scaled = 0;
+    std::uint16_t dropped = 0;
+    std::uint16_t skippedLocked = 0;
 };
 ScaleReport scaleEvents(EventLane& lane, std::int64_t numerator, std::int64_t denominator,
                         std::int64_t phraseTicks, const PermissionConfig& permissions) noexcept;

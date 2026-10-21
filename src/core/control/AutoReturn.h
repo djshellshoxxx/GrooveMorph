@@ -17,7 +17,14 @@ class AutoReturn final
 {
 public:
     void arm(double positionInBarsAtSwitch, int bars, std::size_t returnScene) noexcept;
-    void disarm() noexcept { isArmed = false; requested = false; }
+    void disarm() noexcept { isArmed = false; requested = false; dry = false; }
+    // C05 "Dry" target (docs/specs/W3-DRY-RETURN.md): same bar counting, but the boundary is not a scene
+    // request; the processor drops the wet signal there. poll() never returns a scene for a Dry arming.
+    void armDry(double positionInBarsAtSwitch, int bars) noexcept;
+    [[nodiscard]] bool isDry() const noexcept { return isArmed && dry; }
+    // Samples from `positionInBars` to the first sample at or after the Dry boundary (0 when reached).
+    // nullopt when not armed for Dry or the inputs are not finite.
+    [[nodiscard]] std::optional<std::int64_t> dryBoundaryOffset(double positionInBars, double samplesPerBar) const noexcept;
     [[nodiscard]] bool armed() const noexcept { return isArmed; }
     [[nodiscard]] std::optional<std::size_t> target() const noexcept;
 
@@ -32,6 +39,7 @@ public:
 private:
     bool isArmed = false;
     bool requested = false;
+    bool dry = false;
     double armBar = 0.0;
     double targetBar = 0.0;
     std::size_t scene = 0;

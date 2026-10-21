@@ -145,7 +145,7 @@ public:
     {
         for (std::size_t v = 0; v < variationCount; ++v)
         {
-            std::uint8_t count = 0;
+            std::uint16_t count = 0;
             bool any = false;
             for (std::size_t k = 0; k < control::maxLaneEvents; ++k)
                 any = any || pendingSeen[v][k] != 0;
@@ -306,6 +306,7 @@ private:
             else bad();
         }
         else if (rest == "phase.offset") asFloat(c.phase.offsetBeats);
+        else if (rest == "phase.smooth") asFloat(c.phase.smoothingMs);
         else if (rest == "lane.explicit") asBool(c.lane.explicitEvents);
         else if (rest.starts_with("lane.loop."))
         {
@@ -488,6 +489,8 @@ std::string SceneSerializer::serialize(const SceneBank& bank)
         }
         line(prefix + "phase.policy", std::to_string(static_cast<int>(c.phase.policy)));
         line(prefix + "phase.offset", formatFloat(c.phase.offsetBeats));
+        if (c.phase.smoothingMs != 0.0f) // W3: optional, absent = engine default
+            line(prefix + "phase.smooth", formatFloat(c.phase.smoothingMs));
         line(prefix + "lane.explicit", c.lane.explicitEvents ? "1" : "0");
         for (std::size_t k = 0; k < c.lane.count; ++k)
         {

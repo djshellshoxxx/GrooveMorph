@@ -455,7 +455,7 @@ public:
             {
                 dragging = false;
                 if (onMessage)
-                    onMessage(status == ctl::EditStatus::Capacity ? "Event limit reached (32)."
+                    onMessage(status == ctl::EditStatus::Capacity ? "Event limit reached (" + juce::String(static_cast<int>(ctl::maxLaneEvents)) + ")."
                                                                   : "Events of one operation cannot overlap.");
                 return;
             }
@@ -1598,8 +1598,8 @@ public:
         returnUnit.addItemList({"Bars", "Phrases"}, 1);
         returnUnit.setTooltip("Count the return delay in bars or in whole phrases (phrase length comes from the timing settings).");
         setupLabel(returnTargetLabel, "Return to");
-        returnTarget.addItemList({"Previous scene", "A", "B", "C", "D"}, 1);
-        returnTarget.setTooltip("Scene to return to. Previous returns to the scene that was sounding before the switch.");
+        returnTarget.addItemList({"Previous scene", "A", "B", "C", "D", "Dry (no effects)"}, 1);
+        returnTarget.setTooltip("Scene to return to. Previous returns to the scene that was sounding before the switch. Dry turns all effects off at the return point until you pick a scene.");
         setupLabel(returnStatus, "");
 
         for (auto* c : std::initializer_list<juce::Component*>{&morphTitle, &morphTargetLabel, &morphTarget, &morphAmountLabel,
@@ -1624,8 +1624,11 @@ public:
         returnTarget.setEnabled(returnBars.getValue() > 0.0);
         returnUnit.setEnabled(returnBars.getValue() > 0.0);
         const auto t = processor.getAutoReturnTarget();
-        returnStatus.setText(t >= 0 ? "Return pending to scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + t))
-                                    : "No return pending.",
+        const auto dry = processor.getDryReturnState();
+        returnStatus.setText(dry == 2 ? "Dry: effects are off until you pick a scene."
+                             : dry == 1 ? "Return to dry pending."
+                             : t >= 0 ? "Return pending to scene " + juce::String::charToString(static_cast<juce::juce_wchar>('A' + t))
+                                      : "No return pending.",
                              juce::dontSendNotification);
     }
     void resized() override
@@ -1693,7 +1696,7 @@ public:
         reduce.setButtonText("Reduce events");
         reduce.setTooltip("Drops lower-priority events until the spacing and coverage limits hold. Events of lanes with a locked Events bit are kept. One undo step.");
         reduce.onClick = [this] { run(true); };
-        regionSelect.addItemList({"Region 1", "Region 2", "Region 3", "Region 4"}, 1);
+        regionSelect.addItemList({"Region 1", "Region 2", "Region 3", "Region 4", "Region 5", "Region 6", "Region 7", "Region 8"}, 1);
         regionSelect.setSelectedId(1, juce::dontSendNotification);
         regionSelect.setTooltip("Protected regions: no effect sounds inside them (placed on the phrase, in beats).");
         regionSelect.onChange = [this] { refresh(access.settings()); };
@@ -1928,6 +1931,9 @@ public:
         bandSlope.setTooltip("Slope of the crossover filter around the effected band. 12 dB/oct rejects the other band more strongly; "
                              "the bypassed band is always the exact complement, so nothing is lost when the effects are off.");
         addAndMakeVisible(bandSlope);
+        bandTopology.addItemList({"Classic", "Linkwitz-Riley 12", "Linkwitz-Riley 24"}, 1);
+        bandTopology.setTooltip("Crossover type. Classic: the original filters (the slope menu applies). Linkwitz-Riley 12 or 24 dB/oct: the low and high parts sum back to a flat level; the slope menu is ignored.");
+        addAndMakeVisible(bandTopology);
         setupLabel(crossoverLabel, "Crossover");
         crossover.setSliderStyle(juce::Slider::LinearHorizontal);
         crossover.setTextBoxStyle(juce::Slider::TextBoxRight, false, 62, 22);
@@ -1957,6 +1963,8 @@ public:
         stretchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(apvts, GrooveMorphAudioProcessor::loopStretchId, stretchToggle);
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandModeId, bandMode));
         combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandSlopeId, bandSlope));
+        combos.push_back(std::make_unique<ComboAttachment>(apvts, GrooveMorphAudioProcessor::bandTopologyId, bandTopology));
+        linkParam(bandTopology, GrooveMorphAudioProcessor::bandTopologyId);
         linkParam(bandMode, GrooveMorphAudioProcessor::bandModeId);
         linkParam(bandSlope, GrooveMorphAudioProcessor::bandSlopeId);
         sliders.push_back(std::make_unique<SliderAttachment>(apvts, GrooveMorphAudioProcessor::bandCrossoverId, crossover));
@@ -2056,6 +2064,7 @@ public:
         bandSlope.setBounds(r.removeFromLeft(110).reduced(6, 0));
         r = nextRow(area);
         crossoverLabel.setBounds(r.removeFromLeft(100));
+        bandTopology.setBounds(r.removeFromRight(170).reduced(6, 0));
         crossover.setBounds(r);
         area.removeFromTop(8);
         triggerTitle.setBounds(nextRow(area));
@@ -2077,7 +2086,7 @@ private:
     juce::Label stretchInfo;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> stretchAttachment;
     juce::Label sourceTitle, loopInfo, message, bandTitle, bandModeLabel, crossoverLabel, triggerTitle, triggerLabel, sensLabel, onsets;
-    MenuComboBox source, bars, bandMode, bandSlope, trigger;
+    MenuComboBox source, bars, bandMode, bandSlope, bandTopology, trigger;
     int lastCaptureFailure = 0;
     juce::TextButton capture, importButton, clearLoop, matchTempo;
     juce::TextEditor loopBpmField;
@@ -2175,6 +2184,10 @@ public:
         phaseOffset.commit = [this] {
             edit([this](auto& s) { s.control.phase.offsetBeats = static_cast<float>(phaseOffset.slider.getValue()); });
         };
+        phaseSmooth.setup(*this, "Transition smoothing (ms)", "Length of the cross-fade when the pattern jumps as this scene launches. 0 = default (3 ms), up to 250 ms.", 0.0, 250.0, 1.0, 0);
+        phaseSmooth.commit = [this] {
+            edit([this](auto& s) { s.control.phase.smoothingMs = static_cast<float>(phaseSmooth.slider.getValue()); });
+        };
         restartScene.setButtonText("Restart scene now");
         restartScene.setTooltip("Restarts the active scene's pattern now. The transport and the active scene do not change.");
         restartScene.onClick = [this] { processor.restartActiveScene(); };
@@ -2217,6 +2230,7 @@ public:
         if (!phasePolicy.isPopupActive())
             phasePolicy.setSelectedId(static_cast<int>(settings.control.phase.policy) + 1, juce::dontSendNotification);
         phaseOffset.set(settings.control.phase.offsetBeats);
+        phaseSmooth.set(settings.control.phase.smoothingMs);
         const double shift = processor.getPhaseShiftBeats();
         phaseInfo.setText(shift == 0.0 ? "Pattern follows the transport."
                                        : "Pattern is shifted by " + juce::String(shift, 3) + " beats from the transport.",
@@ -2297,6 +2311,7 @@ public:
         phasePolicy.setBounds(r.removeFromLeft(170));
         restartScene.setBounds(r.removeFromLeft(150).reduced(4, 0));
         phaseOffset.layout(nextRow(area), 150);
+        phaseSmooth.layout(nextRow(area), 150);
         phaseInfo.setBounds(nextRow(area));
     }
 private:
@@ -2313,7 +2328,7 @@ private:
     juce::Label transitionLabel, morphLabel, gestureTitle, gestureInfo, evolveTitle, evolveInfo, phaseTitle, phaseInfo;
     juce::ComboBox phasePolicy;
     juce::TextButton restartScene;
-    SliderRow phaseOffset;
+    SliderRow phaseOffset, phaseSmooth;
     std::array<juce::Label, 3> macroLabels;
     std::array<MenuSlider, 3> macros;
     MenuComboBox transition, morphTarget, gestureTarget, evolveScene, evolveStyle;

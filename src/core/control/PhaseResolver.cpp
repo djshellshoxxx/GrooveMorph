@@ -36,12 +36,21 @@ bool sanitize(PhaseConfig& config) noexcept
         config.offsetBeats = offset;
         changed = true;
     }
+    float smoothing = config.smoothingMs;
+    if (!std::isfinite(smoothing))
+        smoothing = 0.0f;
+    smoothing = std::clamp(smoothing, 0.0f, 250.0f);
+    if (smoothing != config.smoothingMs)
+    {
+        config.smoothingMs = smoothing;
+        changed = true;
+    }
     return changed;
 }
 
 bool samePhase(const PhaseConfig& a, const PhaseConfig& b) noexcept
 {
-    return a.policy == b.policy && a.offsetBeats == b.offsetBeats;
+    return a.policy == b.policy && a.offsetBeats == b.offsetBeats && a.smoothingMs == b.smoothingMs;
 }
 
 double resolveLocalPhase(const PhaseConfig& config, double positionBeats, const GridContext& grid) noexcept
