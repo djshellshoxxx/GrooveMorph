@@ -68,7 +68,12 @@ struct EventLane
     std::array<std::uint8_t, laneCount> loopBeats{};
     // N03 chance: per-operation-lane percent (multiplies each event's own chance) and the per-scene
     // seed of the deterministic decision hash (core/control/Chance.h). 0 = not yet assigned.
-    std::array<std::uint8_t, laneCount> chanceByOp{100, 100, 100, 100, 100};
+    std::array<std::uint8_t, laneCount> chanceByOp = []() constexpr {
+        std::array<std::uint8_t, laneCount> a{};
+        for (auto& v : a)
+            v = 100;
+        return a;
+    }();
     std::uint32_t chanceSeed = 0;
 };
 
