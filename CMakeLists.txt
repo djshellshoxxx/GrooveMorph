@@ -202,11 +202,11 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         # Apple's linker default to smaller main-thread stacks than the frames need (a Bus error on macOS),
         # so give every processor test a 64 MiB main-thread stack. Test executables only.
         if(APPLE)
-            foreach(gm_stack_test GrooveMorphPluginTests GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests GrooveMorphFuzzTests)
+            foreach(gm_stack_test GrooveMorphPluginTests GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests GrooveMorphFuzzTests GrooveMorphUiFuzzTests)
                 target_link_options(${gm_stack_test} PRIVATE -Wl,-stack_size,0x4000000)
             endforeach()
         elseif(MSVC)
-            foreach(gm_stack_test GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests GrooveMorphFuzzTests)
+            foreach(gm_stack_test GrooveMorphW3ProcessorTests GrooveMorphAudioSmokeTests GrooveMorphFuzzTests GrooveMorphUiFuzzTests)
                 target_link_options(${gm_stack_test} PRIVATE /STACK:67108864)
             endforeach()
         endif()
