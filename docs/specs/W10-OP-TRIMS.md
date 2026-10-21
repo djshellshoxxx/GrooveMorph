@@ -70,6 +70,7 @@ functions of (index, kind) in `core/control/OperationTrims`.
 
 ## Interaction with other features
 
+- Overlay order (A2 audit, `LiveOverlay.h`): morph, then Chaos, then trims, then placement gating. A trim set to Off therefore stays off at any Chaos level.
 - Morph: trims apply after the blend. Evolution: trims apply after the evolved scene is chosen.
 - MIDI learn: the trims are ordinary `p:` targets (`p:op5Depth`), so they are learnable with no change.
 - Locks: not consulted. Undo: not involved. Saved scenes: unchanged.

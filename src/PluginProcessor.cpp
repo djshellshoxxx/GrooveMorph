@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "core/control/ChaosMapper.h"
+#include "core/control/LiveOverlay.h"
 #include "core/dsp/LoopImport.h"
 
 #include <limits>
@@ -641,18 +642,17 @@ const core::VariationSettings& GrooveMorphAudioProcessor::effectiveSettings(std:
     if (!trimsActive && chaosAmount <= 0.0f)
         return morphed; // default trims and no chaos leave the result exactly as before
     effectiveScratch = morphed;
-    if (trimsActive) // A06
-        core::control::applyTrims(effectiveScratch, trims);
-    // N05 Chaos: a transient overlay of the sounding scene, like the morph blend. Never stored; 0 = untouched.
+    // One fixed order (LiveOverlay.h): Chaos first, then the explicit operation trims, so a trim set to Off
+    // is not switched on again by Chaos. Neither touches the stored scene.
+    core::control::ChaosContext chaos;
     if (chaosAmount > 0.0f)
     {
-        core::control::ChaosContext chaos;
         chaos.chaos = chaosAmount;
         chaos.seed = audioScene.snapshot.seed;
         chaos.sceneIndex = static_cast<std::uint32_t>(index);
         chaos.phraseTicks = getGridContext().phraseTicks();
-        effectiveScratch = core::control::applyChaos(effectiveScratch, chaos);
     }
+    core::control::applyLiveOverlays(effectiveScratch, trimsActive ? &trims : nullptr, chaosAmount > 0.0f ? &chaos : nullptr);
     return effectiveScratch;
 }
 
