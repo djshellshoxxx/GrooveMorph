@@ -5,6 +5,8 @@
 #include "core/preset/FactoryPresets.h"
 #include "core/preset/Preset.h"
 #include "core/scene/SceneSerializer.h"
+#include "core/trace/TraceFrame.h"
+#include "core/viz/Palette.h"
 
 #include <iostream>
 #include <string>
@@ -13,6 +15,10 @@
 using namespace groovemorph::core;
 using groovemorph::core::scene::SceneBank;
 using groovemorph::core::scene::SceneSerializer;
+
+// Constants that mirror the operation count in other layers must follow it.
+static_assert(trace::stageCount == operationCount, "trace frames carry one amount per operation");
+static_assert(control::laneCount == operationCount, "one lane per operation");
 
 namespace
 {
@@ -117,6 +123,66 @@ int main()
         auto again = base;
         control::applyLiveOverlays(again, &trims, &chaos);
         expect("O5 deterministic", equal(again, both));
+    }
+    // R1..R3: every scene key survives serialize -> deserialize -> serialize for a scene that uses all seven operations.
+    {
+        SceneBank bank;
+        const std::int64_t phraseTicks = 4 * 4 * control::ticksPerBeat;
+        for (std::size_t v = 0; v < variationCount; ++v)
+        {
+            auto s = bank.variation(v).settings;
+            auto& c = s.control;
+            c.placement.enabled = true;
+            c.placement.regionCount = 2;
+            c.placement.regions[0] = {960, 960};
+            c.placement.regions[1] = {4800, 480};
+            c.phase.smoothingMs = 12.5f;
+            c.lane.explicitEvents = true;
+            for (std::size_t op = 0; op < operationCount; ++op)
+            {
+                s.operations[op] = {op % 2 == 0, 0.25f + 0.1f * static_cast<float>(op), 0.0625f * static_cast<float>(op + 1)};
+                control::LaneEvent e;
+                e.operation = static_cast<std::uint8_t>(op);
+                e.onsetTicks = static_cast<std::int32_t>(op * 1920 + v * 120);
+                e.durationTicks = 480;
+                e.depth = 0.5f;
+                e.chance = static_cast<std::uint8_t>(40 + op);
+                expect("R0 event added", control::addEvent(c.lane, e, phraseTicks) == control::EditStatus::Ok);
+                c.permissions.operationLocks[op] = static_cast<std::uint8_t>(op % 16);
+                c.activity.priority[op] = static_cast<std::uint8_t>(10 + op);
+                c.lane.loopBeats[op] = static_cast<std::uint8_t>(op);
+                c.lane.chanceByOp[op] = static_cast<std::uint8_t>(90 - op);
+            }
+            c.lane.chanceSeed = 0xdeadbeefu + static_cast<std::uint32_t>(v);
+            bank.setVariationSettings(v, s);
+        }
+        const auto text = SceneSerializer::serialize(bank);
+        const auto back = SceneSerializer::deserialize(text);
+        expect("R1 loads without recovery notes", back.report.status == groovemorph::core::scene::LoadStatus::Ok);
+        bool same = true;
+        for (std::size_t v = 0; v < variationCount; ++v)
+            same = same && groovemorph::core::scene::sameSettings(bank.variation(v).settings, back.bank.variation(v).settings);
+        expect("R2 every field of all seven operations and lanes round-trips", same);
+        expect("R3 serialization is a fixed point", SceneSerializer::serialize(back.bank) == text);
+    }
+    // H1..H3: hostile operation / event indices and numbers never crash, never grow the report, never escape the arrays.
+    {
+        std::string hostile = "groovemorph-scenes v1\n";
+        for (const char* key : {"variation.0.op.bogus.enabled=1", "variation.0.perm.op.7=3", "variation.0.perm.op.-1=3",
+                                "variation.0.activity.prio.9=1", "variation.0.lane.loop.7=5", "variation.0.lane.chance.99=5",
+                                "variation.0.event.256.op=1", "variation.0.event.65536.op=1", "variation.0.event.0.op=200",
+                                "variation.0.event.0.chance=9999", "variation.0.lane.seed=99999999999999999999",
+                                "variation.0.phase.smooth=nan", "variation.0.phase.smooth=1e99", "variation.9.name=x",
+                                "variation.0.region.8.start=1", "variation.0.placement.regions=255"})
+            hostile += std::string(key) + "\n";
+        for (int i = 0; i < 5000; ++i)
+            hostile += "variation.0.event." + std::to_string(i) + ".duration=-1\n";
+        const auto r = SceneSerializer::deserialize(hostile);
+        expect("H1 hostile text loads", r.report.status != groovemorph::core::scene::LoadStatus::Defaulted || !r.report.messages.empty());
+        expect("H2 recovery report stays bounded", r.report.messages.size() <= 70);
+        const auto& c = r.bank.variation(0).settings.control;
+        expect("H3 values clamped", c.lane.count <= control::maxLaneEvents && c.placement.regionCount <= control::maxProtectedRegions
+                                      && c.lane.chanceByOp[0] <= 100);
     }
     // P1: the crossover topology travels with a preset like the other band parameters.
     {

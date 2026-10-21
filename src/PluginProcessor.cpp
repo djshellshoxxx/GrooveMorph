@@ -1652,7 +1652,14 @@ bool GrooveMorphAudioProcessor::applyPreset(int index)
     {
         const std::lock_guard<std::mutex> lock(modelMutex);
         if (audition.isActive())
-            return false;
+        {
+            // A pending Easy-mode Surprise is the processor's own preview: choosing a preset replaces it. A preview
+            // the user started in the full view must still be applied or reverted first.
+            if (!surprisePending)
+                return false;
+            surprisePending = false;
+            audition.revert();
+        }
         // One undo entry; the audio thread picks the new snapshot up through the usual handoff.
         commitBankLocked(groovemorph::core::preset::applyToBank(undoStack.current(), *presetBank));
         currentPresetName = preset->name;
