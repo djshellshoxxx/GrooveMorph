@@ -72,6 +72,8 @@ int main(int argc, char** argv)
     processor.setVariationSettings(0, settings);
     processor.setDemoSourceEnabled(true);
 
+    // A fresh instance opens in Easy mode (N05); the inspector shots below need the full view.
+    processor.setEasyMode(false);
     auto* editor = dynamic_cast<GrooveMorphAudioProcessorEditor*>(processor.createEditor());
     editor->setVisible(true);
     editor->setSize(1290, 740);
@@ -89,6 +91,19 @@ int main(int argc, char** argv)
     pump(120);
     save(*editor, out.getChildFile("editor-minimum-size.png"));
     delete editor;
+
+    // Easy mode (N05) at the default and the minimum size.
+    processor.setEasyMode(true);
+    {
+        auto* easyEditor = dynamic_cast<GrooveMorphAudioProcessorEditor*>(processor.createEditor());
+        easyEditor->setVisible(true);
+        easyEditor->setSize(1290, 740);
+        save(*easyEditor, out.getChildFile("editor-easy.png"));
+        easyEditor->setSize(1230, 700);
+        save(*easyEditor, out.getChildFile("editor-easy-minimum-size.png"));
+        delete easyEditor;
+    }
+    processor.setEasyMode(false);
 
     // Visual window: drive the real processor for several seconds (demo loop, trace active), then render the
     // content component. Two scenes: the busy inspector scene above and a plain repeat + reverse scene.

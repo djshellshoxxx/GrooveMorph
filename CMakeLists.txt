@@ -59,6 +59,9 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
     target_sources(GrooveMorphPlugin PRIVATE
         src/PluginProcessor.cpp
         src/PluginEditor.cpp
+        src/PluginProcessorEasy.cpp
+        src/ui/EasyView.cpp
+        src/ui/FirstRunGuide.cpp
         src/ui/InspectorPanel.cpp
         src/ui/ControlMenu.cpp
         src/ui/visual/VisualWindow.cpp

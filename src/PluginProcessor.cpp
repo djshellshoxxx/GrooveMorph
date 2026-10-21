@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "core/control/ChaosMapper.h"
 #include "core/dsp/LoopImport.h"
 
 #include <limits>
@@ -18,6 +19,7 @@ constexpr auto sceneDataProperty = "data";
 constexpr auto gestureTreeType = "Gesture";
 constexpr auto evolutionTreeType = "Evolution";
 constexpr auto midiLinkTreeType = "MidiLinks";
+constexpr auto uiTreeType = "Ui";
 constexpr int meterDenominators[] = {1, 2, 4, 8, 16};
 constexpr int maxProcessedChannels = 2;
 
@@ -61,6 +63,7 @@ GrooveMorphAudioProcessor::GrooveMorphAudioProcessor()
     cached.bandSlope = parameters.getRawParameterValue(bandSlopeId);
     cached.audioTrigger = parameters.getRawParameterValue(audioTriggerId);
     cached.audioTriggerSens = parameters.getRawParameterValue(audioTriggerSensId);
+    cached.chaos = parameters.getRawParameterValue(chaosId);
     bypassParameter = dynamic_cast<juce::AudioParameterBool*>(parameters.getParameter(bypassId));
     lastSeenVariationParam = loadIndex(cached.activeVariation, static_cast<int>(core::variationCount) - 1);
     {
@@ -151,6 +154,10 @@ GrooveMorphAudioProcessor::createParameterLayout()
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{audioTriggerSensId, 1}, "Trigger Sensitivity",
         juce::NormalisableRange<float>{0.0f, 1.0f}, 0.5f));
+    // N05 Chaos macro: 0 = the scene exactly as stored; higher = a busier sounding scene (never stored).
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{chaosId, 1}, "Chaos",
+        juce::NormalisableRange<float>{0.0f, 1.0f}, 0.0f));
     return layout;
 }
 
@@ -475,11 +482,21 @@ core::VariationSettings GrooveMorphAudioProcessor::effectiveSettings(std::size_t
 {
     const auto index = std::min(variation, core::variationCount - 1);
     const auto& base = audioScene.snapshot.variations[index];
-    if (morphTargetIndex < 0 || morphWeight <= 0.0f
-        || static_cast<std::size_t>(morphTargetIndex) == index)
-        return base;
-    return core::control::morph(base, audioScene.snapshot.variations[static_cast<std::size_t>(morphTargetIndex)],
-                                morphWeight);
+    core::VariationSettings settings = base;
+    if (morphTargetIndex >= 0 && morphWeight > 0.0f && static_cast<std::size_t>(morphTargetIndex) != index)
+        settings = core::control::morph(base, audioScene.snapshot.variations[static_cast<std::size_t>(morphTargetIndex)],
+                                        morphWeight);
+    // N05 Chaos: a transient overlay of the sounding scene, like the morph blend. Never stored; 0 = untouched.
+    if (chaosAmount > 0.0f)
+    {
+        core::control::ChaosContext chaos;
+        chaos.chaos = chaosAmount;
+        chaos.seed = audioScene.snapshot.seed;
+        chaos.sceneIndex = static_cast<std::uint32_t>(index);
+        chaos.phraseTicks = getGridContext().phraseTicks();
+        settings = core::control::applyChaos(settings, chaos);
+    }
+    return settings;
 }
 
 void GrooveMorphAudioProcessor::applyScenePhase(const std::optional<core::ResolvedTiming>& blockTiming,
@@ -817,6 +834,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
         const int morphIdx = loadIndex(cached.morphTarget, 4) - 1;
         morphTargetIndex = morphIdx;
         morphWeight = juce::jlimit(0.0f, 1.0f, loadParameter(cached.morphAmount, 0.0f));
+        chaosAmount = juce::jlimit(0.0f, 1.0f, loadParameter(cached.chaos, 0.0f));
     }
     if (const int request = uiRequest.exchange(-1, std::memory_order_acq_rel); request >= 0)
     {
@@ -1403,6 +1421,13 @@ void GrooveMorphAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     state.appendChild(gestureTree, nullptr);
     state.appendChild(evolutionTree, nullptr);
     {
+        // N05: which editor view was open. Absent in state saved before Easy mode (then the full view opens).
+        juce::ValueTree uiTree(uiTreeType);
+        uiTree.setProperty("easyMode", isEasyMode(), nullptr);
+        state.removeChild(state.getChildWithName(uiTreeType), nullptr);
+        state.appendChild(uiTree, nullptr);
+    }
+    {
         juce::ValueTree linkTree(midiLinkTreeType);
         {
             const std::lock_guard<std::mutex> lock(midiLinkMutex);
@@ -1452,6 +1477,13 @@ void GrooveMorphAudioProcessor::setStateInformation(const void* data, int sizeIn
     for (const char* type : {gestureTreeType, evolutionTreeType})
         if (const auto child = restoredState.getChildWithName(type); child.isValid())
             restoredState.removeChild(child, nullptr);
+    // N05: a project saved before Easy mode has no Ui child and keeps opening on the full editor.
+    {
+        const auto uiTree = restoredState.getChildWithName(uiTreeType);
+        setEasyMode(uiTree.isValid() && static_cast<bool>(uiTree.getProperty("easyMode", false)));
+        if (uiTree.isValid())
+            restoredState.removeChild(uiTree, nullptr);
+    }
     // Pre-selector projects always used Automatic. Restore that behavior even
     // when an older preset is loaded into an instance currently using Sample Clock.
     if (!restoredState.getChildWithProperty("id", timingModeId).isValid())

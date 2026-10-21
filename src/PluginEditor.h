@@ -4,6 +4,7 @@
 #include "core/scene/SceneBank.h"
 #include "ui/InspectorPanel.h"
 #include "ui/ControlMenu.h"
+#include "ui/EasyView.h"
 #include "ui/visual/VisualWindow.h"
 
 #include <memory>
@@ -42,6 +43,12 @@ private:
     groovemorph::ui::MenuToggleButton visualButton{"Visual"};
     std::unique_ptr<groovemorph::ui::visual::VisualWindow> visualWindow;
     std::unique_ptr<groovemorph::ui::InspectorPanel> inspector;
+    // N05 Easy mode: a full-size view above the editor's own controls (hidden while the full view is shown).
+    juce::TextButton easyModeButton{"Easy mode"};
+    std::unique_ptr<groovemorph::ui::EasyView> easyView;
+    std::vector<juce::Component::SafePointer<juce::Component>> hiddenByEasy;
+    bool easyShown = false;
+    void applyEasyMode(bool on);
     std::array<juce::TextButton, 4> variationButtons;
     std::array<OperationRow, groovemorph::core::operationCount> operations;
     juce::TextEditor variationName;

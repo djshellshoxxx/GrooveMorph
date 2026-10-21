@@ -67,6 +67,8 @@ public:
     static constexpr const char* bandSlopeId = "bandSlope";
     static constexpr const char* audioTriggerId = "audioTrigger";
     static constexpr const char* audioTriggerSensId = "audioTriggerSens";
+    // Appended for N05 (Chaos macro). Never repurpose.
+    static constexpr const char* chaosId = "chaos";
 
     static constexpr double bypassFadeSeconds = 0.010;
 
@@ -236,6 +238,21 @@ public:
     std::uint32_t getOnsetCount() const noexcept { return onsetCount.load(std::memory_order_relaxed); }
     // Automatic-return status for the UI: scene index the pending return will switch to, or -1.
     int getAutoReturnTarget() const noexcept { return autoReturnTargetStatus.load(std::memory_order_relaxed); }
+    // ---- N05 Easy mode (implemented in PluginProcessorEasy.cpp) ----
+    // Which editor view is shown. Saved in plugin state (child "Ui"): ON for a fresh instance, OFF for state
+    // saved before N05. Message thread; not a host parameter.
+    bool isEasyMode() const noexcept { return easyMode.load(std::memory_order_relaxed); }
+    void setEasyMode(bool on) noexcept { easyMode.store(on, std::memory_order_relaxed); }
+    // "Surprise me": builds a constrained candidate for the sounding scene, previews it (audition) and keeps
+    // it at the next phrase boundary as one undoable edit. Message thread.
+    enum class SurpriseStatus { Armed, NothingToChange, Busy };
+    [[nodiscard]] SurpriseStatus requestSurprise();
+    void cancelSurprise();          // reverts the pending preview; no-op when nothing is pending
+    bool isSurprisePending() const;
+    void updateSurprise();          // commits at the phrase boundary (processor timer)
+    // Panic: no overlays, no pending changes. Stored scenes, intensity and the transport are untouched.
+    void panicEasy();
+    std::int64_t getPhraseIndex() const noexcept { return phraseIndexStatus.load(std::memory_order_relaxed); }
     // Queues a switch using the current transitionMode parameter.
     void requestVariation(std::size_t index) noexcept;
     void triggerManualSwitch() noexcept { uiTrigger.store(true, std::memory_order_release); }
@@ -294,6 +311,7 @@ private:
         pollLoopCapture();
         updateGesture();
         updateEvolution();
+        updateSurprise();
     }
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     groovemorph::core::HostTransport readHostTransport() const;
@@ -337,6 +355,7 @@ private:
         std::atomic<float>* bandSlope = nullptr;
         std::atomic<float>* audioTrigger = nullptr;
         std::atomic<float>* audioTriggerSens = nullptr;
+        std::atomic<float>* chaos = nullptr;
     } cached;
     juce::AudioParameterBool* bypassParameter = nullptr;
 
@@ -381,6 +400,7 @@ private:
     groovemorph::core::control::AutoReturn autoReturn;
     int morphTargetIndex = -1;   // -1 = off; scene whose settings are blended in
     float morphWeight = 0.0f;
+    float chaosAmount = 0.0f;    // N05 Chaos macro, read once per block; 0 = no overlay
     // F03/F10 band split (first-order complementary crossover) and F07 audio trigger.
     int bandModeSel = 0;          // 0 full band, 1 protect lows, 2 lows only
     float bandCoefficient = 0.0f;
@@ -452,6 +472,11 @@ private:
     groovemorph::core::variation::GeneratorSettings evolutionSettings;
     std::uint32_t evolutionStep = 0;
     std::int64_t lastEvolutionPhrase = -1;
+    // N05 Easy mode (guarded by modelMutex except the atomic).
+    std::atomic<bool> easyMode{true};
+    bool surprisePending = false;
+    std::int64_t surprisePhrase = 0;
+    std::uint32_t surpriseAttempt = 0;
     // MIDI links: the audio thread only pushes CC values into the inbox; links are applied by the timer.
     groovemorph::core::CcInbox ccInbox;
     mutable std::mutex midiLinkMutex;

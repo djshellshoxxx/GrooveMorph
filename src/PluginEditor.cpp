@@ -255,6 +255,14 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     access.previewing = [this] { return audioProcessor.isAuditioning(); };
     inspector = std::make_unique<groovemorph::ui::InspectorPanel>(audioProcessor, std::move(access));
     addAndMakeVisible(*inspector);
+    easyModeButton.setTooltip("Switches to Easy mode: one compact screen with the four scenes, Surprise me and the main macros.");
+    easyModeButton.setTitle("Easy mode");
+    easyModeButton.setDescription("Switch to the compact Easy mode view");
+    easyModeButton.onClick = [this] { applyEasyMode(true); };
+    addAndMakeVisible(easyModeButton);
+    easyView = std::make_unique<groovemorph::ui::EasyView>(audioProcessor);
+    easyView->onOpenFullView = [this] { applyEasyMode(false); };
+    addChildComponent(*easyView);
     refreshSceneControls();
     // Small displays (e.g. 1024x768): shrink the whole editor to fit instead of cropping it.
     if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
@@ -269,6 +277,7 @@ GrooveMorphAudioProcessorEditor::GrooveMorphAudioProcessorEditor(GrooveMorphAudi
     setResizeLimits(1230, 700, 1900, 1100);
     groovemorph::ui::finishControlMenus(*this, audioProcessor);
     setSize(1290, 740);
+    applyEasyMode(audioProcessor.isEasyMode());
     startTimerHz(10);
 }
 
@@ -471,12 +480,14 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
     }
     demoButton.setToggleState(audioProcessor.isDemoSourceEnabled(), juce::dontSendNotification);
     if (inspector != nullptr && !refreshing) inspector->refresh();
+    if (easyShown && easyView != nullptr) easyView->refresh();
     repaint();
 }
 
 void GrooveMorphAudioProcessorEditor::paint(juce::Graphics& graphics)
 {
     graphics.fillAll(juce::Colour(0xff151b24));
+    if (easyShown) return; // the Easy view covers the whole editor
     graphics.setColour(juce::Colours::white);
     const auto width = contentWidth() - 40;
     const auto column = width / 2;
@@ -526,6 +537,8 @@ void GrooveMorphAudioProcessorEditor::resized()
     phraseSlider.setBounds(20 + column + 110, 132, column - 110, 30);
     meterSlider.setBounds(144, 170, column - 204, 30);
     denominator.setBounds(20 + column - 76, 170, 66, 30);
+    easyModeButton.setBounds(20 + column + 110, 170, column - 110, 30);
+    if (easyView != nullptr) easyView->setBounds(getLocalBounds());
     timingLabel.setBounds(20, 208, width, 26);
     statusLabel.setBounds(20, 234, width, 26);
     const int buttonWidth = width / 4;
@@ -554,6 +567,40 @@ void GrooveMorphAudioProcessorEditor::resized()
     midiNoteSlider.setBounds(140, 626, 240, 30);
     returnOnNoteOff.setBounds(400, 626, width - 380, 30);
     midiLabel.setBounds(20, 658, width, 26);
+}
+
+void GrooveMorphAudioProcessorEditor::applyEasyMode(bool on)
+{
+    // N05: the Easy view is a child on top of everything; the editor's own controls are hidden (and restored
+    // afterwards) rather than removed, so their callbacks, attachments and the inspector keep working.
+    audioProcessor.setEasyMode(on);
+    if (easyView == nullptr || on == easyShown)
+        return;
+    easyShown = on;
+    if (on)
+    {
+        hiddenByEasy.clear();
+        for (auto* child : getChildren())
+            if (child != easyView.get() && child->isVisible())
+            {
+                hiddenByEasy.emplace_back(child);
+                child->setVisible(false);
+            }
+        easyView->setBounds(getLocalBounds());
+        easyView->setVisible(true);
+        easyView->toFront(false);
+        easyView->refresh();
+    }
+    else
+    {
+        easyView->setVisible(false);
+        for (auto& child : hiddenByEasy)
+            if (child != nullptr)
+                child->setVisible(true);
+        hiddenByEasy.clear();
+        refreshSceneControls();
+    }
+    repaint();
 }
 
 void GrooveMorphAudioProcessorEditor::updateTransportButtons()

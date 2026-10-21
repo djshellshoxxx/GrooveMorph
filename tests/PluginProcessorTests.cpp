@@ -1753,6 +1753,133 @@ int main()
         access.paste = savedPaste;
     }
 
+    // ---- N05: Chaos macro, Easy mode state, Surprise me, Panic (docs/specs/N05-EASY-MODE.md) ----
+    {
+        // N05-C7: the parameter exists, defaults to 0, spans 0..1 and is appended last.
+        GrooveMorphAudioProcessor p;
+        auto* chaos = p.parameters.getParameter("chaos");
+        expect("N05 chaos parameter exists", chaos != nullptr);
+        if (chaos != nullptr)
+        {
+            expect("N05 chaos is the last parameter", p.getParameters().getLast() == chaos);
+            expect("N05 chaos defaults to 0", chaos->getDefaultValue() == 0.0f
+                                                  && p.parameters.getRawParameterValue("chaos")->load() == 0.0f);
+            setParameter(p, "chaos", 1.0f);
+            expect("N05 chaos spans 0..1", std::abs(p.parameters.getRawParameterValue("chaos")->load() - 1.0f) < 1e-6f);
+        }
+
+        // N05-E1: Easy mode is ON for a fresh instance, round-trips, and is OFF for state without the Ui child.
+        GrooveMorphAudioProcessor a;
+        expect("N05 fresh instance opens in Easy mode", a.isEasyMode());
+        setParameter(a, "chaos", 0.7f);
+        juce::MemoryBlock onState;
+        a.getStateInformation(onState);
+        GrooveMorphAudioProcessor b;
+        b.setEasyMode(false);
+        b.setStateInformation(onState.getData(), static_cast<int>(onState.getSize()));
+        expect("N05 easy mode on round-trips", b.isEasyMode());
+        expect("N05 chaos round-trips", std::abs(b.parameters.getRawParameterValue("chaos")->load() - 0.7f) < 1e-5f);
+        a.setEasyMode(false);
+        juce::MemoryBlock offState;
+        a.getStateInformation(offState);
+        GrooveMorphAudioProcessor c;
+        c.setStateInformation(offState.getData(), static_cast<int>(offState.getSize()));
+        expect("N05 easy mode off round-trips", !c.isEasyMode());
+
+        // Legacy fixture: state saved before N05 has neither the Ui child nor the chaos parameter.
+        if (auto xml = juce::AudioProcessor::getXmlFromBinary(onState.getData(), static_cast<int>(onState.getSize())))
+        {
+            if (auto* ui = xml->getChildByName("Ui"))
+                xml->removeChildElement(ui, true);
+            for (auto* e = xml->getFirstChildElement(); e != nullptr;)
+            {
+                auto* following = e->getNextElement();
+                if (e->hasTagName("PARAM") && e->getStringAttribute("id") == "chaos")
+                    xml->removeChildElement(e, true);
+                e = following;
+            }
+            juce::MemoryBlock legacy;
+            juce::AudioProcessor::copyXmlToBinary(*xml, legacy);
+            GrooveMorphAudioProcessor d;
+            setParameter(d, "chaos", 0.5f);
+            d.setEasyMode(true);
+            d.setStateInformation(legacy.getData(), static_cast<int>(legacy.getSize()));
+            expect("N05 legacy state opens in the full view", !d.isEasyMode());
+            expect("N05 legacy state restores chaos to 0", d.parameters.getRawParameterValue("chaos")->load() == 0.0f);
+        }
+        else
+        {
+            expect("N05 legacy fixture could be built", false);
+        }
+    }
+
+    // N05-C8: chaos only changes what is heard, never the stored bank, undo history or saved scenes.
+    {
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 512);
+        const auto bank = p.getSceneBank();
+        setParameter(p, "chaos", 1.0f);
+        processSilence(p, 512);
+        processSilence(p, 512);
+        expect("N05 chaos leaves the stored bank alone", p.getSceneBank() == bank && !p.canUndoSceneEdit());
+        juce::MemoryBlock saved;
+        p.getStateInformation(saved);
+        GrooveMorphAudioProcessor q;
+        q.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+        expect("N05 chaos is not baked into saved scenes", q.getSceneBank() == bank);
+    }
+
+    // N05-S3 and Panic.
+    {
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 512);
+        FakePlayHead playHead;
+        setTransport(playHead, 0);
+        p.setPlayHead(&playHead);
+        processSilence(p, 512);
+        const auto before = p.getSceneBank();
+        using Status = GrooveMorphAudioProcessor::SurpriseStatus;
+        expect("N05 surprise arms", p.requestSurprise() == Status::Armed);
+        expect("N05 surprise previews without committing", p.isSurprisePending() && p.isAuditioning()
+                                                              && p.getSceneBank() == before && !p.canUndoSceneEdit());
+        expect("N05 a second request is refused while previewing", p.requestSurprise() == Status::Busy);
+        p.updateSurprise();
+        expect("N05 surprise waits inside the phrase", p.isSurprisePending());
+        setTransport(playHead, 4 * 96000 + 1000); // next phrase (4 bars of 96000 samples)
+        processSilence(p, 512);
+        p.updateSurprise();
+        expect("N05 surprise is kept at the phrase boundary", !p.isSurprisePending() && !p.isAuditioning()
+                                                                 && !(p.getSceneBank() == before));
+        expect("N05 surprise is one undo step", p.canUndoSceneEdit() && p.undoSceneEdit() && p.getSceneBank() == before
+                                                    && !p.canUndoSceneEdit());
+        expect("N05 surprise can be cancelled", p.requestSurprise() == Status::Armed);
+        p.cancelSurprise();
+        expect("N05 cancel restores the stored scene", !p.isSurprisePending() && !p.isAuditioning()
+                                                          && p.getSceneBank() == before && !p.canUndoSceneEdit());
+        p.beginAudition(0);
+        expect("N05 surprise is busy during the user's own preview", p.requestSurprise() == Status::Busy);
+        p.revertAudition();
+
+        setParameter(p, "chaos", 0.8f);
+        setParameter(p, "morphAmount", 0.5f);
+        expect("N05 surprise arms again before panic", p.requestSurprise() == Status::Armed);
+        p.panicEasy();
+        expect("N05 panic zeroes chaos and morph", p.parameters.getRawParameterValue("chaos")->load() == 0.0f
+                                                       && p.parameters.getRawParameterValue("morphAmount")->load() == 0.0f);
+        expect("N05 panic cancels the pending surprise", !p.isSurprisePending() && !p.isAuditioning()
+                                                            && p.getSceneBank() == before);
+
+        // A wholly locked sounding scene has nothing to change.
+        auto locked = p.getSceneBank().variation(0).settings;
+        for (auto& l : locked.control.permissions.operationLocks)
+            l = groovemorph::core::control::lock::all;
+        p.setVariationSettings(0, locked);
+        const auto lockedBank = p.getSceneBank();
+        expect("N05 surprise has nothing to change when everything is locked",
+               p.requestSurprise() == Status::NothingToChange && !p.isAuditioning() && p.getSceneBank() == lockedBank);
+        p.setPlayHead(nullptr);
+    }
+
     if (failures == 0)
         std::cout << "PluginProcessorTests: all checks passed\n";
     return failures == 0 ? 0 : 1;
