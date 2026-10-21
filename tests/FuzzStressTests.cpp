@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 namespace
@@ -379,6 +380,57 @@ void runModes(std::uint64_t seed)
     run(0.3);
     std::cout << "modes seed " << seed << " sr=" << sr << " imported=" << imported << " loop=" << p.hasLoop() << " print=" << got << '\n';
 }
+
+// Host parameters must survive a state round trip exactly (CLAP/VST3 hosts compare them after reload).
+void runParamRoundTrip(std::uint64_t seed)
+{
+    juce::Random r((juce::int64) (seed * 0x9e3779b97f4a7c15ull + 99));
+    for (int w = 0; w < 8; ++w) (void) r.nextInt();
+    auto a = std::make_unique<GrooveMorphAudioProcessor>();
+    a->prepareToPlay(48000.0, 512);
+    std::vector<float> setValues;
+    for (auto* prm : a->getParameters())
+        {
+            // what the CLAP wrapper does for a parameter event: setValue, then notify listeners only
+            const float v = r.nextFloat();
+            prm->setValue(v);
+            prm->sendValueChangedMessageToListeners(v);
+            setValues.push_back(prm->getValue()); // read back: the parameter's own snapped value
+        }
+    juce::AudioBuffer<float> b(2, 512);
+    juce::MidiBuffer m;
+    b.clear();
+    a->processBlock(b, m);
+    // The plugin must not rewrite parameters the host just set (CLAP/VST3 hosts read them back).
+    {
+        int changed = 0;
+        std::string who;
+        for (int i = 0; i < a->getParameters().size(); ++i)
+            if (std::abs(a->getParameters()[i]->getValue() - setValues[(std::size_t) i]) > 1e-4f && ++changed <= 6)
+                who += " [" + a->getParameters()[i]->getName(40).toStdString() + " " + std::to_string(setValues[(std::size_t) i]) + "->" + std::to_string(a->getParameters()[i]->getValue()) + "]";
+        if (changed != 0)
+            report(seed, "processBlock rewrote " + std::to_string(changed) + " host-set parameters:" + who);
+    }
+    juce::MemoryBlock state;
+    a->getStateInformation(state);
+    // Hosts (CLAP/VST3) load state into a fresh instance and read the parameters straight away, before any
+    // prepareToPlay or processBlock. Every parameter must already hold the saved value.
+    auto c = std::make_unique<GrooveMorphAudioProcessor>();
+    c->setStateInformation(state.getData(), (int) state.getSize());
+    int diff = 0;
+    std::string names;
+    for (int i = 0; i < a->getParameters().size(); ++i)
+    {
+        auto* pa = a->getParameters()[i];
+        auto* pc = c->getParameters()[i];
+        const bool isBool = dynamic_cast<juce::AudioParameterBool*>(pa) != nullptr;
+        const float va = isBool ? (pa->getValue() >= 0.5f ? 1.0f : 0.0f) : pa->getValue();
+        if (std::abs(va - pc->getValue()) > 1e-4f && ++diff <= 6)
+            names += " [" + pa->getName(40).toStdString() + " " + std::to_string(pa->getValue()) + "->" + std::to_string(pc->getValue()) + "]";
+    }
+    if (diff != 0)
+        report(seed, "state round trip changed " + std::to_string(diff) + " parameters:" + names);
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -389,6 +441,12 @@ int main(int argc, char** argv)
     const double seconds = argc > 3 ? std::atof(argv[3]) : 6.0;
     for (int i = 0; i < rounds; ++i)
         runRound(first + (std::uint64_t) i, seconds);
+    for (int i = 0; i < rounds; ++i)
+    {
+        // A CLAP/VST3 host calls the plugin from its own main thread, which is not JUCE's message thread.
+        const auto seed = first + (std::uint64_t) i;
+        std::thread([seed] { runParamRoundTrip(seed); }).join();
+    }
     for (int i = 0; i < rounds; ++i)
         runModes(first + (std::uint64_t) i);
     std::cout << "fuzz rounds=" << rounds << " blocks=" << totalBlocks << " failures=" << failures << '\n';

@@ -18,3 +18,17 @@ the tool itself (capture starts on the next bar), fixed.
 Not measured / open: audio-thread time was sampled but not bounded. On a shared 4-core VM, isolated blocks took 1-26 ms (192 kHz, 32-sample
 blocks) in some runs and not on repeat; attributed to scheduler noise, not proven. Real-time deadline measurement on audio hardware stays
 under B-01. No DAW, listening or CLAP-host check was done.
+
+## Addendum: CLAP validator (clap-validator 0.4.1, Linux, run locally)
+
+The published v0.2.0-beta.1 notes list clap-validator FAILED on all four platforms (informational). Reproduced on Linux: 44 run, 30 passed, 4 failed, 1 warning.
+- `param-conversions` (fixed here): the skewed "Slice trim" parameters printed seven digits and did not survive text -> value -> text.
+  They now print three decimals. Re-run: 31 passed, 3 failed.
+- `state-reproducibility-basic/binary/buffered` (open): the validator reports ~39 parameters differing after a state reload. The plugin side
+  was traced with debug output: the saved state holds the validator's values and `replaceState` restores them (Chaos 0.0556 saved, 0.0 on the
+  fresh instance, 0.0556 after load). `GrooveMorphFuzzTests` now also checks, on a non-message thread and the way the CLAP wrapper writes
+  parameters (`setValue` + listener notify), that processBlock does not rewrite host-set parameters and that a fresh instance holds every
+  value straight after `setStateInformation`; both pass. The cause is therefore not found; the likely place is the clap-juce-extensions
+  adapter or the validator's read timing. Needs a CLAP host or the adapter's source traced. Not claimed fixed.
+- `state-invalid-random` (warning): random bytes load "successfully" (the processor keeps the previous state and returns without error);
+  harmless, but the CLAP adapter cannot report failure because JUCE's `setStateInformation` is void.
