@@ -2,8 +2,11 @@
 // the snapshot itself) to PNG files so the layout can be inspected. Usage: EditorSnapshot <outdir>
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "ui/PresetBar.h"
 #include "ui/visual/VisualWindow.h"
 
+#include <cmath>
+#include <functional>
 #include <iostream>
 
 namespace
@@ -74,32 +77,121 @@ int main(int argc, char** argv)
 
     // A fresh instance opens in Easy mode (N05); the inspector shots below need the full view.
     processor.setEasyMode(false);
+    // Loop with a waveform for the Input tab (a decaying click train).
+    {
+        const auto wav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gm-snapshot-loop.wav");
+        wav.deleteFile();
+        juce::WavAudioFormat format;
+        std::unique_ptr<juce::FileOutputStream> stream(wav.createOutputStream());
+        std::unique_ptr<juce::AudioFormatWriter> writer(format.createWriterFor(stream.get(), 48000.0, 2, 24, {}, 0));
+        if (writer != nullptr)
+        {
+            stream.release();
+            juce::AudioBuffer<float> b(2, 96000);
+            for (int i = 0; i < 96000; ++i)
+            {
+                const float env = std::exp(-static_cast<float>(i % 12000) / 2500.0f);
+                const float v = 0.8f * env * std::sin(0.07f * static_cast<float>(i));
+                b.setSample(0, i, v);
+                b.setSample(1, i, v);
+            }
+            writer->writeFromAudioSampleBuffer(b, 0, 96000);
+        }
+        writer.reset(); // flush the file before importing it
+        std::cout << "loop import: " << (processor.importLoopFile(wav, 4).wasOk() ? "ok" : "FAILED") << "\n";
+    }
+
+    auto chainVisible = [](juce::Component& c) {
+        for (auto* p = &c; p != nullptr; p = p->getParentComponent())
+            if (!p->isVisible())
+                return false;
+        return true;
+    };
+    auto clickButton = [&chainVisible](juce::Component& root, const juce::String& text) {
+        std::function<bool(juce::Component&)> find = [&](juce::Component& c) -> bool {
+            if (auto* b = dynamic_cast<juce::Button*>(&c))
+                if (b->getButtonText() == text && chainVisible(*b))
+                {
+                    if (b->getClickingTogglesState())
+                        b->setToggleState(!b->getToggleState(), juce::sendNotificationSync);
+                    else
+                        { if (b->onClick) b->onClick(); } // triggerClick() is asynchronous; no message loop runs here
+                    return true;
+                }
+            for (auto* child : c.getChildren())
+                if (find(*child))
+                    return true;
+            return false;
+        };
+        return find(root);
+    };
+
     auto* editor = dynamic_cast<GrooveMorphAudioProcessorEditor*>(processor.createEditor());
     editor->setVisible(true);
     editor->setSize(1290, 784);
     pump(200);
-    const char* names[] = {"placement", "generator", "scenes", "morph", "limits", "input", "perform", "status"};
-    for (int i = 0; i < 8; ++i)
+    const char* names[] = {"place", "generator", "scenes", "morph", "limit", "input", "perform", "info", "print"};
+    for (int i = 0; i < 9; ++i)
     {
         editor->showInspectorTab(i);
         pump(120);
         save(*editor, out.getChildFile(juce::String("editor-") + names[i] + ".png"));
     }
-    // Narrowest supported size.
     editor->showInspectorTab(0);
+    (void) clickButton(*editor, "Euclid / chance");
+    editor->setSize(1291, 784); // re-run layout so the revealed panel gets bounds
+    editor->setSize(1290, 784);
+    save(*editor, out.getChildFile("editor-place-euclid.png"));
+    (void) clickButton(*editor, "Euclid / chance");
+    // Input tab with the loop source selected so the waveform is drawn.
+    processor.setSourceMode(2);
+    editor->showInspectorTab(5);
+    save(*editor, out.getChildFile("editor-input-waveform.png"));
+    processor.setSourceMode(1);
+
+    // Narrowest supported size, every tab.
     editor->setSize(1230, 744);
     pump(120);
-    save(*editor, out.getChildFile("editor-minimum-size.png"));
+    for (int i = 0; i < 9; ++i)
+    {
+        editor->showInspectorTab(i);
+        save(*editor, out.getChildFile(juce::String("editor-min-") + names[i] + ".png"));
+    }
+    editor->showInspectorTab(0);
+    (void) clickButton(*editor, "Euclid / chance");
+    editor->setSize(1231, 744);
+    editor->setSize(1230, 744);
+    save(*editor, out.getChildFile("editor-min-place-euclid.png"));
     delete editor;
 
-    // Easy mode (N05) at the default and the minimum size.
+    // Preset browser (the dropdown behind the preset bar), rendered on its own.
+    {
+        groovemorph::ui::PresetBar bar(processor);
+        if (auto browser = bar.createBrowserContent())
+        {
+            if (browser->getWidth() == 0)
+                browser->setSize(420, 360);
+            save(*browser, out.getChildFile("preset-browser.png"));
+        }
+    }
+
+    // Easy mode (N05): first-run guide (unseen flag), then the plain view, at the default and minimum size.
     processor.setEasyMode(true);
     {
         auto* easyEditor = dynamic_cast<GrooveMorphAudioProcessorEditor*>(processor.createEditor());
         easyEditor->setVisible(true);
-        easyEditor->setSize(1290, 740);
+        easyEditor->setSize(1290, 784);
+        save(*easyEditor, out.getChildFile("editor-easy-guide.png"));
+        easyEditor->setSize(1230, 744);
+        save(*easyEditor, out.getChildFile("editor-easy-guide-minimum-size.png"));
+        for (int i = 0; i < 3; ++i) // reach the last guide step for one more shot
+            (void) clickButton(*easyEditor, "Next");
+        save(*easyEditor, out.getChildFile("editor-easy-guide-last-step.png"));
+        (void) clickButton(*easyEditor, "Skip guide");
+        (void) clickButton(*easyEditor, "Done");
+        easyEditor->setSize(1290, 784);
         save(*easyEditor, out.getChildFile("editor-easy.png"));
-        easyEditor->setSize(1230, 700);
+        easyEditor->setSize(1230, 744);
         save(*easyEditor, out.getChildFile("editor-easy-minimum-size.png"));
         delete easyEditor;
     }

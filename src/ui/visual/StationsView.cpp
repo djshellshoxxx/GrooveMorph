@@ -27,9 +27,9 @@ void drawPanel(juce::Graphics& g, juce::Rectangle<float> b, const juce::String& 
 
 StationsView::StationsView()
 {
-    setTooltip("Chain Stations: the five effects in signal order, with how much each is applied now and whether it is active, held off by placement or limits, stopped, or bypassed.");
+    setTooltip("Chain Stations: the seven effects in signal order, with how much each is applied now and whether it is active, held off by placement or limits, stopped, or bypassed.");
     setTitle("Chain stations");
-    setDescription("The five effects in signal order and what each is doing now.");
+    setDescription("The seven effects in signal order and what each is doing now.");
 }
 
 void StationsView::setStages(std::array<viz::StageView, groovemorph::core::operationCount> s, juce::String note)
@@ -49,22 +49,34 @@ void StationsView::paint(juce::Graphics& g)
     const auto b = getLocalBounds().toFloat();
     drawPanel(g, b, "CHAIN STATIONS", "the real signal path, in order: what each stage is doing right now");
     const float top = 56.0f, bottom = b.getHeight() - 30.0f;
-    const float gap = 10.0f;
-    const float cell = (b.getWidth() - 32.0f - gap * 4.0f) / 5.0f;
+    const float gap = 6.0f;
+    // Seven stations: one row when each cell can be at least 62 px wide, otherwise a grid (compact cells, no glyph).
+    const int count = static_cast<int>(stages.size());
+    const int fitCols = juce::jmax(1, static_cast<int>((b.getWidth() - 32.0f + gap) / (62.0f + gap)));
+    const int rows = (count + juce::jmin(fitCols, count) - 1) / juce::jmin(fitCols, count);
+    const int cols = (count + rows - 1) / rows;
+    const bool compact = rows > 1;
+    const float cell = (b.getWidth() - 32.0f - gap * static_cast<float>(cols - 1)) / static_cast<float>(cols);
+    const float cellH = (bottom - top - gap * static_cast<float>(rows - 1)) / static_cast<float>(rows);
     // The pipe the audio flows through.
     g.setColour(palette::line);
-    g.drawLine(12.0f, (top + bottom) * 0.5f, b.getWidth() - 12.0f, (top + bottom) * 0.5f, 8.0f);
+    if (!compact)
+        g.drawLine(12.0f, (top + bottom) * 0.5f, b.getWidth() - 12.0f, (top + bottom) * 0.5f, 8.0f);
     g.setColour(palette::dim);
     g.setFont(juce::FontOptions(10.0f));
-    g.drawText("IN", 4, static_cast<int>(top) - 14, 24, 12, juce::Justification::centredLeft);
-    g.drawText("OUT", static_cast<int>(b.getWidth()) - 30, static_cast<int>(top) - 14, 28, 12, juce::Justification::centredRight);
+    if (!compact)
+    {
+        g.drawText("IN", 4, static_cast<int>(top) - 14, 24, 12, juce::Justification::centredLeft);
+        g.drawText("OUT", static_cast<int>(b.getWidth()) - 30, static_cast<int>(top) - 14, 28, 12, juce::Justification::centredRight);
+    }
 
     for (std::size_t i = 0; i < stages.size(); ++i)
     {
         const auto& st = stages[i];
         const bool active = st.state == viz::StageState::Active;
         const auto colour = active ? effectColour(st.effect) : palette::dim;
-        auto box = juce::Rectangle<float>(16.0f + static_cast<float>(i) * (cell + gap), top, cell, bottom - top);
+        const float col = static_cast<float>(static_cast<int>(i) % cols), row = static_cast<float>(static_cast<int>(i) / cols);
+        auto box = juce::Rectangle<float>(16.0f + col * (cell + gap), top + row * (cellH + gap), cell, cellH);
         const auto outline = box;
         g.setColour(palette::slate);
         g.fillRoundedRectangle(outline, 10.0f);
@@ -73,7 +85,26 @@ void StationsView::paint(juce::Graphics& g)
 
         g.setColour(active ? palette::ink : palette::dim);
         g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-        g.drawText(juce::String(st.name), box.removeFromTop(22.0f).toNearestInt(), juce::Justification::centred);
+        g.drawFittedText(juce::String(st.name), box.removeFromTop(compact ? 18.0f : 22.0f).toNearestInt(), juce::Justification::centred, 1, 0.7f);
+        if (compact)
+        {
+            // Compact cell: depth bar, then one line "<params> <state>" (no glyph).
+            auto thin = box.removeFromTop(8.0f).reduced(8.0f, 2.0f);
+            g.setColour(palette::line);
+            g.fillRoundedRectangle(thin, 2.0f);
+            if (active)
+            {
+                g.setColour(colour);
+                g.fillRoundedRectangle(thin.withWidth(thin.getWidth() * st.amount), 2.0f);
+            }
+            const juce::String st2 = !st.timed && st.state != viz::StageState::Bypassed ? "stopped"
+                                     : active ? "active" : st.state == viz::StageState::HeldOff ? "held off" : "bypassed";
+            g.setColour(active ? palette::ink : palette::dim);
+            g.setFont(juce::FontOptions(10.0f));
+            g.drawFittedText(juce::String(st.text) + (st.text.empty() ? "" : " ") + st2 + (st.locked ? " (locked)" : ""),
+                             box.removeFromTop(box.getHeight()).reduced(2.0f, 0.0f).toNearestInt(), juce::Justification::centredTop, 2, 0.8f);
+            continue;
+        }
         auto glyphArea = box.removeFromTop(juce::jmin(46.0f, box.getHeight() * 0.38f));
         drawGlyph(g, st.effect, glyphArea.reduced(6.0f, 2.0f), colour);
         // Depth bar: how much of the stage is applied (measured, smoothed).
