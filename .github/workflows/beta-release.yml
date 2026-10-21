@@ -218,6 +218,13 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -uo pipefail
+          # Never attach this build to a release whose tag points at a different commit: the assets, the
+          # checksums and the notes of that release would stop describing the same build.
+          git fetch -q --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
+          if existing="$(git rev-parse -q --verify "refs/tags/${TAG}^{commit}")" && [ "$existing" != "$GITHUB_SHA" ]; then
+            echo "::error::tag $TAG already points at $existing but this run built $GITHUB_SHA. Bump VERSION."
+            exit 1
+          fi
           title="GrooveMorph ${VERSION} (Beta)"
           notes="BETA prerelease. Packages are attached as each platform finishes; the full notes and SHA256SUMS are added when all four are done. Build run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           files=("dist/GrooveMorph-${VERSION}-${PLATFORM}.zip" "dist/GrooveMorph-${VERSION}-${PLATFORM}.zip.sha256")
