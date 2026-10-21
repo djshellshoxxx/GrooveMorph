@@ -13,6 +13,8 @@
 7. [The Visual window](VISUAL-WINDOW.md): the live picture of what the plugin is doing to the sound (alpha).
 8. [Right-click menu, MIDI links, Play/Stop and Reset](RIGHT-CLICK-AND-MIDI.md): exact values, copy/paste, MIDI learn, the transport buttons, loop tempo.
 9. [Seeded generator and candidate gallery](GENERATOR.md): repeatable options, event-pattern generation, preview/apply and saved local history.
+10. [MIDI notes, MIDI learn and host automation of effects](MIDI-AND-AUTOMATION.md): note swap, learn rules, panic messages, per-effect automation trims, update rates.
+11. [Keyboard editing, event lanes and screen readers](KEYBOARD-AND-ACCESSIBILITY.md): create events with the keyboard, thin events, phrase-end badge, undo steps, accessible names.
 
 ## Scope
 

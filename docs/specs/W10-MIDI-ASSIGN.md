@@ -1,7 +1,7 @@
 # W10-MIDI-ASSIGN: scene note assignment and MIDI learn (A04)
 
 Status: implemented by W10. W1's parallel A04 policy spec, if it disagrees, loses to this one for the
-code in this branch; the difference is listed in "Deviations" at the end of the integration notes.
+code in this branch; the integrator should reconcile any difference (W10's final report lists what was kept).
 
 ## Objective
 
