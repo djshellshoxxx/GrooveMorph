@@ -1,8 +1,14 @@
 # W10-UI-ISSUES: known editor issues closed in the beta (lane keyboard, handles, badge, honesty, undo, accessibility, rates)
 
-Status: implemented by W10. The JUCE code cannot be built or run on the authoring machine (no JUCE,
-no display); every UI behavior below is written against JUCE 8.0.7 and verified only by the portable
-tests listed. Each UI row therefore says "manual" in the acceptance table.
+Status: implemented by W10. Verification, stated exactly:
+- Portable core tests (`ctest`, 34 targets) pass.
+- The whole editor/processor code was compiled (`-fsyntax-only`, then `-O1` objects) against JUCE 8.0.7 headers on the authoring
+  machine, and `tests/PluginProcessorTests.cpp` (including the new W10 blocks and the new accessible-name check
+  `UI-AX-1`, which constructs the real editor) was linked against JUCE module objects from another worker's build
+  archive and run green. That is a headless run: it exercises processor logic and builds the editor, but nobody
+  clicked or typed in a window, and no screen reader was used.
+- Rows marked "manual" below are therefore UNVERIFIED behavior: keyboard/mouse interaction of the lane canvas,
+  the swap dialog, the badge drawing, the Scenes tab texts, and screen-reader output.
 
 Shared-hotspot rule: edits in `InspectorPanel.cpp`, `PluginEditor.*`, `ControlMenu.*` are small and
 localized. New logic lives in `src/core/` (tested) or tiny new headers.
@@ -108,4 +114,9 @@ and the 30 Hz (10 Hz Reduce motion) refresh rate are unchanged.
 | UI-UC-1..6 | field detection, run coalescing, window/sliding/backwards clock, key and structural breaks, no-op commit, bounded history | `EditCoalescingTests` |
 | UI-TH-1..3 | text throttle: first apply, unchanged text, interval, change after interval, reset, backwards clock | `TextThrottleTests` |
 | UI-KB-1, UI-NH-1, UI-PF-5, UI-SC-1, UI-AX-1, UI-VR-1 | keyboard creation, narrow handle, badge draw, Scenes tab messages, accessible names, description rate | manual in a JUCE build (unverified here) |
-| UI-UC-7 | processor: 20 slider steps within 500 ms are one undo step; a toggle between them splits | `PluginProcessorTests` (CI only) |
+| UI-UC-7 | processor: 20 slider steps within 500 ms are one undo step; a toggle between them splits | `PluginProcessorTests` (processor test binary; ran green locally 2026-10-20, see the verification note in W10-UI-ISSUES.md) |
+
+## Verification note
+
+See "Status" at the top. The local processor test run used `-O1` and JUCE objects built by another worker; CI
+(JUCE 8.0.7, Release) remains the authority.

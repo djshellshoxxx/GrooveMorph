@@ -295,6 +295,10 @@ private:
         bool auditioning = false;
     };
 
+    // Message-thread services, all at the 20 Hz timer started in the constructor (up to ~50 ms late):
+    // host Variation realignment, MIDI macros (CC 20-22), linked controllers and MIDI learn, loop
+    // capture publishing, gesture playback (~20 Hz resolution) and phrase-evolution steps. The audio thread
+    // only records CC values and their travel in ccInbox. Rate table: docs/specs/W10-MIDI-PANIC-RATES.md.
     void timerCallback() override
     {
         syncHostVariationParameter();

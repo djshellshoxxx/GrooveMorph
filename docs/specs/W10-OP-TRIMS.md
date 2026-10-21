@@ -84,6 +84,6 @@ functions of (index, kind) in `core/control/OperationTrims`.
 | A06-03 | each trim changes only its own operation/field; clamps to scene domains; never amplifies depth | `OperationTrimsTests` |
 | A06-04 | the overlay never touches placement/lane/permissions | `OperationTrimsTests` |
 | A06-05 | one id set per operation (`operationCount` driven) | `OperationTrimsTests` |
-| A06-06 | processor exposes `op<N>Enable/Depth/Slice` for every operation and every previous id still exists with the same type | `PluginProcessorTests` (CI only) |
-| A06-07 | processor: moving a trim changes the rendered output, returning it to default is bit-identical to a run without it; stored scenes and undo depth are unchanged | `PluginProcessorTests` (CI only) |
-| A06-08 | a state saved by the previous build restores with trims at default | `PluginProcessorTests` (CI only) |
+| A06-06 | processor exposes `op<N>Enable/Depth/Slice` for every operation and every previous id still exists with the same type | `PluginProcessorTests` (processor test binary; ran green locally 2026-10-20, see the verification note in W10-UI-ISSUES.md) |
+| A06-07 | processor: moving a trim changes the rendered output, returning it to default is bit-identical to a run without it; stored scenes and undo depth are unchanged | `PluginProcessorTests` (processor test binary; ran green locally 2026-10-20, see the verification note in W10-UI-ISSUES.md) |
+| A06-08 | a state saved by the previous build restores with trims at default | `PluginProcessorTests` (processor test binary; ran green locally 2026-10-20, see the verification note in W10-UI-ISSUES.md) |

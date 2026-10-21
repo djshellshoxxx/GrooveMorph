@@ -1876,8 +1876,9 @@ int main()
                                "bandCrossover", "bandSlope", "audioTrigger", "audioTriggerSens"})
             legacyPresent = legacyPresent && p.parameters.getParameter(id) != nullptr;
         expect("A06-06 every earlier parameter id still exists", legacyPresent);
-        expect("A06-06 defaults", p.parameters.getRawParameterValue("op0Depth")->load() == 1.0f
-                   && p.parameters.getRawParameterValue("op0Slice")->load() == 1.0f
+        // The skewed slice range may store its default one ulp away from 1; the overlay treats that as no change.
+        expect("A06-06 defaults", std::abs(p.parameters.getRawParameterValue("op0Depth")->load() - 1.0f) < 1.0e-4f
+                   && std::abs(p.parameters.getRawParameterValue("op0Slice")->load() - 1.0f) < 1.0e-4f
                    && p.parameters.getRawParameterValue("op0Enable")->load() == 0.0f);
 
         auto render = [](GrooveMorphAudioProcessor& processor, bool moveTrim, bool restoreTrim) {

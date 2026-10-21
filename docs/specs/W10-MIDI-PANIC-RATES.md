@@ -48,5 +48,5 @@ CC ring buffer, or audio-thread application are future options and would be new 
 | ID | Check | Where |
 |---|---|---|
 | A04-05 | releaseAll returns to previous with ReturnToPrevious, clears silently with Ignore, no-op when nothing held, late note-off ignored, fresh capture afterwards | `MidiNoteAssignTests` |
-| PANIC-1 | processor: note-on 61 then CC 123 returns to the previous scene; CC 120 too; Ignore policy keeps the scene | `PluginProcessorTests` (CI only) |
+| PANIC-1 | processor: note-on 62 then CC 123 returns to the previous scene; CC 120 too; Ignore policy keeps the scene | `PluginProcessorTests` (processor test binary; ran green locally 2026-10-20, see the verification note in W10-UI-ISSUES.md) |
 | RATES-1 | the table above matches the timer constants in code (`startTimerHz(20)`, editor 10, poller 4, visual 30/10) | review (no runtime test) |

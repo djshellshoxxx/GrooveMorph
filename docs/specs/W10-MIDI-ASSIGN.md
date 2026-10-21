@@ -91,6 +91,6 @@ duplicates) load and play exactly as before. Nothing is migrated.
 | A04-05 | `releaseAll` behaves as the held note's note-off (see PANIC spec) | `MidiNoteAssignTests` |
 | A04-06 | A pulse that returns to its value is reported; repeats are not; learn picks the biggest mover; ties lowest; zero travel never; discard forgets travel | `MidiLinksTests` |
 | A04-07 | `TableFull` vs `Invalid`; relink while full works; `p:opNDepth` targets are valid | `MidiLinksTests` |
-| A04-08 | Processor: assigning through `setMidiNoteMap` after a swap is one undo step; saved duplicate map loads unchanged | `PluginProcessorTests` (JUCE build, CI only) |
-| A04-09 | Processor: learn on a full table reports the notice and disarms; learn picks the larger mover | `PluginProcessorTests` (CI only) |
+| A04-08 | Processor: assigning through `setMidiNoteMap` after a swap is one undo step; saved duplicate map loads unchanged | `PluginProcessorTests` (processor test binary; ran green locally 2026-10-20, see the verification note in W10-UI-ISSUES.md) |
+| A04-09 | Processor: learn on a full table reports the notice and disarms; learn picks the larger mover | `PluginProcessorTests` (processor test binary; ran green locally 2026-10-20, see the verification note in W10-UI-ISSUES.md) |
 | A04-10 | Swap dialog, slider reset on Cancel, table-full message, menu item | manual (not verifiable headless; needs a display) |
