@@ -5,7 +5,11 @@
 #include "core/Scheduler.h"
 #include "core/control/AutoReturn.h"
 #include "core/control/PhaseResolver.h"
+#include "core/control/LaunchPhase.h"
 #include "core/control/PlacementEvaluator.h"
+#include "core/dsp/Crossover.h"
+#include "core/dsp/InputSanitizer.h"
+#include "ServiceTimer.h"
 #include "core/control/VariationBlend.h"
 #include "core/TransportResolver.h"
 #include "core/control/GestureLane.h"
@@ -42,8 +46,7 @@
 //
 // Operation settings (enable/depth/slice per variation and operation) are scene-bank state,
 // not host parameters (spec 9: MIDI mappings and scene contents are state data).
-class GrooveMorphAudioProcessor final : public juce::AudioProcessor,
-                                        private juce::Timer
+class GrooveMorphAudioProcessor final : public juce::AudioProcessor
 {
 public:
     // Stable host parameter IDs (GM-FR-007). Never repurpose.
@@ -68,11 +71,18 @@ public:
     static constexpr const char* bandSlopeId = "bandSlope";
     static constexpr const char* audioTriggerId = "audioTrigger";
     static constexpr const char* audioTriggerSensId = "audioTriggerSens";
+    // Appended in the Beta (W3): crossover topology (Classic / Linkwitz-Riley). Never repurpose.
+    static constexpr const char* bandTopologyId = "bandTopology";
 
     static constexpr double bypassFadeSeconds = 0.010;
 
     GrooveMorphAudioProcessor();
-    ~GrooveMorphAudioProcessor() override { stopTimer(); }
+    // Detaches the service timer first (waits for a tick in flight; safe from any thread, see ServiceTimer.h).
+    ~GrooveMorphAudioProcessor() override { serviceTimer.detach(); }
+    // Starts the 20 Hz message-thread services (idempotent, any thread). Called lazily from prepareToPlay,
+    // createEditor and the message-thread service entry points; the constructor starts nothing.
+    void ensureServices() { serviceTimer.ensureStarted(); }
+    bool areServicesRunning() const noexcept { return serviceTimer.isRunning(); }
 
     const juce::String getName() const override { return "GrooveMorph"; }
     bool acceptsMidi() const override { return true; }
@@ -245,6 +255,12 @@ public:
     // C04: restart the active scene's pattern now (transport and variation are unchanged).
     void restartActiveScene() noexcept { uiRestart.store(true, std::memory_order_release); }
     // Pattern-phase shift (meter beats) applied since the last switch/restart; 0 = following the transport.
+    // C05 "Dry" return: 0 none, 1 armed (waiting for the boundary), 2 active (effects off until a scene request).
+    // C04: smoothing time (ms) of the scene that launched last; 0 = engine default.
+    float getTransitionSmoothingMs() const noexcept { return smoothingStatus.load(std::memory_order_relaxed); }
+    int getDryReturnState() const noexcept { return dryReturnStatus.load(std::memory_order_relaxed); }
+    // Count of non-finite input samples replaced by the input sanitizer (diagnostics/tests).
+    std::uint32_t getNonFiniteSampleCount() const noexcept { return nonFiniteSamples.load(std::memory_order_relaxed); }
     double getPhaseShiftBeats() const noexcept { return phaseShiftStatus.load(std::memory_order_relaxed); }
 
     // ---- Scene bank editing (message thread) ----
@@ -298,13 +314,37 @@ public:
     void setCurrentPresetName(const juce::String& name);
 
 private:
+    // Phrase evolution (F05) plan published with the scene: the audio thread swaps `next` into the evolving
+    // scene at the exact phrase boundary (docs/specs/W3-TIMER-EVOLUTION.md).
+    struct EvolutionPlan
+    {
+        bool active = false;
+        std::uint8_t scene = 0;
+        std::uint8_t every = 1;
+        std::uint32_t epoch = 0;    // changes whenever evolution is (re)configured
+        std::uint32_t nextStep = 1; // step number `next` represents
+        groovemorph::core::VariationSettings next{};
+    };
+    // Audio-thread cache of the F02 morph result; rebuilt only when its key changes (docs/specs/W3-MORPH.md).
+    struct MorphCache
+    {
+        groovemorph::core::VariationSettings value{};
+        bool valid = false;
+        std::size_t variation = 0;
+        int target = -1;
+        float weight = 0.0f;
+        std::uint32_t version = 0;
+        std::int64_t phraseTicks = 0;
+    };
     struct PublishedScene
     {
         groovemorph::core::scene::SceneSnapshot snapshot{};
         bool auditioning = false;
+        EvolutionPlan evolution{};
     };
 
-    void timerCallback() override
+    ServiceTimer serviceTimer{[this] { serviceTick(); }};
+    void serviceTick()
     {
         syncHostVariationParameter();
         applyMidiMacros();
@@ -330,7 +370,7 @@ private:
                        const std::optional<groovemorph::core::ResolvedTiming>& blockTiming,
                        std::size_t variation, float wetAmount, float bypassTarget) noexcept;
     // Effective settings for a scene: morph blend (F02) applied; placement is applied per slice.
-    groovemorph::core::VariationSettings effectiveSettings(std::size_t variation) const noexcept;
+    const groovemorph::core::VariationSettings& effectiveSettings(std::size_t variation) noexcept;
     void process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi, bool forceBypass) noexcept;
 
     // Cache APVTS lookup results once; the callback only loads atomic scalars.
@@ -353,6 +393,7 @@ private:
         std::atomic<float>* bandMode = nullptr;
         std::atomic<float>* bandCrossover = nullptr;
         std::atomic<float>* bandSlope = nullptr;
+        std::atomic<float>* bandTopology = nullptr;
         std::atomic<float>* audioTrigger = nullptr;
         std::atomic<float>* audioTriggerSens = nullptr;
     } cached;
@@ -413,10 +454,35 @@ private:
     std::array<float, 2> svfIc1{}, svfIc2{};
     juce::AudioBuffer<float> bandBypass;
     juce::AudioBuffer<float> bandPart; // the band handed to the engine, to detect an unchanged signal
+    // W3: Linkwitz-Riley split (topology > 0). Classic code above is untouched.
+    groovemorph::core::dsp::BandSplit lrSplit;
+    int bandTopologySel = 0; // 0 Classic, 1 LR2, 2 LR4
+    int previousBandTopologySel = 0;
     std::array<groovemorph::core::OnsetDetector, 2> onsetDetectors;
     int audioTriggerSel = 0;      // 0 off, 1 next scene, 2 trigger queued
     float audioTriggerSensitivity = 0.5f;
     bool onsetThisBlock = false;
+
+    // W3 audio-thread state.
+    groovemorph::core::control::LaunchPhase launchPhase; // C04: phase config captured at request time
+    float transitionSmoothingMs = 0.0f;                  // C04: smoothing of the sounding scene's launch
+    bool dryOverlay = false;                             // C05 Dry return: effects off until a scene request
+    std::atomic<float> smoothingStatus{0.0f};
+    std::atomic<int> dryReturnStatus{0};                 // 0 none, 1 pending, 2 active
+    std::atomic<std::uint32_t> nonFiniteSamples{0};      // input samples replaced by the sanitizer
+    MorphCache morphCache;                               // F02 morph result, rebuilt only when its key changes
+    std::uint32_t evoEpochSeen = 0;
+    std::uint32_t evoAppliedStep = 0;
+    std::int64_t evoPhraseSeen = -1;
+    bool evoHaveLast = false;                            // evoLast holds the settings of the last applied step
+    groovemorph::core::VariationSettings evoLast{};
+    // Message thread (modelMutex): evolution epoch; the audio thread reports the last applied step as (epoch << 32 | step).
+    std::uint32_t evolutionEpoch = 1;
+    std::atomic<std::uint64_t> evolutionApplied{0};
+    void syncEvolutionFromAudioLocked();
+    bool syncEvolutionStep(); // caller holds modelMutex; true when the audio thread applied a newer step
+    void evolutionBoundary(std::int64_t phrase) noexcept;
+    void requestScene(std::size_t variation, groovemorph::core::TransitionMode mode) noexcept;
 
     // UI -> audio.
     std::atomic<int> uiRequest{-1};

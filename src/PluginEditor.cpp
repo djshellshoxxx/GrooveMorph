@@ -620,5 +620,6 @@ bool GrooveMorphAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
 
 juce::AudioProcessorEditor* GrooveMorphAudioProcessor::createEditor()
 {
+    ensureServices(); // W3: the service timer starts lazily (KNOWN-ISSUES #4)
     return new GrooveMorphAudioProcessorEditor(*this);
 }

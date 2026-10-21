@@ -104,6 +104,18 @@ if(NOT GROOVEMORPH_CORE_ONLY_BUILD)
         endif()
         add_test(NAME GrooveMorphPluginTests COMMAND GrooveMorphPluginTests)
 
+        # W3: processor-level tests for sanitizing, smoothing, Dry return, morph, capacity, timer, evolution.
+        add_executable(GrooveMorphW3ProcessorTests tests/W3ProcessorTests.cpp)
+        target_include_directories(GrooveMorphW3ProcessorTests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            $<TARGET_PROPERTY:GrooveMorphPlugin,INCLUDE_DIRECTORIES>
+        )
+        target_compile_definitions(GrooveMorphW3ProcessorTests PRIVATE
+            $<TARGET_PROPERTY:GrooveMorphPlugin,COMPILE_DEFINITIONS>
+        )
+        target_link_libraries(GrooveMorphW3ProcessorTests PRIVATE GrooveMorphPlugin)
+        add_test(NAME GrooveMorphW3ProcessorTests COMMAND GrooveMorphW3ProcessorTests)
+
         # Developer tool (not a CTest): renders the real editor, software-rendered, to PNG files.
         add_executable(GrooveMorphEditorSnapshot tools/EditorSnapshot.cpp)
         target_include_directories(GrooveMorphEditorSnapshot PRIVATE
