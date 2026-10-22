@@ -8,7 +8,7 @@ draft are NOT implemented (section 8).
 ## Beta audit status (2026-10-20)
 
 - Added by the audit: sensitivity monotonic (F07-T06) and 120 ms refractory (F07-T07) in `OnsetDetectorTests.cpp`.
-- Open: queued-mode and C05 interaction processor tests (F07-T05, T10, B-02); rendered drum/bass/dense fixtures with a measured retrigger rate (F07-T09, B-07).
+- Open: queued-mode and C05 interaction processor tests (F07-T05, T10, B-02); recorded-material tuning and a false-trigger budget (F07-T09, B-07). Synthetic fixtures added on 2026-10-22 measure maximum-sensitivity dense-material retriggers at 8/s; see `docs/qa/ONSET_MATERIAL_2026-10-22.md`.
 - Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
@@ -67,7 +67,7 @@ Perform/main scene row shows the resulting queued scene.
 | F07-T06 | Sensitivity monotonic: higher sensitivity never detects fewer onsets on the same fixture | EXISTS | `OnsetDetectorTests.cpp (label F07-T06)` |
 | F07-T07 | Refractory: two clicks closer than 120 ms yield one onset | EXISTS | `OnsetDetectorTests.cpp (label F07-T07)` |
 | F07-T08 | Parameters exist, default Off, restore from project | PARTIAL | `PluginProcessorTests.cpp` "new parameters exist" Parameter existence is asserted; restore from a project relies on the generic APVTS restore. |
-| F07-T09 | Realistic material fixtures (drum loop, bass-heavy, dense sustained) with retrigger rate measured | DEFERRED | No rendered drum-loop / bass-heavy / dense-sustained fixtures with a measured retrigger rate. Open as TODO B-07. |
+| F07-T09 | Realistic material fixtures (drum loop, bass-heavy, dense sustained) with retrigger rate measured | PARTIAL | `OnsetMaterialTests.cpp` renders synthetic percussion, bass and dense material at three sample rates and records onset rates. Recorded material, false-trigger budget and listening/tuning remain open (B-07). |
 | F07-T10 | C05 auto-return is disarmed by a trigger-requested scene | DEFERRED | Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02. |
 
 ## 8. Gaps
