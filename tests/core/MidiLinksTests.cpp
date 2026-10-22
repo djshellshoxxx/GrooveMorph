@@ -42,6 +42,27 @@ int main() {
         expect("relinking a present target still works when full", full.link(99, "p:param0"));
     }
 
+    // Reserved macro controllers are excluded from learn; explicit links override macros.
+    {
+        CcInbox::Change moved[] = {{20, 127, 120}, {22, 127, 100}, {7, 64, 10}};
+        expect("A04-T07 macros exclude reserved learn candidates", pickLearnCc(moved, 3, true) == 7);
+        expect("A04-T07 macros off allow reserved learn candidates", pickLearnCc(moved, 3, false) == 20);
+        expect("A04-T07 reserved-only learn keeps waiting", pickLearnCc(moved, 2, true) == -1);
+        expect("A04-T07 macro reservation has exact bounds", isMacroCc(20) && isMacroCc(21) && isMacroCc(22)
+            && !isMacroCc(19) && !isMacroCc(23));
+        MidiLinkTable links;
+        expect("A04-T08 unused CC is not linked", !links.usesCc(20));
+        links.link(20, "p:dryWet");
+        links.link(20, "p:masterIntensity");
+        expect("A04-T08 explicit link claims macro slot", links.usesCc(20) && !links.usesCc(21));
+        expect("A04-T09 sharing lists every other target", links.sharedTargets(20, "p:dryWet") == "p:masterIntensity"
+            && links.sharedTargets(20, "p:missing") == "p:dryWet, p:masterIntensity");
+        links.unlink("p:dryWet");
+        expect("A04-T09 unshared target has no other targets", links.sharedTargets(20, "p:masterIntensity").empty());
+        links.clear();
+        expect("A04-T08 clearing releases macro slot", !links.usesCc(20));
+    }
+
     // Serialization round trip and tolerant parsing.
     {
         MidiLinkTable a;
@@ -58,6 +79,19 @@ int main() {
         std::string huge;
         for (int i = 0; i < 1000; ++i) huge += std::to_string(i % 128) + "=p:p" + std::to_string(i) + ";";
         expect("huge text is bounded", MidiLinkTable::deserialize(huge).links().size() == MidiLinkTable::maxLinks);
+    }
+
+    // Restoring a full table must still apply later entries for existing targets.
+    {
+        MidiLinkTable full;
+        for (std::size_t i = 0; i < MidiLinkTable::maxLinks; ++i)
+            full.link(static_cast<int>(i), "p:param" + std::to_string(i));
+        const auto restored = MidiLinkTable::deserialize(full.serialize()
+            + ";99=p:overflow;100=p:param0;101=p:param63");
+        expect("full restore keeps the last duplicate", restored.ccFor("p:param0") == 100
+            && restored.ccFor("p:param63") == 101);
+        expect("full restore rejects only new targets", restored.links().size() == MidiLinkTable::maxLinks
+            && restored.ccFor("p:overflow") == -1);
     }
 
     // CcInbox: only changes are reported; discardPending forgets old movement.

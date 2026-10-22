@@ -487,7 +487,11 @@ void GrooveMorphAudioProcessorEditor::timerCallback()
         footer.returnOnNoteOff.setToggleState(bank.midiNoteMap().noteOffPolicy ==
             groovemorph::core::scene::NoteOffPolicy::ReturnToPrevious, juce::dontSendNotification);
     }
-    if (audioProcessor.consumeMidiLinkNotice() == GrooveMorphAudioProcessor::midiLinkNoticeTableFull)
+    const int midiLinkNotice = audioProcessor.consumeMidiLinkNotice();
+    if (midiLinkNotice == GrooveMorphAudioProcessor::midiLinkNoticeMacroReserved)
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "MIDI macro controller reserved",
+            "CC 20, 21 and 22 are used by MIDI macros. Turn MIDI macros off in Input before linking these controllers.", "OK", this);
+    if (midiLinkNotice == GrooveMorphAudioProcessor::midiLinkNoticeTableFull)
     {
         midiNoticeUntil = juce::Time::getMillisecondCounter() + 8000;
         juce::AlertWindow::showMessageBoxAsync(

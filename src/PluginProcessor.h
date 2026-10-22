@@ -181,15 +181,17 @@ public:
     void cancelMidiLearn();
     juce::String getMidiLearnTarget() const;            // empty when not learning
     int getMidiLinkCc(const juce::String& target) const; // -1 when not linked
+    juce::String getMidiLinkDescription(const juce::String& target) const;
     bool linkMidi(int cc, const juce::String& target);
     void unlinkMidi(const juce::String& target);
     void clearMidiLinks();
     // Applies controller movement received since the last call (the processor's timer calls this ~20x/s).
     void servicePendingControllers() { applyMidiLinks(); }
-    // Why the last link attempt failed, for the UI: 0 none, 1 the 64-link table is full. Reading clears it.
+    // Why the last link attempt failed: 0 none, 1 table full, 2 macro CC reserved. Reading clears it.
     int consumeMidiLinkNotice() noexcept { return midiLinkNotice.exchange(0, std::memory_order_relaxed); }
     int getMidiLinkCount() const;
     static constexpr int midiLinkNoticeTableFull = 1;
+    static constexpr int midiLinkNoticeMacroReserved = 2;
     // Live scene edit for controllers: no undo entry per move, refused while a preview is active.
     void setOperationSettingsLive(std::size_t index, groovemorph::core::OperationType op,
                                   const groovemorph::core::OperationSettings& settings);

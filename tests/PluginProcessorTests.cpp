@@ -2067,6 +2067,53 @@ int main()
                    && full.getMidiLinkCc("p:fake3") == 100);
     }
 
+    // A04: reserved learn/direct links and explicit-link precedence over built-in macros.
+    {
+        juce::ScopedJuceInitialiser_GUI gui;
+        GrooveMorphAudioProcessor p;
+        p.prepareToPlay(48000.0, 64);
+        auto sendCc = [&](int cc, int value) {
+            juce::AudioBuffer<float> buf(2, 64);
+            buf.clear();
+            juce::MidiBuffer midi;
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, cc, value), 0);
+            p.processBlock(buf, midi);
+        };
+        expect("A04-T07 macros off accepts reserved link", p.linkMidi(20, "p:dryWet"));
+        p.setMidiMacrosEnabled(true);
+        expect("A04-T07 macros on rejects reserved link", !p.linkMidi(21, "p:masterIntensity")
+            && p.getMidiLinkCc("p:masterIntensity") == -1
+            && p.consumeMidiLinkNotice() == GrooveMorphAudioProcessor::midiLinkNoticeMacroReserved);
+        setParameter(p, "masterIntensity", 0.25f);
+        sendCc(20, 127);
+        p.applyMidiMacros();
+        p.servicePendingControllers();
+        expect("A04-T08 explicit link skips macro", std::abs(p.parameters.getRawParameterValue("masterIntensity")->load() - 0.25f) < 0.001f
+            && p.parameters.getRawParameterValue("dryWet")->load() > 0.99f);
+        p.beginMidiLearn("p:manualTempo");
+        sendCc(22, 127);
+        p.servicePendingControllers();
+        expect("A04-T07 learn ignores reserved controller", p.getMidiLearnTarget() == "p:manualTempo"
+            && p.getMidiLinkCc("p:manualTempo") == -1);
+        sendCc(7, 64);
+        p.servicePendingControllers();
+        expect("A04-T07 learn accepts ordinary controller", p.getMidiLinkCc("p:manualTempo") == 7);
+        p.setMidiMacrosEnabled(false);
+        expect("A04-T09 shared link accepted", p.linkMidi(20, "p:morphAmount"));
+        expect("A04-T09 sharing description names other target", p.getMidiLinkDescription("p:dryWet").contains("p:morphAmount"));
+        p.setMidiMacrosEnabled(true);
+        expect("A04-T09 description explains override", p.getMidiLinkDescription("p:dryWet").contains("overrides macro"));
+        p.unlinkMidi("p:dryWet");
+        p.unlinkMidi("p:morphAmount");
+        sendCc(20, 64);
+        p.applyMidiMacros();
+        expect("A04-T08 unlink restores macro", std::abs(p.parameters.getRawParameterValue("masterIntensity")->load() - 64.0f / 127.0f) < 0.001f);
+        sendCc(20, 127);
+        p.setMidiMacrosEnabled(false);
+        p.applyMidiMacros();
+        expect("A04-T08 disabled macros discard pending values", std::abs(p.parameters.getRawParameterValue("masterIntensity")->load() - 64.0f / 127.0f) < 0.001f);
+    }
+
     // W10: CC 123 / CC 120 release a held trigger note (return to the previous scene), nothing else changes.
     {
         namespace scene = groovemorph::core::scene;

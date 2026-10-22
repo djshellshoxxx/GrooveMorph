@@ -61,6 +61,23 @@ int MidiLinkTable::ccFor(std::string_view target) const noexcept
     return -1;
 }
 
+bool MidiLinkTable::usesCc(int cc) const noexcept
+{
+    return std::any_of(entries.begin(), entries.end(), [cc](const MidiLink& link) { return link.cc == cc; });
+}
+
+std::string MidiLinkTable::sharedTargets(int cc, std::string_view excluding) const
+{
+    std::string result;
+    for (const auto& link : entries)
+        if (link.cc == cc && link.target != excluding)
+        {
+            if (!result.empty()) result += ", ";
+            result += link.target;
+        }
+    return result;
+}
+
 std::string MidiLinkTable::serialize() const
 {
     std::string s;
@@ -77,7 +94,7 @@ MidiLinkTable MidiLinkTable::deserialize(std::string_view text)
 {
     MidiLinkTable t;
     std::size_t pos = 0;
-    while (pos <= text.size() && t.entries.size() < maxLinks)
+    while (pos <= text.size())
     {
         auto end = text.find(';', pos);
         if (end == std::string_view::npos)
@@ -154,12 +171,13 @@ void CcInbox::discardPending() noexcept
     }
 }
 
-int pickLearnCc(const CcInbox::Change* changes, std::size_t count) noexcept
+int pickLearnCc(const CcInbox::Change* changes, std::size_t count, bool macrosEnabled) noexcept
 {
     int best = -1;
     int bestTravel = 0;
     for (std::size_t i = 0; changes != nullptr && i < count; ++i)
-        if (changes[i].travel > bestTravel || (changes[i].travel == bestTravel && bestTravel > 0 && changes[i].cc < best))
+        if (!(macrosEnabled && isMacroCc(changes[i].cc))
+            && (changes[i].travel > bestTravel || (changes[i].travel == bestTravel && bestTravel > 0 && changes[i].cc < best)))
         {
             best = changes[i].cc;
             bestTravel = changes[i].travel;

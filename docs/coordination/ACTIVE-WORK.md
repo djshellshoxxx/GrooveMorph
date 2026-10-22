@@ -10,3 +10,12 @@
 
 Rules: one owner per shared file (see MODULE-OWNERSHIP.md). Do not add a second Scheduler or processor.
 `docs/TODO.md` is edited by the completeness auditor only until the audit is merged.
+
+## Continuation 2026-10-22
+
+Owner: Codex, branch `codex/midi-policy-completion-20261022`, base `bdb9cb5`.
+Owns MIDI link core, processor adapters and menu/notice wiring for A04-T07..T09,
+plus full-table deserialization regression. No other active implementation PR
+was found (open PRs #6, #37 and #40 are documentation/specification work).
+Portable Release verification is recorded in `docs/qa/MIDI_POLICY_2026-10-22.md`.
+Soft pickup, native host checks, licence decision and other B items remain open.
