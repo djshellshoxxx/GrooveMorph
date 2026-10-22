@@ -31,7 +31,7 @@
  },
  "A04-T07": {
   "status": "PARTIAL",
-  "reason": "Portable policy checks pass locally; processor regressions added but not yet run on a native JUCE build. Menu interaction remains manual.",
+  "reason": "Portable policy and Windows/Linux processor regressions pass. Menu interaction remains manual.",
   "tests": [
    "tests/core/MidiLinksTests.cpp::A04-T07",
    "tests/PluginProcessorTests.cpp::A04-T07"
@@ -39,7 +39,7 @@
  },
  "A04-T08": {
   "status": "PARTIAL",
-  "reason": "Portable policy checks pass locally; processor regressions added but not yet run on a native JUCE build. Menu interaction remains manual.",
+  "reason": "Portable policy and Windows/Linux processor regressions pass. Menu interaction remains manual.",
   "tests": [
    "tests/core/MidiLinksTests.cpp::A04-T08",
    "tests/PluginProcessorTests.cpp::A04-T08"
@@ -47,7 +47,7 @@
  },
  "A04-T09": {
   "status": "PARTIAL",
-  "reason": "Portable policy checks pass locally; processor regressions added but not yet run on a native JUCE build. Menu interaction remains manual.",
+  "reason": "Portable policy and Windows/Linux processor regressions pass. Menu interaction remains manual.",
   "tests": [
    "tests/core/MidiLinksTests.cpp::A04-T09",
    "tests/PluginProcessorTests.cpp::A04-T09"
@@ -633,9 +633,11 @@
   ]
  },
  "F07-T09": {
-  "reason": "No rendered drum-loop / bass-heavy / dense-sustained fixtures with a measured retrigger rate. Open as TODO B-07.",
-  "status": "DEFERRED",
-  "tests": []
+  "status": "PARTIAL",
+  "reason": "Synthetic rendered material and rate measurements exist; recorded material, a false-trigger budget and listening/tuning remain open (B-07).",
+  "tests": [
+   "tests/core/OnsetMaterialTests.cpp::F07-T09"
+  ]
  },
  "F07-T10": {
   "reason": "Processor-level test needs the JUCE build, which the core-only authoring machine cannot run; open as TODO B-02.",
