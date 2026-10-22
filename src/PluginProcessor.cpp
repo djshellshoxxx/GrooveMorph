@@ -466,9 +466,18 @@ void GrooveMorphAudioProcessor::handleMidi(const juce::uint8* data, int numBytes
 void GrooveMorphAudioProcessor::applyMidiMacros()
 {
     const auto dirty = ccDirty.exchange(0, std::memory_order_acq_rel);
+    if (!areMidiMacrosEnabled())
+        return; // discard queued values after macros are disabled
+    unsigned linkedSlots = 0;
+    {
+        const std::lock_guard<std::mutex> lock(midiLinkMutex);
+        for (unsigned slot = 0; slot < 3; ++slot)
+            if (midiLinks.usesCc(20 + static_cast<int>(slot)))
+                linkedSlots |= 1u << slot;
+    }
     static constexpr const char* ids[] = {masterIntensityId, dryWetId, morphAmountId};
     for (std::size_t slot = 0; slot < 3; ++slot)
-        if ((dirty & (1u << slot)) != 0)
+        if ((dirty & ~linkedSlots & (1u << slot)) != 0)
             if (auto* parameter = parameters.getParameter(ids[slot]))
             {
                 parameter->beginChangeGesture();
@@ -505,9 +514,27 @@ int GrooveMorphAudioProcessor::getMidiLinkCc(const juce::String& target) const
     return midiLinks.ccFor(target.toStdString());
 }
 
+juce::String GrooveMorphAudioProcessor::getMidiLinkDescription(const juce::String& target) const
+{
+    const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    const auto key = target.toStdString();
+    const int cc = midiLinks.ccFor(key);
+    if (cc < 0) return {};
+    juce::String result = "CC " + juce::String(cc);
+    const auto others = midiLinks.sharedTargets(cc, key);
+    if (!others.empty()) result += " also drives: " + juce::String(others);
+    if (areMidiMacrosEnabled() && core::isMacroCc(cc)) result += " (explicit link overrides macro)";
+    return result;
+}
+
 bool GrooveMorphAudioProcessor::linkMidi(int cc, const juce::String& target)
 {
     const std::lock_guard<std::mutex> lock(midiLinkMutex);
+    if (areMidiMacrosEnabled() && core::isMacroCc(cc))
+    {
+        midiLinkNotice.store(midiLinkNoticeMacroReserved, std::memory_order_relaxed);
+        return false;
+    }
     const auto result = midiLinks.linkChecked(cc, target.toStdString());
     if (result == core::MidiLinkTable::LinkResult::TableFull)
         midiLinkNotice.store(midiLinkNoticeTableFull, std::memory_order_relaxed);
@@ -546,7 +573,7 @@ void GrooveMorphAudioProcessor::applyMidiLinks()
         {
             // Learn: the controller that moved most in this tick is linked to the waiting control and is not
             // applied this time. A tick whose movement is not attributable yet (-1) is retried on the next one.
-            const int cc = core::pickLearnCc(changes, count);
+            const int cc = core::pickLearnCc(changes, count, areMidiMacrosEnabled());
             if (cc < 0)
                 return;
             const auto result = midiLinks.linkChecked(cc, midiLearnTarget.toStdString());

@@ -36,6 +36,8 @@ public:
     void unlink(std::string_view target);
     void clear() noexcept { entries.clear(); }
     [[nodiscard]] int ccFor(std::string_view target) const noexcept; // -1 when not linked
+    [[nodiscard]] bool usesCc(int cc) const noexcept;
+    [[nodiscard]] std::string sharedTargets(int cc, std::string_view excluding) const;
     [[nodiscard]] const std::vector<MidiLink>& links() const noexcept { return entries; }
 
     // "20=p:masterIntensity;21=s:0:depth". Invalid entries are skipped on load, duplicates keep the last.
@@ -78,7 +80,10 @@ private:
 };
 
 // MIDI learn: the CC to link among those that moved in one collect() batch. The one that travelled most
-// wins (a fader sweep beats a stray button press); ties go to the lowest CC. -1 when the batch is empty or
+// wins (a fader sweep beats a stray button press); ties go to the lowest CC. With macros enabled,
+// CC 20-22 are skipped. -1 when the batch is empty or
 // nothing travelled.
-[[nodiscard]] int pickLearnCc(const CcInbox::Change* changes, std::size_t count) noexcept;
+[[nodiscard]] constexpr bool isMacroCc(int cc) noexcept { return cc >= 20 && cc <= 22; }
+[[nodiscard]] int pickLearnCc(const CcInbox::Change* changes, std::size_t count,
+                            bool macrosEnabled = false) noexcept;
 } // namespace groovemorph::core

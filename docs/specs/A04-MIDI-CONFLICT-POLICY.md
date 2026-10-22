@@ -1,6 +1,6 @@
 # A04 MIDI duplicate-assignment policy
 
-Status: IMPLEMENTED as the W10 variant (Swap/Cancel dialog); CC reserved-slot policy not built (TODO B-05). Updated 2026-10-20 by the A1 completeness audit.
+Status: IMPLEMENTED as the W10 variant (Swap/Cancel dialog); CC reserved-slot policy implemented on 2026-10-22 (native processor checks pending CI). Updated 2026-10-20 by the A1 completeness audit.
 Source item: `docs/TODO.md` A04 ("Decide whether to add auto-swap/reject"). Related: [F12](F12-MIDI-CLAP-PLATFORMS.md), [F04](F04-PERFORMANCE-MODE.md).
 
 
@@ -8,7 +8,7 @@ Source item: `docs/TODO.md` A04 ("Decide whether to add auto-swap/reject"). Rela
 
 - The decision in section 3 (silent auto-swap with an undoable notice) was NOT what shipped. W10 chose a confirmation dialog with Cancel as the default and no Fix button; see `docs/specs/W10-MIDI-ASSIGN.md` (the as-built spec). A legacy duplicate map still loads unchanged and dispatches first-match.
 - Rows A04-T03..T06 are re-pointed at the as-built tests in `MidiNoteAssignTests.cpp` and `PluginProcessorTests.cpp`. There is no `resolveDuplicates()`.
-- Not built: CC 20/21/22 rejection while macros are on, macro-slot skipping, shared-CC description (A04-T07..T09, B-05). A link on CC 20/21/22 and the macro both drive their targets today.
+- Updated 2026-10-22: CC 20/21/22 rejection while macros are on, learn filtering, explicit-link macro precedence and shared-target menu descriptions are implemented (A04-T07..T09). Portable policy tests run locally; processor/UI verification requires CI and native QA.
 - Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
@@ -47,7 +47,7 @@ Alternative if the owner prefers least surprise: reject duplicates entirely (rev
 - A CC may keep driving several targets (existing, documented, tested). The control menu and the learn status line name the sharing: "CC 21 also drives: Dry/Wet".
 - Reserved CCs: 20, 21, 22 are reserved for macros WHILE `midiMacros` is on. `MidiLinkTable::link` (or the processor wrapper `linkMidi`) rejects them with the reason
   "CC 20 is used by MIDI macros" and learn ignores them; the user switches macros off to relink them. Enabling macros while links exist on 20-22 is allowed; the explicit LINK wins
-  and the macro slot for that CC is skipped in `applyMidiMacros`, with the Input tab showing "CC 20 is linked and overrides the macro".
+  and the macro slot for that CC is skipped in `applyMidiMacros`, with the Input tab showing the documented override policy in its MIDI macro tooltip; the linked control menu reports "explicit link overrides macro".
 - Program change is not a CC and has no conflict with links.
 - Conflict badge (owned by W10): a control with a shared or overridden CC shows a small badge using the existing `paintMidiOverlay`; tooltip text lists the other controls.
 
@@ -72,9 +72,9 @@ Editor: note slider per scene (existing), status/notice line (existing `midiLabe
 | A04-T04 | Swap is one undo step and Undo restores both notes | EXISTS | `PluginProcessorTests.cpp` "A04-08 one undo reverts both notes"; `PluginProcessorTests.cpp` "A04-08 map swapped in the bank" |
 | A04-T05 | Legacy duplicate maps keep first-match dispatch, and a swap touches only the first owner (there is no `resolveDuplicates`) | EXISTS | `MidiNoteAssignTests.cpp` "A04-04 legacy dispatch is first-match"; `MidiNoteAssignTests.cpp` "A04-04 swap takes first owner only" As built there is no resolveDuplicates(): legacy duplicate maps are left alone (first match) and fixed by assigning again; see the rewritten spec. |
 | A04-T06 | Assigning a note already unique to the scene is a no-op (no undo entry) | EXISTS | `MidiNoteAssignTests.cpp` "A04-03 same note is not a change"; `MidiNoteAssignTests.cpp` "A04-02 unchanged" |
-| A04-T07 | Linking CC 20/21/22 is rejected while macros are on, accepted when off; learn ignores them | DEFERRED | Not built: linking CC 20/21/22 is still allowed while macros are on (the link and the macro both drive their targets). Open as TODO B-05. |
-| A04-T08 | Macro slot skipped when a link uses the same CC (no double drive) | DEFERRED | Not built (same as A04-T07). Open as TODO B-05. |
-| A04-T09 | Shared CC description lists all targets | DEFERRED | Not built: the right-click menu does not list other targets that share a CC. Open as TODO B-05. |
+| A04-T07 | Linking CC 20/21/22 is rejected while macros are on, accepted when off; learn ignores them | PARTIAL | `MidiLinksTests.cpp` A04-T07 portable checks; `PluginProcessorTests.cpp` A04-T07 checks added, pending native CI. Menu interaction remains manual. |
+| A04-T08 | Macro slot skipped when a link uses the same CC (no double drive) | PARTIAL | `MidiLinksTests.cpp` A04-T08 portable checks; `PluginProcessorTests.cpp` A04-T08 checks added, pending native CI. Menu interaction remains manual. |
+| A04-T09 | Shared CC description lists all targets | PARTIAL | `MidiLinksTests.cpp` A04-T09 portable checks; `PluginProcessorTests.cpp` A04-T09 checks added, pending native CI. Menu interaction remains manual. |
 | A04-T10 | Swap/Cancel dialog, table-full notice and slider reset exist (native UI; the Fix button was not built) | MANUAL | The Swap/Cancel dialog replaced the planned Fix button; UI code is compiled in CI only and has not been clicked (W10-MIDI-ASSIGN A04-10). |
 
 ## 8. Non-goals

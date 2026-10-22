@@ -2342,7 +2342,7 @@ public:
         setupLabel(onsets, "");
 
         midiMacros.setButtonText("MIDI macros: CC 20/21/22 and program change");
-        midiMacros.setTooltip("CC 20 = Intensity, CC 21 = Dry/Wet, CC 22 = Morph amount; program change 0-3 = scene A-D. Applied at about 20 Hz via the host parameters. Off by default; not saved.");
+        midiMacros.setTooltip("CC 20 = Intensity, CC 21 = Dry/Wet, CC 22 = Morph amount; program change 0-3 = scene A-D. Applied at about 20 Hz via the host parameters. Existing explicit CC links override their macro slot. CC 20-22 cannot be learned or newly linked while macros are on. Off by default; not saved.");
         midiMacros.onClick = [this] { processor.setMidiMacrosEnabled(midiMacros.getToggleState()); };
 
         for (auto* c : std::initializer_list<juce::Component*>{&source, &bars, &loopBpmField, &capture, &importButton, &clearLoop, &matchTempo, &loopInfo, &stretchToggle, &stretchInfo, &waveform,

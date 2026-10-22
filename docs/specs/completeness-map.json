@@ -30,19 +30,28 @@
   ]
  },
  "A04-T07": {
-  "reason": "Not built: linking CC 20/21/22 is still allowed while macros are on (the link and the macro both drive their targets). Open as TODO B-05.",
-  "status": "DEFERRED",
-  "tests": []
+  "status": "PARTIAL",
+  "reason": "Portable policy checks pass locally; processor regressions added but not yet run on a native JUCE build. Menu interaction remains manual.",
+  "tests": [
+   "tests/core/MidiLinksTests.cpp::A04-T07",
+   "tests/PluginProcessorTests.cpp::A04-T07"
+  ]
  },
  "A04-T08": {
-  "reason": "Not built (same as A04-T07). Open as TODO B-05.",
-  "status": "DEFERRED",
-  "tests": []
+  "status": "PARTIAL",
+  "reason": "Portable policy checks pass locally; processor regressions added but not yet run on a native JUCE build. Menu interaction remains manual.",
+  "tests": [
+   "tests/core/MidiLinksTests.cpp::A04-T08",
+   "tests/PluginProcessorTests.cpp::A04-T08"
+  ]
  },
  "A04-T09": {
-  "reason": "Not built: the right-click menu does not list other targets that share a CC. Open as TODO B-05.",
-  "status": "DEFERRED",
-  "tests": []
+  "status": "PARTIAL",
+  "reason": "Portable policy checks pass locally; processor regressions added but not yet run on a native JUCE build. Menu interaction remains manual.",
+  "tests": [
+   "tests/core/MidiLinksTests.cpp::A04-T09",
+   "tests/PluginProcessorTests.cpp::A04-T09"
+  ]
  },
  "A04-T10": {
   "reason": "The Swap/Cancel dialog replaced the planned Fix button; UI code is compiled in CI only and has not been clicked (W10-MIDI-ASSIGN A04-10).",

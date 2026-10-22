@@ -323,6 +323,10 @@ bool MenuSupport::showMenu(const juce::MouseEvent& e)
         m.addItem(5, linkable ? (cc >= 0 ? "Re-learn MIDI controller (now CC " + juce::String(cc) + ")..." : juce::String("Link to MIDI controller (learn)..."))
                               : juce::String("Link to MIDI (not available for this control)"),
                   linkable);
+    if (linkable && menu.processor->areMidiMacrosEnabled())
+        m.addItem(0, "CC 20-22 reserved while MIDI macros are on", false);
+    if (cc >= 0)
+        m.addItem(0, menu.processor->getMidiLinkDescription(menu.midiTarget), false);
     if (cc >= 0)
         m.addItem(6, "Unlink MIDI (CC " + juce::String(cc) + ")");
 
