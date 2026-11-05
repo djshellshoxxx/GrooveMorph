@@ -19,3 +19,7 @@ plus full-table deserialization regression. No other active implementation PR
 was found (open PRs #6, #37 and #40 are documentation/specification work).
 Portable Release verification is recorded in `docs/qa/MIDI_POLICY_2026-10-22.md`.
 Soft pickup, native host checks, licence decision and other B items remain open.
+
+Audio trigger follow-up: Codex owns `codex/audio-trigger-material-20261022`,
+adding only deterministic material tests, measurements and corresponding evidence.
+No DSP threshold changes. B-07 remains open for real recordings and tuning.

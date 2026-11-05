@@ -9,7 +9,7 @@ Replaces draft `docs/expansion/features/F12-MIDI-CLAP-PLATFORMS.md` (PR #6). Rel
 
 - Section 2.2 below describes the alpha: the beta adds `GROOVEMORPH_ENABLE_CLAP` (default ON), macOS arm64 and Intel, Linux, and `.github/workflows/beta-release.yml` (N06).
 - Built: A04 note swap dialog and learn fixes (W10-MIDI-ASSIGN), A06 operation trims (W10-OP-TRIMS), panic and rates (W10-MIDI-PANIC-RATES).
-- Updated 2026-10-22: A04-T07..T09 CC conflict handling and shared-target descriptions are implemented, with portable tests run locally and processor tests pending native CI. Soft pickup (F12-T11, B-05) and host automation QA (F12-T13, B-01) remain open.
+- Updated 2026-10-22: A04-T07..T09 CC conflict handling and shared-target descriptions are implemented, with portable tests run locally and processor tests passed on Windows and Linux CI. Soft pickup (F12-T11, B-05) and host automation QA (F12-T13, B-01) remain open.
 - Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective

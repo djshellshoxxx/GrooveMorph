@@ -38,3 +38,23 @@ UI interaction, host automation, audio device and listening tests were not perfo
 The completeness matrix was regenerated. It still reports nine pre-existing
 UI-REDESIGN requirement gaps and a stale N02 PresetBar UI reference; no blanket
 completeness claim is made. Soft pickup remains open under B-05/F12-T11.
+
+## Native CI follow-up
+
+For source commit `3a356a013297b12b0d62f7c69252089aa00d5000` (PR #43):
+
+- Windows and Linux JUCE builds passed, including VST3, Standalone and CLAP targets.
+- Windows and Linux each passed all 60 CTest tests, including the new processor regressions.
+- Portable core ASan/UBSan workflow passed.
+- Windows Standalone launch smoke test and artifact upload passed.
+- Pluginval workflow passed; Linux UI snapshots rendered and uploaded successfully.
+
+Build/test: https://github.com/djshellshoxxx/GrooveMorph/actions/runs/39747402582
+Sanitizers: https://github.com/djshellshoxxx/GrooveMorph/actions/runs/39747402511
+Pluginval: https://github.com/djshellshoxxx/GrooveMorph/actions/runs/39747402552
+Windows smoke: https://github.com/djshellshoxxx/GrooveMorph/actions/runs/39747402596
+
+This supersedes the pending-CI note above. Menu clicks, real DAW projects,
+audio-device checks and listening remain unverified. Local targeted ASan/UBSan
+also passed with leak detection disabled because this sandbox prevents LSan
+from reading process tasks; the separate CI sanitizer result is the stronger check.
