@@ -33,6 +33,10 @@ ctest --test-dir build-core --output-on-failure
 
 The full VST3, Standalone and CLAP targets fetch JUCE 8.0.7 on first configuration. See [GETTING_STARTED.md](GETTING_STARTED.md) for platform dependencies and target names.
 
+## Wiki and verification
+
+A navigation wiki is in [`docs/wiki/`](docs/wiki/Home.md). In a documentation pass on Linux, the portable-core commands above were run as written: configure, build and `ctest` reported 56 of 56 tests passing. The JUCE targets, CLAP and DAW compatibility were not built or tested in that pass.
+
 ## Current status
 
 Updated 2026-10-20 (beta). Read the [TODO](docs/TODO.md) for open work (B-01 to B-11), the
