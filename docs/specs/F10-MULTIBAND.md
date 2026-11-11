@@ -30,7 +30,7 @@ APVTS parameters only.
 
 ## 4. Real-time and threading
 
-Same as F03: allocation-free; buffers `bandBypass`, `bandPart`, `dryBuffer` are sized in `prepareToPlay` to the maximum block.
+Same as F03: allocation-free; the Classic split scratch (`ClassicBandSplit::prepare`), the LR split scratch (`BandSplit::prepare`) and `dryBuffer` are sized in `prepareToPlay` to the maximum block.
 Owner W3 must not allocate when moving the split into core (`src/core/dsp/Crossover.{h,cpp}` suggested name).
 
 ## 5. UI wiring
