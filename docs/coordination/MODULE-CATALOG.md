@@ -8,6 +8,7 @@
 | `core/control/AutoReturn.h` | `arm`, `poll`, `disarm` (C05) | std only |
 | `core/variation/CandidateBuilder.h` | `buildCandidate(source, GeneratorSettings) -> Candidate` (planner -> distance -> locks -> sanitize) | VariationPlanner, VariationBlend |
 | `core/dsp/DemoSource.h` | `render(...)` stateless drum loop | std only |
+| `core/dsp/ClassicBandSplit.h` | `prepare/reset/setMode/setSlope/setCutoff`, `split(channels)`, `merge(channels, originals)` (F03 Classic 6/12 dB/oct, exact complement) | std only |
 | `ui/InspectorPanel.h` | tabbed inspector, driven through `SceneEditAccess` callbacks | processor, core |
 | `tools/EditorSnapshot.cpp` | dev tool: renders the real editor to PNG | plugin target |
 

@@ -8,6 +8,7 @@
 #include "core/control/PhaseResolver.h"
 #include "core/control/LaunchPhase.h"
 #include "core/control/PlacementEvaluator.h"
+#include "core/dsp/ClassicBandSplit.h"
 #include "core/dsp/Crossover.h"
 #include "core/dsp/InputSanitizer.h"
 #include "ServiceTimer.h"
@@ -552,18 +553,12 @@ private:
     int morphTargetIndex = -1;   // -1 = off; scene whose settings are blended in
     float morphWeight = 0.0f;
     float chaosAmount = 0.0f;    // N05 Chaos macro, read once per block; 0 = no overlay
-    // F03/F10 band split (first-order complementary crossover) and F07 audio trigger.
+    // F03/F10 band split and F07 audio trigger.
     int bandModeSel = 0;          // 0 full band, 1 protect lows, 2 lows only
-    float bandCoefficient = 0.0f;
-    std::array<float, 2> bandLowState{};
-    // 12 dB/oct option: the band sent to the effects is a 2nd-order Butterworth (TPT state variable
-    // filter); the bypassed band is its exact complement, so the two always sum back to the input.
-    int bandSlopeSel = 0; // 0: 6 dB/oct, 1: 12 dB/oct
-    float svfA1 = 0.0f, svfA2 = 0.0f, svfA3 = 0.0f;
-    std::array<float, 2> svfIc1{}, svfIc2{};
-    juce::AudioBuffer<float> bandBypass;
-    juce::AudioBuffer<float> bandPart; // the band handed to the engine, to detect an unchanged signal
-    // W3: Linkwitz-Riley split (topology > 0). Classic code above is untouched.
+    // Classic topology (6 dB/oct one-pole or 12 dB/oct Butterworth, bypassed band = exact complement).
+    // Portable core module, B-09; its arithmetic is the code that used to live in this file.
+    groovemorph::core::dsp::ClassicBandSplit classicSplit;
+    // W3: Linkwitz-Riley split (topology > 0).
     groovemorph::core::dsp::BandSplit lrSplit;
     int bandTopologySel = 0; // 0 Classic, 1 LR2, 2 LR4
     int previousBandTopologySel = 0;
@@ -605,7 +600,6 @@ private:
     double phaseShiftBeats = 0.0; // audio thread: pattern position = transport position + shift
     bool phaseNeedsReset = true;  // audio thread: re-resolve the shift for the active scene (Preserve policy)
     double lastPhaseGridBeats = 0.0;
-    int previousBandModeSel = 0, previousBandSlopeSel = 0;
     groovemorph::core::control::OperationTrims trims{}; // audio thread: this block's A06 live trims
     bool trimsActive = false;                           // false = every trim at its default (identity)
 

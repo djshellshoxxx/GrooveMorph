@@ -535,9 +535,10 @@
   ]
  },
  "F03-T06": {
-  "reason": "The Classic 12 dB/oct split lives in PluginProcessor.cpp (JUCE) and was measured offline once (DECISIONS); no portable test exists. Open as TODO B-09.",
-  "status": "DEFERRED",
-  "tests": []
+  "tests": [
+   "tests/core/ClassicBandSplitTests.cpp::F03-T06 stop band two octaves out",
+   "tests/core/ClassicBandSplitTests.cpp::F03-T06 12 dB steeper than 6 dB by 12 dB"
+  ]
  },
  "F03-T07": {
   "tests": [
@@ -1355,7 +1356,8 @@
   "impl": [
    "src/core/dsp/Crossover.cpp::BandSplit::split",
    "src/core/control/PlacementEvaluator.cpp::downbeatProtectBeats",
-   "src/PluginProcessor.cpp::bandTopology"
+   "src/PluginProcessor.cpp::bandTopology",
+   "src/core/dsp/ClassicBandSplit.cpp::ClassicBandSplit::split"
   ],
   "ui": [
    "src/ui/InspectorPanel.cpp::bandTopologyId",
@@ -1668,6 +1670,16 @@
    "src/ui/visual/LedgerView.cpp::LedgerView",
    "src/ui/visual/RingsView.cpp::RingsView",
    "src/ui/visual/StationsView.cpp::StationsView"
+  ]
+ },
+ "F03-T08": {
+  "tests": [
+   "tests/core/ClassicBandSplitTests.cpp::F03-T08 Classic bit-exact when unchanged"
+  ]
+ },
+ "F03-T05": {
+  "tests": [
+   "tests/PluginProcessorTests.cpp::band split at wet 0 preserves finite samples and sanitizes NaN/Inf immediately"
   ]
  }
 }

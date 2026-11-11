@@ -214,9 +214,8 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     engine.prepare(currentSampleRate, maxBlock, maxProcessedChannels);
     engine.setTraceSink(&traceRing);
     lrSplit.prepare(currentSampleRate, maxBlock);
+    classicSplit.prepare(currentSampleRate, maxBlock);
     dryBuffer.setSize(maxProcessedChannels, maxBlock, false, true, false);
-    bandBypass.setSize(maxProcessedChannels, maxBlock, false, true, false);
-    bandPart.setSize(maxProcessedChannels, maxBlock, false, true, false);
     printScratch.setSize(maxProcessedChannels, maxBlock, false, true, false);
     {
         const std::lock_guard<std::mutex> lock(loopServiceMutex);
@@ -232,9 +231,7 @@ void GrooveMorphAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
             loopBpmStatus.store(0.0, std::memory_order_relaxed);
         }
     }
-    bandLowState.fill(0.0f);
-    svfIc1.fill(0.0f);
-    svfIc2.fill(0.0f);
+    classicSplit.reset();
     phaseShiftBeats = 0.0;
     phaseNeedsReset = true;
     lastPhaseGridBeats = 0.0;
@@ -855,71 +852,23 @@ void GrooveMorphAudioProcessor::renderSegment(juce::AudioBuffer<float>& buffer, 
         // F03/F10: split into complementary low/high parts (x = low + (x - low)); only one part
         // goes through the effects, the other bypasses and is added back afterwards.
         if (bandModeSel != 0 && bandTopologySel > 0)
-            lrSplit.split(channels.data(), numChannels, n); // W3: Linkwitz-Riley; the classic code below is untouched
+            lrSplit.split(channels.data(), numChannels, n); // W3: Linkwitz-Riley
         else if (bandModeSel != 0)
-        {
-            for (int c = 0; c < numChannels; ++c)
-            {
-                float* x = channels[static_cast<std::size_t>(c)];
-                float* bypass = bandBypass.getWritePointer(c);
-                float* part = bandPart.getWritePointer(c);
-                if (bandSlopeSel == 1)
-                {
-                    float ic1 = svfIc1[static_cast<std::size_t>(c)], ic2 = svfIc2[static_cast<std::size_t>(c)];
-                    if (!std::isfinite(ic1) || !std::isfinite(ic2))
-                        ic1 = ic2 = 0.0f;
-                    constexpr float k = 1.41421356f;
-                    for (int i = 0; i < n; ++i)
-                    {
-                        const float in = std::isfinite(x[i]) ? x[i] : 0.0f;
-                        const float v3 = in - ic2;
-                        const float v1 = svfA1 * ic1 + svfA2 * v3;
-                        const float v2 = ic2 + svfA2 * ic1 + svfA3 * v3;
-                        ic1 = 2.0f * v1 - ic1;
-                        ic2 = 2.0f * v2 - ic2;
-                        const float low = v2;
-                        const float high = in - k * v1 - v2;
-                        const float effected = bandModeSel == 1 ? high : low;
-                        x[i] = effected;
-                        bypass[i] = in - effected; // exact complement
-                        part[i] = effected;
-                    }
-                    svfIc1[static_cast<std::size_t>(c)] = ic1;
-                    svfIc2[static_cast<std::size_t>(c)] = ic2;
-                    continue;
-                }
-                float state = bandLowState[static_cast<std::size_t>(c)];
-                if (!std::isfinite(state))
-                    state = 0.0f;
-                for (int i = 0; i < n; ++i)
-                {
-                    // A non-finite sample must not poison the filter state for every later block.
-                    const float in = std::isfinite(x[i]) ? x[i] : 0.0f;
-                    state += bandCoefficient * (in - state);
-                    const float low = state;
-                    const float high = in - low;
-                    if (bandModeSel == 1) { bypass[i] = low; x[i] = high; }
-                    else { bypass[i] = high; x[i] = low; }
-                    part[i] = x[i];
-                }
-                bandLowState[static_cast<std::size_t>(c)] = state;
-            }
-        }
+            classicSplit.split(channels.data(), numChannels, n); // Classic: core/dsp/ClassicBandSplit
 
         engine.process(channels.data(), numChannels, n, *render, renderWet, rhythm);
 
         if (bandModeSel != 0 && bandTopologySel > 0)
             lrSplit.merge(channels.data(), numChannels, n);
         else if (bandModeSel != 0)
+        {
+            // dryBuffer holds the unsplit input: where the engine left a sample unchanged it is output
+            // bit-exactly (F03-T08). The array is fixed-size; no allocation.
+            std::array<const float*, maxProcessedChannels> originals{};
             for (int c = 0; c < numChannels; ++c)
-            {
-                float* x = channels[static_cast<std::size_t>(c)];
-                const float* bypass = bandBypass.getReadPointer(c);
-                const float* part = bandPart.getReadPointer(c);
-                const float* original = dryBuffer.getReadPointer(c);
-                for (int i = 0; i < n; ++i)
-                    x[i] = x[i] == part[i] ? original[i] : x[i] + bypass[i]; // untouched band: exact dry
-            }
+                originals[static_cast<std::size_t>(c)] = dryBuffer.getReadPointer(c);
+            classicSplit.merge(channels.data(), originals.data(), numChannels, n);
+        }
 
         if (needDry)
         {
@@ -1036,9 +985,7 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
     {
         bandModeSel = loadIndex(cached.bandMode, 2);
         const float crossover = juce::jlimit(20.0f, 1000.0f, loadParameter(cached.bandCrossover, 120.0f));
-        bandCoefficient = static_cast<float>(1.0 - std::exp(-2.0 * juce::MathConstants<double>::pi
-                                                            * static_cast<double>(crossover) / currentSampleRate));
-        bandSlopeSel = loadIndex(cached.bandSlope, 1);
+        const int bandSlopeSel = loadIndex(cached.bandSlope, 1);
         bandTopologySel = loadIndex(cached.bandTopology, 2);
         if (bandTopologySel > 0)
         {
@@ -1051,25 +998,12 @@ void GrooveMorphAudioProcessor::process(juce::AudioBuffer<float>& buffer, juce::
             previousBandTopologySel = bandTopologySel;
             lrSplit.reset();
         }
-        if (bandModeSel != previousBandModeSel || bandSlopeSel != previousBandSlopeSel)
-        {
-            // Filter states only advance while their own mode/slope is active; stale ones would click.
-            previousBandModeSel = bandModeSel;
-            previousBandSlopeSel = bandSlopeSel;
-            bandLowState.fill(0.0f);
-            svfIc1.fill(0.0f);
-            svfIc2.fill(0.0f);
-        }
-        {
-            // Zavalishin/Cytomic TPT state variable filter, Butterworth (k = sqrt 2).
-            const double g = std::tan(juce::MathConstants<double>::pi * static_cast<double>(crossover)
-                                      / currentSampleRate);
-            const double k = std::sqrt(2.0);
-            const double a1 = 1.0 / (1.0 + g * (g + k));
-            svfA1 = static_cast<float>(a1);
-            svfA2 = static_cast<float>(g * a1);
-            svfA3 = static_cast<float>(g * g * a1);
-        }
+        // Classic split: a mode or slope change clears its filter states inside the module (stale
+        // states that stopped advancing while another mode was active would click).
+        classicSplit.setMode(bandModeSel);
+        classicSplit.setSlope(bandSlopeSel == 1 ? core::dsp::ClassicSlope::Butterworth12
+                                                : core::dsp::ClassicSlope::OnePole6);
+        classicSplit.setCutoff(static_cast<double>(crossover));
         {
             const int previousTrigger = audioTriggerSel;
             audioTriggerSel = loadIndex(cached.audioTrigger, 2);
