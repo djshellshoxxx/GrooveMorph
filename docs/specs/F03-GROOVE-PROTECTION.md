@@ -1,6 +1,6 @@
 # F03 Groove protection
 
-Status: IMPLEMENTED (downbeat protection, protected regions, Classic and Linkwitz-Riley band split). Beta audit: F03-T06 open (TODO B-09). Updated 2026-10-20 by the A1 completeness audit.
+Status: IMPLEMENTED (downbeat protection, protected regions, Classic and Linkwitz-Riley band split). Updated 2026-11-11: the Classic split moved into the portable core (`src/core/dsp/ClassicBandSplit.*`) with the F03-T06 rolloff test (closes TODO B-09).
 Written 2026-10-20 against `c83e8b2`. Replaces draft `docs/expansion/features/F03-GROOVE-PROTECTION.md` (PR #6).
 Cross-refs: [C03](../control-specs/features/C03-CHANGE-PERMISSIONS.md), [F10](F10-MULTIBAND.md).
 
@@ -9,7 +9,7 @@ Cross-refs: [C03](../control-specs/features/C03-CHANGE-PERMISSIONS.md), [F10](F1
 
 - Built: `bandTopology` (Classic / Linkwitz-Riley 12 / Linkwitz-Riley 24) appended after `bandSlope`; the choice list of `bandSlope` was not lengthened (section 7 target met in spirit; `docs/specs/W3-LR-CROSSOVER.md` is the detail).
 - Added by the audit: the 4-beat protect span is capped at one bar in 3 and 7 beat bars (F03-T10).
-- Open: the Classic 12 dB/oct split is JUCE-side code with no portable test (F03-T06, B-09).
+- 2026-11-11: the Classic split (6 and 12 dB/oct) is `core::dsp::ClassicBandSplit`, moved out of `PluginProcessor.cpp` with its single-precision arithmetic unchanged; `tests/core/ClassicBandSplitTests.cpp` measures the rolloff (F03-T06), the complement, bit-exactness and state clearing. B-09 closed.
 - Acceptance rows below carry audited statuses; the full join of ID, test, implementation and UI wiring is in [COMPLETENESS-MATRIX.md](COMPLETENESS-MATRIX.md).
 
 ## 1. Objective
@@ -41,12 +41,14 @@ Parameters (`PluginProcessor.cpp` `createParameterLayout`):
 | `bandCrossover` | Float | 40..400 Hz, step 1, skew 0.5 | 120 |
 | `bandSlope` | Choice | 6 dB/oct, 12 dB/oct | 6 dB/oct |
 
-In `renderSegment` the input of each segment is split into `low` and `high`; "Protect lows" sends `high` through the engine and
-adds `low` back; "Lows only" is the reverse. 6 dB/oct: one-pole low-pass with `coefficient = 1 - exp(-2*pi*fc/fs)`, `high = in - low`.
+In `renderSegment` the input of each segment is split into `low` and `high` by `core::dsp::ClassicBandSplit` (`src/core/dsp/ClassicBandSplit.h`,
+portable, no JUCE); "Protect lows" sends `high` through the engine and adds `low` back; "Lows only" is the reverse.
+6 dB/oct: one-pole low-pass with `coefficient = 1 - exp(-2*pi*fc/fs)`, `high = in - low`.
 12 dB/oct: TPT state-variable 2nd-order Butterworth (`k = sqrt(2)`) used for the band sent to the effects, and the bypassed band is
 `in - effected` (exact complement). When the engine leaves the band unchanged (`x[i] == part[i]`) the original dry sample is output
-(bit-exact). Filter states are cleared when mode or slope changes. Non-finite samples are replaced by 0 before filtering. The audio
-thread clamps the crossover to 20..1000 Hz defensively.
+(bit-exact). Filter states are cleared when mode or slope changes (`setMode`/`setSlope`), not on a cutoff change. Non-finite samples are
+replaced by 0 before filtering and a non-finite state is reset. The audio thread and the module both clamp the crossover to 20..1000 Hz
+(and below 0.45 fs). Blocks longer than `prepare()`'s maximum are processed up to that maximum; the module handles at most 2 channels.
 
 ## 3. State keys
 
@@ -55,8 +57,9 @@ when non-default). Parameters `bandMode`, `bandCrossover`, `bandSlope` in APVTS 
 
 ## 4. Real-time and threading
 
-Evaluator and band split are allocation-free and lock-free; band state lives in the processor (`bandLowState`, `svfIc1/2`, `bandBypass`,
-`bandPart`, `dryBuffer`, all allocated in `prepareToPlay`). Region/downbeat edits are message-thread scene edits published by snapshot.
+Evaluator and band split are allocation-free and lock-free; Classic band state and its bypass/part scratch live in `classicSplit`
+(`ClassicBandSplit::prepare` in `prepareToPlay`), the unsplit original in the processor's `dryBuffer`, which `merge()` reads for the
+bit-exact shortcut. Region/downbeat edits are message-thread scene edits published by snapshot.
 
 ## 5. UI wiring
 
@@ -72,9 +75,9 @@ Downbeat: Place tab slider "Protect downbeat (beats)". Regions: Limit tab ("Add 
 | F03-T03 | Regions and per-event locks round-trip through the scene format | EXISTS | PhaseResolverTests "phase, regions and locks round-trip", "regions load without a recovery warning" |
 | F03-T04 | Protect lows keeps bass through a closed gate; Lows only gates bass; Full band gates both | EXISTS | `tests/PluginProcessorTests.cpp` "full band: gate silences both tones", "protect lows: bass survives the closed gate, highs are gated", "lows only: highs bypass the closed gate, bass is gated" |
 | F03-T05 | Wet 0 band split is finite/exact and NaN/Inf are sanitised | EXISTS | PluginProcessorTests "band split at wet 0 preserves finite samples and sanitizes NaN/Inf immediately" |
-| F03-T06 | 12 dB/oct slope: effected-band rolloff at 2 octaves | DEFERRED | The Classic 12 dB/oct split lives in PluginProcessor.cpp (JUCE) and was measured offline once (DECISIONS); no portable test exists. Open as TODO B-09. |
+| F03-T06 | 12 dB/oct slope: effected-band rolloff at 2 octaves | EXISTS | `tests/core/ClassicBandSplitTests.cpp` "F03-T06 stop band two octaves out" (12 dB/oct -24.1 dB, 6 dB/oct -12.3 dB, within 1 dB, three sample rates, 40/120/400 Hz, both modes), "F03-T06 12 dB steeper than 6 dB by 12 dB", "F03-T06 -3 dB at fc" |
 | F03-T07 | Linkwitz-Riley crossover (target section 7): low+high magnitude sum flat within 0.1 dB, both bands phase matched, no state discontinuity on parameter sweeps | EXISTS | `CrossoverTests.cpp` "F10-T03 flat sum"; `CrossoverTests.cpp` "F10-T03 low -6 dB at fc"; `CrossoverTests.cpp` "W3-LR-T03 identical input gives identical channels" |
-| F03-T08 | Bit-exact dry when the engine leaves a band unchanged, for every slope option | EXISTS | `CrossoverTests.cpp (label F03-T08)` |
+| F03-T08 | Bit-exact dry when the engine leaves a band unchanged, for every slope option | EXISTS | `CrossoverTests.cpp (label F03-T08)` (LR); `ClassicBandSplitTests.cpp` "F03-T08 Classic bit-exact when unchanged" (6 and 12 dB/oct, both modes) |
 | F03-T09 | Crossover or mode changes during playback do not click (peak step bounded) | EXISTS | `CrossoverTests.cpp` "F10-T06 sweep step bounded"; `CrossoverTests.cpp` "W3-LR-T08 no onset click" |
 | F03-T10 | Protect span is capped at one bar (`min(barTicks, protect*960)`) in 3/4 and 7/8 with protect = 4 beats | EXISTS | `CompletenessTests.cpp (label F03-T10)` |
 

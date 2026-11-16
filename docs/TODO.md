@@ -43,7 +43,7 @@ Each item has an acceptance criterion so it can be closed without argument.
 | B-06 | **Deliberate non-goals for the beta:** three or more bands (F10-T08), multiple gesture lanes and resolution above 20 Hz (F11-T08), evolution over several scenes and step preview (F05-T09) | Build them or keep them out; the specs say so either way |
 | B-07 | **Audio trigger tuning:** synthetic percussion/bass/dense fixtures and rate measurements added (`docs/qa/ONSET_MATERIAL_2026-10-22.md`). Maximum sensitivity retriggers the dense fixture at 8/s. Recorded material, false-trigger budget and listening/tuning remain open (F07-T09) | Fixtures committed, thresholds recorded |
 | B-08 | **History inside the DAW project** (F08-T08). Kept a local file by decision | Only if the owner asks; then a spec change plus tests |
-| B-09 | **Classic 12 dB/oct split has no portable test** (F03-T06). The code is in `PluginProcessor.cpp` | Move into core or add a processor test |
+| B-09 | **Closed 2026-11-11.** The Classic split (6 and 12 dB/oct) moved from `PluginProcessor.cpp` into `src/core/dsp/ClassicBandSplit.*` with its arithmetic unchanged; `tests/core/ClassicBandSplitTests.cpp` measures the rolloff (F03-T06), the exact complement, bit-exactness (F03-T08) and state clearing | Done: portable test green; processor tests F03-T04/T05 rerun against the module |
 | B-10 | **Human reviews:** no-Gross-Beat-likeness design review, colour-blind review of the Visual window | Written sign-off |
 | B-11 | **First beta-release workflow run:** four-leg build, clap-validator, `lipo -archs`, checksums, notices in each archive. CLAP never loaded in a CLAP host | A successful run read by a person, plus B-01 CLAP host result |
 
